@@ -52,7 +52,7 @@ class MonitorWorkerIsolationTests(TestCase):
         self.assertEqual(MonitorTaskLease.objects.count(), 3)
 
     @override_settings(MONITOR_TASK_AUTO_SYNC_PLUGINS=False)
-    def test_backend_starts_two_isolated_long_workers(self):
+    def test_backend_only_starts_existing_long_workers(self):
         # 隔离插件注册表；本测试仅验证工作者启动，不加载无关的Linux插件。
         from types import ModuleType
         registry = ModuleType("LMonitor.config")
@@ -65,7 +65,7 @@ class MonitorWorkerIsolationTests(TestCase):
         def blocked_scan(core, *, task_names=None):
             with lock:
                 calls.append((task_names, current_thread()))
-                if len(calls) == 1:
+                if len(calls) == 2:
                     started.set()
             release.wait(5)
 
@@ -87,7 +87,7 @@ class MonitorWorkerIsolationTests(TestCase):
                 for module, function in maintenance:
                     stack.enter_context(patch('botend.services.'+module+'.'+function, return_value=None))
                 backend._run()
-                self.assertTrue(started.wait(2), 'all slow-source workers must start independently')
+                self.assertTrue(started.wait(2), 'existing long workers must start independently')
                 self.assertCountEqual([names for names, _ in calls], [
                     {'WowDataVersionMonitor'}, {'RioStatisticsMonitor'}])
                 self.assertEqual(len({thread.ident for _, thread in calls}), 2)

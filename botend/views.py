@@ -212,7 +212,7 @@ class LMonitorCoreBackend:
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
-        # 独立工作者仍受数据库中的长任务配额与版本屏障约束。
+        # 版本/RIO保留原长任务工作者；日报和其他短任务由普通池轮询。
         for task_name in ISOLATED_MONITOR_WORKERS:
             self._workers.append(start_isolated_monitor_worker(
                 LMonitorCore(self.lifecycle).scan, task_name=task_name))

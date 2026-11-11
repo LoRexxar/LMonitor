@@ -88,24 +88,30 @@ class ParallelNightTests(TestCase):
         player = self.task('SpecDetailPlayerMonitor')
         self.assertEqual(claim_next_monitor_task(now=self.now).pk, player.pk)
 
-    def test_night_long_priority_applies_before_isolated_worker_routing(self):
-        self.task('PortalPeakSpecRankMonitor')
+    def test_night_normal_short_polling_runs_alongside_isolated_rio_worker(self):
+        short = self.task('PortalPeakSpecRankMonitor')
         observation = self.task('RioStatisticsMonitor')
-        self.assertIsNone(claim_next_monitor_task(now=self.now))
+        self.assertEqual(claim_next_monitor_task(now=self.now).pk, short.pk)
         self.assertEqual(claim_next_monitor_task(now=self.now, task_names={observation.name}).pk, observation.pk)
+        self.assertIsNone(claim_next_monitor_task(now=self.now, task_names={short.name}))
+        second_short = self.task('WagoSkillDiffMonitor')
+        self.assertEqual(claim_next_monitor_task(now=self.now).pk, second_short.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now))
 
-    def test_six_oclock_restores_short_slots_without_interrupting_long_lease(self):
+    def test_short_polling_crosses_six_without_interrupting_long_lease(self):
         from botend.models import MonitorTaskLease
         player = self.task('SpecDetailPlayerMonitor')
         short = self.task('PortalPeakSpecRankMonitor')
         before = self.now.replace(hour=5, minute=59)
-        # 用 UTC 时钟验证切换边界仍按北京时间计算。
-        claimed = claim_next_monitor_task(now=before.astimezone(ZoneInfo('UTC')), lease_seconds=3600)
+        # 用 UTC 时钟验证北京时间 06:00 前后短任务持续可领。
+        claimed = claim_next_monitor_task(now=before.astimezone(ZoneInfo('UTC')),
+            task_names={player.name}, lease_seconds=3600)
         self.assertEqual(claimed.pk, player.pk)
-        self.assertIsNone(claim_next_monitor_task(now=before))
+        self.assertEqual(claim_next_monitor_task(now=before.astimezone(ZoneInfo('UTC'))).pk, short.pk)
         after = before + timedelta(minutes=1)
-        self.assertEqual(claim_next_monitor_task(now=after.astimezone(ZoneInfo('UTC'))).pk, short.pk)
+        self.assertIsNone(claim_next_monitor_task(now=after, task_names={short.name}))
+        second_short = self.task('WagoSkillDiffMonitor')
+        self.assertEqual(claim_next_monitor_task(now=after.astimezone(ZoneInfo('UTC'))).pk, second_short.pk)
         lease = MonitorTaskLease.objects.get(task_id=player.pk)
         self.assertEqual(lease.owner, claimed._monitor_task_lease_owner)
         self.assertEqual(lease.expires_at, before + timedelta(hours=1))

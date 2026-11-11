@@ -26,12 +26,14 @@ def _monitor_task_lease_ttl(lease_seconds=None):
     return ttl_seconds
 
 
-NIGHT_LANE_TASKS = (
-    'SpecDetailSeasonMonitor', 'WowDataVersionMonitor',
-    'MythicDungeonToolsMonitor', 'RioStatisticsMonitor', 'MaxrollClassGuideMonitor',
-    'WowDailyReportMonitor', 'SpecDetailPlayerMonitor',
+# Only long and short tasks. Daily timing does not make a task long.
+LONG_MONITOR_TASKS = (
+    'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor',
+    'RioStatisticsMonitor', 'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
     'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor',
 )
+NIGHT_LANE_TASKS = LONG_MONITOR_TASKS  # Compatibility name for existing long-task rules.
+DAILY_MONITOR_TASKS = (*LONG_MONITOR_TASKS, 'WowDailyReportMonitor')
 NIGHT_LANE_PRIORITY = {name: index for index, name in enumerate(NIGHT_LANE_TASKS)}
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
@@ -40,12 +42,12 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
     # 占位内容覆盖当天快照，并在上午自动补齐上游迟到的数据。
     "WowTodayMonitor": (4, 8, 10),
     # 每日大更新：人物内容先重抓，完整排名随后，聚合投影最后生成。
-    **{name: (0,) for name in NIGHT_LANE_TASKS},
+    **{name: (0,) for name in DAILY_MONITOR_TASKS},
 }
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-# 版本更新与数据观察使用专用工作者，统一由数据库租约限制实际并发。
+# Existing long workers retain their shared quota and DB scope/lease mutex.
 ISOLATED_MONITOR_WORKERS = {
     'WowDataVersionMonitor': 'wow-data-update-worker',
     'RioStatisticsMonitor': 'rio-statistics-worker',
@@ -71,7 +73,7 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 
 def monitor_default_wait_time(name):
-    if name in NIGHT_LANE_TASKS:
+    if name in DAILY_MONITOR_TASKS:
         return 86400
 
     if name == 'AdventureJournalMonitor':
@@ -293,16 +295,9 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
         lane_heads = _night_lane_candidates(rows, due_tasks, automatic_scopes,
                                            long_limit=2 if is_night else 1)
         short_running = automatic_scopes - lane_scopes
-        # 凌晨让长任务优先使用资源；06:00 只恢复短任务，不关闭长任务通道。
-        # 长任务全部完成或处于退避且没有运行者时，短任务也可填补空档。
-        night_long_priority = (
-            is_night and allow_long_tasks
-            and bool(lane_heads or automatic_scopes & lane_scopes)
-        )
         # Choose the global lane head BEFORE applying worker-specific routing.
         runnable_tasks = [row for row in due_tasks
-                          if ((monitor_scope_key(row) not in lane_scopes
-                               and len(short_running) < 2 and not night_long_priority)
+                          if ((monitor_scope_key(row) not in lane_scopes and len(short_running) < 2)
                               or row in lane_heads)
                           and (row.name in task_names if task_names is not None
                                else row.name not in ISOLATED_MONITOR_TASKS)]
