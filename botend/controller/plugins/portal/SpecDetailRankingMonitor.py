@@ -18,7 +18,7 @@ from botend.services.wcl_ranking_payload import compact_ranking_talents
 from botend.services.wcl_ranking_time import parse_ranking_fight_started_at
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, begin_collection, checkpoint_scope, defer_cycle,
-    fenced_cycle, finish_collection, freeze_samples, frozen_combatant_records,
+    fenced_cycle, finish_collection, freeze_samples,
 )
 
 from utils.log import logger
@@ -89,18 +89,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
             # All rankings finish before one global report/fight supplement.
             # Retries read frozen IDs, never a newly selected cohort.
-            from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants
-            records = frozen_combatant_records(self._cycle)
-            def save_progress(counts):
-                # The collector calls this only on the main thread, at most
-                # every 30s plus start/end. Do not alter phase or retry state.
-                with fenced_cycle(self._cycle, phases=('combatants',)) as current:
-                    current.counts = counts
-                    current.save(update_fields=['counts'])
-                    self._cycle.counts = counts
-
-            counts = collect_dungeon_combatants(
-                records, self, apply=True, batch_size=20, log=logger.info, progress=save_progress,
+            from botend.services.wcl_collection_resume import collect_cycle_combatants
+            counts = collect_cycle_combatants(
+                self._cycle, self, log=logger.info,
                 admission_check=check_wcl_storage)
             ok = finish_collection(self._cycle, counts)
             if ok and self.task is not None:

@@ -200,15 +200,20 @@ def frozen_season(cycle, season):
     return projected
 
 
-def frozen_combatant_records(cycle):
+def frozen_combatant_records(cycle, *, references=None):
     records = []
     for raid, model in ((False, SpecDungeonRanking), (True, SpecRaidRanking)):
         ids = {pk for name, scopes in cycle.selected_samples.items()
                if name.startswith('raid:') == raid for rows in scopes.values() for pk in rows}
+        prefix = 'r' if raid else 'd'
+        if references is not None:
+            ids = {pk for pk in ids if f'{prefix}:{pk}' in references}
         selected = list(model.objects.filter(season_id=cycle.season_id, pk__in=ids).values(
             'id', 'report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name', 'spec_name'))
         if len(selected) != len(ids):
             raise ValueError('冻结的日志样本引用已丢失')
+        for row in selected:
+            row['_cycle_ref'] = f'{prefix}:{row["id"]}'
         records.extend(selected)
     return records
 

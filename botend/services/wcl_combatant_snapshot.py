@@ -387,7 +387,8 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
             connections.close_all()
 
 
-def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_fight=None, timings=None):
+def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_fight=None, timings=None,
+                             matched_rows=None):
     """Validate a complete batch and read back immutable facts on the caller."""
     from django.db import transaction
     from django.utils import timezone
@@ -427,6 +428,8 @@ def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_f
                 key = _fight_key(row)
                 if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
                     matched += 1
+                    if matched_rows is not None:
+                        matched_rows.append(row)
                 else:
                     missing += 1
                     missing_fights.add(key[1])
@@ -445,7 +448,7 @@ def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_f
 
 
 def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None, progress=None,
-                              admission_check=None):
+                              admission_check=None, on_positive=None):
     """Explicit offline collection. At most 20 fights/report/request.
 
     Counts partition observations, not API responses; negative_cached is only a
@@ -493,6 +496,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 for key in fields))
 
     for batch_records, references in _fact_read_batches(records):
+        positive_rows = []
         started = time.monotonic()
         facts = _load_facts(references, identities_only=True)
         counts['preflight_load_seconds'] += time.monotonic() - started
@@ -511,6 +515,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 counts['missing'] += 1
             elif match_combatant(facts.get(key, []), row, row['class_name'], row['spec_name']):
                 counts['cached'] += 1
+                if on_positive:
+                    positive_rows.append(row)
             elif report_state.get('status') == 'permission_denied':
                 counts['permission_denied'] += 1
                 counts['negative_cached'] += 1
@@ -524,6 +530,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             else:
                 pending[key[0]][key[1]].append(row)
         counts['preflight_match_seconds'] += time.monotonic() - started
+        if on_positive and positive_rows:
+            on_positive(positive_rows)
         del facts, states
         if time.monotonic() - preflight_logged >= 30:
             emit_preflight()
@@ -669,8 +677,14 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 save_started = time.monotonic()
                 try:
                     if events is not None:
+                        positive_rows = []
                         written, matched, missing = _persist_combatant_batch(
-                            code, batch, batch_rows, events, fetched_at_by_fight=fetched_at_by_fight, timings=counts)
+                            code, batch, batch_rows, events, fetched_at_by_fight=fetched_at_by_fight, timings=counts,
+                            matched_rows=positive_rows if on_positive else None)
+                        if on_positive and positive_rows:
+                            from django.db import transaction
+                            # 只有事实事务提交后，断点才允许跳过这些样本。
+                            transaction.on_commit(lambda rows=positive_rows: on_positive(rows))
                         counts['snapshots_written'] += written
                         counts['matched'] += matched
                         counts['missing'] += missing
