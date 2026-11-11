@@ -383,7 +383,9 @@ class BlizzardForumTests(TestCase):
 
     def test_management_dry_run_is_zero_write_and_apply_is_exact_metadata_only(self):
         from botend.management.commands.refresh_blizzard_forum_metadata import Command
-        task = MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL)
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        task = MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL, env_limit=0,
+            type=Monitor_Type_BaseObject_List.index(PortalPostMonitor))
         a, b, c = self.article(), self.article(2360696), self.article(2402801, source='wowhead')
         before = {row.pk: self.protected(row) for row in (a, b, c)}
         with CaptureQueriesContext(connection) as queries, patch.object(Command, 'build_collector', side_effect=AssertionError('dry-run must not fetch')):
@@ -417,7 +419,9 @@ class BlizzardForumTests(TestCase):
         a = self.article()
         persist_topic_metadata(a, sample_html(), a.url)
         before = self.protected(a)
-        MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL)
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL, env_limit=0,
+            type=Monitor_Type_BaseObject_List.index(PortalPostMonitor))
         with replay_server() as (routes, received, Req), patch('utils.LReq.LReq', Req):
             routes[urlsplit(a.url).path] = (403, 'secret credentials do not leak')
             output = StringIO()

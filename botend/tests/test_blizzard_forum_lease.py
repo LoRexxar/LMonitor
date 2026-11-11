@@ -39,8 +39,14 @@ class BlizzardForumLeaseTests(TestCase):
             source='blizzard_tracker', category='bluepost',
             url=FORUM_URL + f'/t/class-tuning/2404092/{post}')
 
+    def configured_task(self):
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        task_type = next(i for i, cls in enumerate(Monitor_Type_BaseObject_List)
+                         if cls.__name__ == 'PortalPostMonitor')
+        return MonitorTask.objects.create(name='PortalPostMonitor', type=task_type, target=FORUM_URL)
+
     def claimed(self):
-        task = MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL)
+        task = self.configured_task()
         return claim_monitor_task(task.pk, lease_owner='exact-owner')
 
     def guard(self, task):
@@ -103,7 +109,7 @@ class BlizzardForumLeaseTests(TestCase):
             self.assertIn('FIRST', collector.html_for_url(a.url))
             self.assertIn('SECOND', collector.html_for_url(b.url))
             self.assertEqual(received, [urlsplit(a.url).path, urlsplit(b.url).path])
-            MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL)
+            self.configured_task()
             received.clear()
             with patch('utils.LReq.LReq', Req):
                 out = StringIO()
@@ -131,19 +137,21 @@ class BlizzardForumLeaseTests(TestCase):
             self.assertEqual(MonitorTask.objects.get(pk=task.pk).last_scan_time, clock)
 
     def test_command_failure_is_nonzero_safe_json_and_cooldown_survives(self):
-        self.claimed()
+        task = self.claimed()
         a = self.article()
         with replay.replay_server() as (routes, received, Req), patch('utils.LReq.LReq', Req):
             routes[urlsplit(a.url).path] = (403, 'private secret')
             out = StringIO()
             with self.assertRaises(CommandError):
-                call_command('refresh_blizzard_forum_metadata', '--apply', stdout=out)
+                call_command('refresh_blizzard_forum_metadata', '--apply', '--task-id', str(task.pk),
+                             '--lease-owner', 'exact-owner', stdout=out)
             report = json.loads(out.getvalue())
             self.assertEqual(report['failed'], 1)
             self.assertNotIn('secret', out.getvalue())
             retry = BlizzardForumTopic.objects.get(external_id=2404092).metadata_retry_at
             out = StringIO()
-            call_command('refresh_blizzard_forum_metadata', '--apply', stdout=out)
+            call_command('refresh_blizzard_forum_metadata', '--apply', '--task-id', str(task.pk),
+                             '--lease-owner', 'exact-owner', stdout=out)
             report = json.loads(out.getvalue())
             self.assertEqual(report['results'][0]['error'], 'metadata_cooldown')
             self.assertEqual(report['skipped'], 1)
@@ -183,7 +191,7 @@ class BlizzardForumLeaseTests(TestCase):
 
     def test_same_scope_other_live_lease_rejects_exact_owner(self):
         task = self.claimed()
-        other = MonitorTask.objects.create(name='PortalPostMonitor', target=FORUM_URL)
+        other = self.configured_task()
         MonitorTaskLease.objects.create(task=other, owner='other', expires_at=timezone.now()+timedelta(minutes=5))
         with transaction.atomic(), self.assertRaises(MonitorTaskLeaseLost):
             validate_metadata_lease(task.pk, 'exact-owner')

@@ -27,7 +27,7 @@ class UpdateSchedulingTests(TestCase):
         self.task.last_scan_time = timezone.now()
         self.task.save()
 
-    def test_default_is_daily_and_normal_worker_never_claims_update(self):
+    def test_default_is_daily_and_normal_worker_claims_update_at_midnight(self):
         from botend.plugin_sync import claim_next_monitor_task, monitor_default_wait_time
         self.assertEqual(monitor_default_wait_time(update.TASK_NAME), 86400)
         # Migration-created rows retain their operator interval; automatic
@@ -38,9 +38,9 @@ class UpdateSchedulingTests(TestCase):
             hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         before = after - timedelta(seconds=1)
         self.assertIsNone(claim_next_monitor_task(now=before, task_names=[update.TASK_NAME]))
-        self.assertIsNone(claim_next_monitor_task(now=after))
-        claimed = claim_next_monitor_task(now=after, task_names=[update.TASK_NAME])
+        claimed = claim_next_monitor_task(now=after)
         self.assertEqual(claimed.pk, self.task.pk)
+        self.assertTrue(claimed._monitor_task_is_long)
         self.assertIsNone(claim_next_monitor_task(now=after, task_names=[update.TASK_NAME]))
 
     def test_new_task_uses_central_nightly_default(self):
@@ -76,24 +76,24 @@ class UpdateSchedulingTests(TestCase):
         db2 = WagoJournalSource(NEW, '.cache/unused-fixture', max_workers=2)
         self.assertEqual(db2.max_workers, 2)
 
-    def test_dedicated_worker_starts_without_blocking_caller(self):
-        from threading import Event, current_thread
-        from botend.plugin_sync import start_isolated_monitor_worker
-        started, release = Event(), Event()
-        received = {}
-        def worker(*, task_names):
-            received.update(names=task_names, thread=current_thread())
-            started.set()
-            release.wait(5)
-        thread = start_isolated_monitor_worker(worker)
-        try:
-            self.assertTrue(started.wait(2))
-            self.assertEqual(received['names'], {update.TASK_NAME})
-            self.assertIsNot(received['thread'], current_thread())
-            self.assertTrue(thread.is_alive())
-        finally:
-            release.set()
-            thread.join(2)
+    def test_update_waits_for_shared_capacity_without_a_dedicated_worker(self):
+        from botend.models import MonitorTask, MonitorTaskLease
+        from botend.plugin_sync import claim_next_monitor_task, claim_monitor_task, release_monitor_task_lease
+        now = self.task.last_scan_time + timedelta(days=1)
+        shorts = [MonitorTask.objects.create(name='PortalPostMonitor', type=500+i,
+            target=str(i), is_active=True, wait_time=60,
+            last_scan_time=now-timedelta(hours=1)) for i in range(3)]
+        for task in shorts:
+            MonitorTaskLease.objects.create(task=task, owner='short', claimed_at=now,
+                expires_at=now+timedelta(hours=1))
+        self.assertIsNone(claim_next_monitor_task(now=now))
+        self.assertIsNone(claim_monitor_task(self.task.pk, now=now))
+        self.assertTrue(release_monitor_task_lease(shorts[0].pk, 'short'))
+        MonitorTask.objects.filter(pk=shorts[0].pk).update(last_scan_time=now)
+        claimed = claim_next_monitor_task(now=now)
+        self.assertEqual(claimed.pk, self.task.pk)
+        self.assertTrue(claimed._monitor_task_is_long)
+        self.assertEqual(MonitorTaskLease.objects.count(), 3)
 
 
 class IncrementalUpdateTests(TestCase):

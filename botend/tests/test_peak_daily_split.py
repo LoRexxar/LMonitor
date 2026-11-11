@@ -20,9 +20,10 @@ from django.test import TransactionTestCase, override_settings
 from django.utils import timezone
 
 from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
+from botend.controller.plugins.portal.PlayerRaiderIOActivityMonitor import PlayerRaiderIOActivityMonitor
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
-from botend.models import (MonitorTask, PlayerSpecTopPlayer, RaiderIOCharacterActivity,
-                           RaiderIORunRoster, SeasonMeta)
+from botend.models import (CharacterEnrichmentTask, MonitorTask, PlayerDailyCheckpoint,
+                           PlayerSpecTopPlayer, RaiderIOCharacterActivity, RaiderIORunRoster, SeasonMeta)
 from botend.services.rio_rankings_snapshot import read_rankings
 from botend.services.character_bindings import bind_character
 from botend.tests.test_player_raiderio_activity import payload
@@ -138,9 +139,28 @@ class PeakDailySplitTests(TransactionTestCase):
             self.assertTrue(monitor.scan(''))
         self.assertEqual(self.rejected, [])
 
-    def daily(self):
-        self.assertTrue(SpecDetailPlayerMonitor(None, self.task).scan(''))
+    def daily(self, *, complete=True):
+        self.assertIs(SpecDetailPlayerMonitor(None, self.task).scan(''), complete)
         self.assertEqual(self.rejected, [])
+        self.task.refresh_from_db()
+        checkpoint = PlayerDailyCheckpoint.objects.get(task=self.task)
+        self.assertIs(checkpoint.complete, complete)
+        summary = json.loads(self.task.flag)
+        self.assertEqual(summary['kind'], 'player_daily')
+        self.assertEqual(summary['state'], 'complete' if complete else 'partial')
+        self.assertTrue(checkpoint.stages['bindings:checked'])
+        return checkpoint
+
+    def maintenance(self, task, *, complete=True):
+        self.assertIs(PlayerRaiderIOActivityMonitor(None, task).scan(''), complete)
+        self.assertEqual(self.rejected, [])
+
+    def assert_binding_only_partial(self, checkpoint, binding):
+        # A successful binding cannot certify the deliberately empty Top20 scope.
+        self.assertNotIn('Priest/Holy:profiles', checkpoint.stages)
+        self.assertNotIn('Priest/Holy:profiles:pending', checkpoint.stages)
+        self.assertIn('binding:' + binding.identity_digest, checkpoint.stages)
+        self.assertNotIn('bindings:pending', checkpoint.stages)
 
     def projected(self):
         return json.loads((self.root / 'aggregated' / str(self.season.pk) /
@@ -176,26 +196,63 @@ class PeakDailySplitTests(TransactionTestCase):
         old = PlayerSpecTopPlayer.objects.get(character_name='Player0')
         old.gear_json = [{'id': 123}]
         old.save(update_fields=['gear_json'])
-        self.daily()
+        checkpoint = self.daily(complete=False)
+        pending = checkpoint.stages['Priest/Holy:profiles:pending']
+        self.assertNotIn('Priest/Holy:profiles', checkpoint.stages)
+        self.assertEqual(pending['players'], 19)
+        self.assertEqual([ref['name'] for ref in pending['remaining']], ['Player0'])
+        # Daily publishes profiles/activity and queues expensive follow-up work;
+        # it must not synchronously fetch rosters or Battle.net statistics.
+        self.assertTrue(all(path.endswith(('/rankings/specs', '/characters/profile'))
+                            for path, _ in self.requests))
+        self.assertFalse(RaiderIORunRoster.objects.exists())
+        self.assertEqual(PlayerSpecTopPlayer.objects.exclude(stats_crawl_status=0).count(), 0)
+        self.assertEqual(CharacterEnrichmentTask.objects.filter(kind='battlenet', state='pending').count(), 20)
+        self.assertEqual(CharacterEnrichmentTask.objects.filter(kind='roster', state='pending').count(), 1)
         old.refresh_from_db()
         self.assertEqual(old.gear_json, [{'id': 123}])
         self.assertIsNone(old.last_updated)
         good = PlayerSpecTopPlayer.objects.get(character_name='Player2')
         self.assertEqual(good.gear_json[0]['id'], 999)
-        self.assertEqual(good.stats_crawl_status, 1)
         self.assertIsNotNone(good.last_updated)
-        failed_stats = PlayerSpecTopPlayer.objects.get(character_name='Player1')
-        self.assertEqual(failed_stats.stats_crawl_status, -1)
-        self.assertEqual(failed_stats.stats_json, {})
-        self.assertEqual(RaiderIORunRoster.objects.get().status, 'ready')
         self.assertEqual(RaiderIOCharacterActivity.objects.filter(status='ready').count(), 19)
         count = len(self.requests)
         self.short()
         self.assertEqual([p for p, _ in self.requests[count:]], ['/api/mythic-plus/rankings/specs'])
+
+        # The real bounded maintenance entry consumes at most 20 tasks per pass:
+        # 20 characters plus one globally deduplicated roster need two passes.
+        profiles = list(PlayerSpecTopPlayer.objects.order_by('pk').values_list(
+            'pk', 'rank', 'score', 'gear_json', 'last_updated'))
+        maintenance = MonitorTask.objects.create(name='peak split enrichment loopback', target='')
+        self.maintenance(maintenance, complete=False)  # real Player1 statistics 503
+        self.maintenance(maintenance)
+        self.assertEqual(list(PlayerSpecTopPlayer.objects.order_by('pk').values_list(
+            'pk', 'rank', 'score', 'gear_json', 'last_updated')), profiles)
+        self.assertEqual(CharacterEnrichmentTask.objects.filter(
+            state='waiting', last_error='', due_at__gt=timezone.now()).count(), 20)
+        stats_paths = [path for path, _ in self.requests if path.endswith('/statistics')]
+        self.assertEqual(len(stats_paths), 20)
+        self.assertEqual(len(set(stats_paths)), 20)
+        self.assertEqual(sum(path.endswith('/run-details') for path, _ in self.requests), 1)
+        good.refresh_from_db()
+        self.assertEqual(good.stats_crawl_status, 1)
+        self.assertTrue(good.stats_json)
+        failed_stats = PlayerSpecTopPlayer.objects.get(character_name='Player1')
+        self.assertEqual(failed_stats.stats_crawl_status, -1)
+        self.assertEqual(failed_stats.stats_json, {})
+        self.assertEqual(RaiderIORunRoster.objects.get().status, 'ready')
+        failed_work = CharacterEnrichmentTask.objects.get(kind='battlenet', key=str(failed_stats.pk))
+        self.assertEqual(failed_work.state, 'error')
+        self.assertGreater(failed_work.due_at, timezone.now())
         # A second daily invocation must respect source and Battle.net backoff.
         count = len(self.requests)
-        self.daily()
-        self.assertFalse(any('/player1/statistics' in p for p, _ in self.requests[count:]))
+        checkpoint = self.daily(complete=False)
+        self.maintenance(maintenance)
+        self.assertEqual(self.requests[count:], [])
+        self.assertEqual(checkpoint.stages['Priest/Holy:profiles:pending'], pending)
+        failed_work.refresh_from_db()
+        self.assertEqual(failed_work.failure_count, 1)
         old.refresh_from_db()
         self.assertIsNone(old.last_updated)
         self.assertEqual(old.gear_json, [{'id': 123}])
@@ -256,7 +313,8 @@ class PeakDailySplitTests(TransactionTestCase):
         def run():
             close_old_connections()
             try:
-                self.daily()
+                checkpoint = self.daily(complete=False)
+                self.assert_binding_only_partial(checkpoint, binding)
             except BaseException as exc:
                 errors.append(exc)
             finally:
@@ -300,7 +358,8 @@ class PeakDailySplitTests(TransactionTestCase):
                 name = f'Personal{index}'
                 player, binding = self.bound_player(name)
                 self.profile_scores[name.lower()] = score
-                self.daily()
+                checkpoint = self.daily(complete=False)
+                self.assert_binding_only_partial(checkpoint, binding)
                 player.refresh_from_db()
                 self.assertIsNone(player.rank)
                 self.assertEqual(player.score, expected)

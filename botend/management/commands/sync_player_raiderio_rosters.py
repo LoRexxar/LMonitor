@@ -3,6 +3,7 @@ import json
 import os
 import threading
 from collections import Counter
+from contextlib import nullcontext
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from django.db import close_old_connections
 
 from botend.models import SeasonMeta
 from botend.services.raiderio_run_roster import RosterCollector, top20_run_candidates
+from botend.services.monitor_task_execution import MonitorTaskAdmissionBusy, monitor_task_execution
 
 
 def collect_candidates(candidates, rio_season, *, workers, force):
@@ -111,17 +113,23 @@ class Command(BaseCommand):
                 temporary.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
                 os.replace(temporary, path)
 
-        checkpoint()
-        if options['apply']:
-            outcomes = collect_candidates(candidates, season.rio_season,
-                workers=options['workers'], force=options['force'])
-        else:
-            outcomes = ({'run_id': item['run_id'], 'status': 'conflicting_reference' if item['conflict'] else 'dry_run'}
-                        for item in candidates)
-        for result in outcomes:
-            report['results'].append(result)
-            checkpoint()
-        report['complete'] = True
-        report['batch_stopped'] = any(item['status'] in ('rate_limited', 'batch_stopped', 'worker_error') for item in report['results'])
-        checkpoint()
+        admission = monitor_task_execution('PlayerRaiderIOActivityMonitor') if options['apply'] else nullcontext()
+        try:
+            with admission:
+                # A rejected apply must preserve any earlier progress receipt.
+                checkpoint()
+                if options['apply']:
+                    outcomes = collect_candidates(candidates, season.rio_season,
+                        workers=options['workers'], force=options['force'])
+                else:
+                    outcomes = ({'run_id': item['run_id'], 'status': 'conflicting_reference' if item['conflict'] else 'dry_run'}
+                                for item in candidates)
+                for result in outcomes:
+                    report['results'].append(result)
+                    checkpoint()
+                report['complete'] = True
+                report['batch_stopped'] = any(item['status'] in ('rate_limited', 'batch_stopped', 'worker_error') for item in report['results'])
+                checkpoint()
+        except MonitorTaskAdmissionBusy as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(json.dumps(report, indent=2))

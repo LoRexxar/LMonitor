@@ -426,29 +426,22 @@ class SystemAlertAPIView(DashboardPermissionRequiredMixin, View):
 @method_decorator([csrf_exempt, login_required], name='dispatch')
 class PortalPeakSpecRankRefreshAPIView(View):
     def post(self, request):
+        from botend.services.monitor_task_execution import monitor_task_execution, MonitorTaskAdmissionBusy
+
         try:
-            task = MonitorTask.objects.filter(name="PortalPeakSpecRankMonitor").first()
-            if not task:
-                return JsonResponse({'success': False, 'error': '未找到 PortalPeakSpecRankMonitor 任务，请先执行 SyncMonitorTasksFromPlugins'})
-            if not is_task_runnable(task):
-                return JsonResponse(
-                    {
-                        'success': False,
-                        'error': env_limit_hint(getattr(task, "env_limit", 0)),
-                        'code': 'env_limit_blocked',
-                        'env_limit': int(getattr(task, "env_limit", 0) or 0),
-                    }
-                )
             from LMonitor.config import Monitor_Type_BaseObject_List
 
-            task_type = int(getattr(task, "type", 0) or 0)
-            if task_type < 0 or task_type >= len(Monitor_Type_BaseObject_List):
-                return JsonResponse({'success': False, 'error': '任务 type 无效'})
-            plugin_cls = Monitor_Type_BaseObject_List[task_type]
-            plugin = plugin_cls(None, task)
-            ok = bool(plugin.scan(getattr(task, "target", "") or ""))
-            total = PortalPeakSpecRankRow.objects.filter(is_active=True).count()
+            with monitor_task_execution('PortalPeakSpecRankMonitor') as task:
+                plugin_cls = Monitor_Type_BaseObject_List[task.type]
+                plugin = plugin_cls(None, task)
+                ok = bool(plugin.scan(getattr(task, "target", "") or ""))
+                total = PortalPeakSpecRankRow.objects.filter(is_active=True).count()
             return JsonResponse({'success': True, 'ok': ok, 'total': total})
+        except MonitorTaskAdmissionBusy as e:
+            data = {'success': False, 'error': str(e), 'code': e.code, 'executed': False}
+            if e.env_limit is not None:
+                data['env_limit'] = e.env_limit
+            return JsonResponse(data, status=200 if e.code == 'env_limit_blocked' else 409)
         except Exception as e:
             logger.error(f"刷新巅峰榜失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({'success': False, 'error': f'刷新巅峰榜失败: {str(e)}'})
@@ -549,6 +542,8 @@ class WagoHotfixReportListAPIView(View):
 @method_decorator([csrf_exempt], name='dispatch')
 class WagoSkillDiffRerunAPIView(View):
     def post(self, request):
+        from botend.services.monitor_task_execution import monitor_task_execution, MonitorTaskAdmissionBusy
+
         try:
             if not getattr(request, 'user', None) or not request.user.is_authenticated:
                 return JsonResponse({'success': False, 'error': '请先登录 Dashboard 后再执行 Wago 指定版本重跑'}, status=401)
@@ -565,25 +560,20 @@ class WagoSkillDiffRerunAPIView(View):
             if not event_id and (not from_build or not to_build):
                 return JsonResponse({'success': False, 'error': '请填写 event_id 或 from_build/to_build'})
 
-            from LMonitor.config import Monitor_Type_BaseObject_List
             from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
 
-            task = MonitorTask.objects.filter(name='WagoSkillDiffMonitor').first()
-            if not task:
-                try:
-                    idx = Monitor_Type_BaseObject_List.index(WagoSkillDiffMonitor)
-                    task = MonitorTask.objects.filter(type=idx).order_by('id').first()
-                except ValueError:
-                    task = None
-            if not task:
-                return JsonResponse({'success': False, 'error': '未找到 WagoSkillDiffMonitor 任务，请先同步 MonitorTask'})
-
-            monitor = WagoSkillDiffMonitor(None, task)
-            if event_id:
-                result = monitor.rerun_build_event(event_id=event_id)
-            else:
-                result = monitor.rerun_build_diff(branch=branch, from_build=from_build, to_build=to_build, locale=locale)
+            with monitor_task_execution('WagoSkillDiffMonitor') as task:
+                monitor = WagoSkillDiffMonitor(None, task)
+                if event_id:
+                    result = monitor.rerun_build_event(event_id=event_id)
+                else:
+                    result = monitor.rerun_build_diff(branch=branch, from_build=from_build, to_build=to_build, locale=locale)
             return JsonResponse(result)
+        except MonitorTaskAdmissionBusy as e:
+            data = {'success': False, 'error': str(e), 'code': e.code, 'executed': False}
+            if e.env_limit is not None:
+                data['env_limit'] = e.env_limit
+            return JsonResponse(data, status=200 if e.code == 'env_limit_blocked' else 409)
         except Exception as e:
             logger.error(f"Wago指定版本重跑失败: {str(e)}\n{traceback.format_exc()}")
             return JsonResponse({'success': False, 'error': f'Wago指定版本重跑失败: {str(e)}'})

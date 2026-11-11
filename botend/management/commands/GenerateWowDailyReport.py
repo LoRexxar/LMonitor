@@ -1,9 +1,10 @@
 import datetime
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from botend.wow_daily_report.generator import generate_wow_daily_report
+from botend.services.monitor_task_execution import MonitorTaskAdmissionBusy, monitor_task_execution
 
 
 class Command(BaseCommand):
@@ -24,7 +25,11 @@ class Command(BaseCommand):
             use_llm = True
         else:
             use_llm = True
-        meta = generate_wow_daily_report(report_date=report_date, use_llm=use_llm)
+        try:
+            with monitor_task_execution('WowDailyReportMonitor'):
+                meta = generate_wow_daily_report(report_date=report_date, use_llm=use_llm)
+        except MonitorTaskAdmissionBusy as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(f"date={report_date.isoformat()}")
         self.stdout.write(f"report_path={meta.get('md_path')}")
         self.stdout.write(f"full_path={meta.get('full_path')}")

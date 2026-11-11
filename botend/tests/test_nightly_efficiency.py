@@ -74,27 +74,29 @@ class ParallelNightTests(TestCase):
         version = self.task('WowDataVersionMonitor')
         self.task('RioStatisticsMonitor')
         self.task('SpecDetailPlayerMonitor')
-        self.assertIsNone(claim_next_monitor_task(now=self.now))
-        claim_next_monitor_task(now=self.now, task_names={version.name})
+        self.assertEqual(claim_next_monitor_task(now=self.now).pk, version.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now, task_names={'RioStatisticsMonitor'}))
         self.assertIsNone(claim_next_monitor_task(now=self.now))
 
-    def test_short_tasks_have_two_slots_and_do_not_block_long_tasks(self):
-        for name in ('PortalPeakSpecRankMonitor', 'WagoSkillDiffMonitor', 'PortalPostMonitor'):
-            self.task(name)
-        claim_next_monitor_task(now=self.now)
-        claim_next_monitor_task(now=self.now)
+    def test_three_short_tasks_fill_shared_pool_and_long_task_waits(self):
+        shorts = [self.task(name) for name in
+                  ('PortalPeakSpecRankMonitor', 'wowheadMonitor', 'PortalPostMonitor')]
+        claims = [claim_next_monitor_task(now=self.now) for _ in range(3)]
+        self.assertTrue(all(claims))
+        self.assertCountEqual([row.pk for row in claims], [row.pk for row in shorts])
         self.assertIsNone(claim_next_monitor_task(now=self.now))
         player = self.task('SpecDetailPlayerMonitor')
+        self.assertIsNone(claim_next_monitor_task(now=self.now))
+        self.assertTrue(release_monitor_task_lease(claims[0].pk, claims[0]._monitor_task_lease_owner))
         self.assertEqual(claim_next_monitor_task(now=self.now).pk, player.pk)
 
-    def test_night_normal_short_polling_runs_alongside_isolated_rio_worker(self):
+    def test_night_ordinary_workers_poll_short_and_rio_tasks_from_shared_pool(self):
         short = self.task('PortalPeakSpecRankMonitor')
         observation = self.task('RioStatisticsMonitor')
         self.assertEqual(claim_next_monitor_task(now=self.now).pk, short.pk)
-        self.assertEqual(claim_next_monitor_task(now=self.now, task_names={observation.name}).pk, observation.pk)
+        self.assertEqual(claim_next_monitor_task(now=self.now).pk, observation.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now, task_names={short.name}))
-        second_short = self.task('WagoSkillDiffMonitor')
+        second_short = self.task('wowheadMonitor')
         self.assertEqual(claim_next_monitor_task(now=self.now).pk, second_short.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now))
 
@@ -110,16 +112,16 @@ class ParallelNightTests(TestCase):
         self.assertEqual(claim_next_monitor_task(now=before.astimezone(ZoneInfo('UTC'))).pk, short.pk)
         after = before + timedelta(minutes=1)
         self.assertIsNone(claim_next_monitor_task(now=after, task_names={short.name}))
-        second_short = self.task('WagoSkillDiffMonitor')
+        second_short = self.task('wowheadMonitor')
         self.assertEqual(claim_next_monitor_task(now=after.astimezone(ZoneInfo('UTC'))).pk, second_short.pk)
         lease = MonitorTaskLease.objects.get(task_id=player.pk)
         self.assertEqual(lease.owner, claimed._monitor_task_lease_owner)
         self.assertEqual(lease.expires_at, before + timedelta(hours=1))
 
-    def test_daytime_reserves_two_short_slots_and_only_one_long_slot(self):
+    def test_daytime_long_quota_leaves_two_shared_slots_for_short_work(self):
         from botend.models import MonitorTaskLease
         now = self.now.replace(hour=8)
-        for name in ('PortalPeakSpecRankMonitor', 'WagoSkillDiffMonitor', 'PortalPostMonitor'):
+        for name in ('PortalPeakSpecRankMonitor', 'PortalPostMonitor'):
             self.task(name)
         player = self.task('SpecDetailPlayerMonitor')
         ordinary = [claim_next_monitor_task(now=now) for _ in range(3)]
@@ -136,14 +138,13 @@ class ParallelNightTests(TestCase):
         self.assertIsNone(claim_next_monitor_task(now=now))
         self.assertEqual(MonitorTaskLease.objects.filter(expires_at__gt=now).count(), 3)
 
-    def test_daytime_single_long_head_is_chosen_before_worker_routing(self):
+    def test_daytime_single_long_head_is_claimed_by_an_unfiltered_worker(self):
         self.task('SpecDetailPlayerMonitor')
         observation = self.task('RioStatisticsMonitor')
         observation.last_scan_time = self.now
         observation.save(update_fields=['last_scan_time'])
         now = self.now.replace(hour=6)
-        self.assertIsNone(claim_next_monitor_task(now=now))
-        self.assertEqual(claim_next_monitor_task(now=now, task_names={observation.name}).pk, observation.pk)
+        self.assertEqual(claim_next_monitor_task(now=now).pk, observation.pk)
         self.assertIsNone(claim_next_monitor_task(now=now))
 
     def test_crossing_six_drains_existing_long_tasks_before_claiming_another(self):
@@ -156,12 +157,14 @@ class ParallelNightTests(TestCase):
         rio_claim = claim_next_monitor_task(now=before, task_names={observation.name}, lease_seconds=3600)
         self.assertEqual(player_claim.pk, player.pk)
         after = before + timedelta(minutes=1)
-        for name in ('PortalPeakSpecRankMonitor', 'WagoSkillDiffMonitor'):
-            short = self.task(name)
-            self.assertEqual(claim_next_monitor_task(now=after).pk, short.pk)
-        self.assertEqual(MonitorTaskLease.objects.filter(expires_at__gt=after).count(), 4)
+        short = self.task('PortalPeakSpecRankMonitor')
+        short_claim = claim_next_monitor_task(now=after)
+        self.assertEqual(short_claim.pk, short.pk)
+        second_short = self.task('wowheadMonitor')
+        self.assertEqual(MonitorTaskLease.objects.filter(expires_at__gt=after).count(), 3)
         self.assertIsNone(claim_next_monitor_task(now=after))
         release_monitor_task_lease(player.pk, player_claim._monitor_task_lease_owner)
+        self.assertEqual(claim_next_monitor_task(now=after).pk, second_short.pk)
         self.assertIsNone(claim_next_monitor_task(now=after))
         release_monitor_task_lease(observation.pk, rio_claim._monitor_task_lease_owner)
         self.assertEqual(claim_next_monitor_task(now=after).pk, ranking.pk)

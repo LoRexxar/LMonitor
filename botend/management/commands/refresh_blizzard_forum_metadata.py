@@ -1,17 +1,51 @@
 """Bounded board-metadata repair; never invokes scan/body/translation code."""
 import argparse
 import json
+from contextlib import contextmanager
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
-from botend.models import MonitorTask, WowArticle
+from botend.models import MonitorTask, MonitorTaskLeaseLost, WowArticle
+from botend.monitor_env import env_limit_hint, is_task_runnable
 from botend.services.blizzard_forum import ForumMetadataCollector, article_channel, validate_metadata_lease
+from botend.services.monitor_task_execution import MonitorTaskAdmissionBusy, monitor_task_execution
 
 
 def positive_int(value):
     if not str(value).isascii() or not str(value).isdigit() or int(value) <= 0:
         raise argparse.ArgumentTypeError('must be a positive integer')
     return int(value)
+
+
+def validate_execution_lease(task_id, owner):
+    """Reuse the caller's lease only for the real, environment-eligible plugin."""
+    from LMonitor.config import Monitor_Type_BaseObject_List
+    with transaction.atomic():
+        # Retain the collector's all-parent -> exact-lease locking order.
+        validate_metadata_lease(task_id, owner)
+        task = MonitorTask.objects.get(pk=task_id)
+        task_type = next((i for i, plugin in enumerate(Monitor_Type_BaseObject_List)
+                          if plugin.__name__ == 'PortalPostMonitor'), None)
+        if task_type is None or task.type != task_type:
+            raise MonitorTaskLeaseLost('metadata task has incorrect plugin type')
+        if not is_task_runnable(task):
+            raise MonitorTaskAdmissionBusy(env_limit_hint(task.env_limit), code='env_limit_blocked',
+                                           env_limit=task.env_limit)
+        task._monitor_task_lease_owner = owner
+        return task
+
+
+@contextmanager
+def metadata_execution(task_id, owner):
+    if owner is None:
+        with monitor_task_execution('PortalPostMonitor') as task:
+            yield task
+    else:
+        # The caller retains ownership/heartbeat/completion; never claim twice.
+        task = validate_execution_lease(task_id, owner)
+        yield task
+        validate_execution_lease(task_id, owner)
 
 
 class Command(BaseCommand):
@@ -29,7 +63,7 @@ class Command(BaseCommand):
         req = LReq(is_chrome=False)
         req.set_current_task(task)
         owner = getattr(task, '_monitor_task_lease_owner', None)
-        guard = (lambda: validate_metadata_lease(task.pk, owner)) if owner else None
+        guard = (lambda: validate_execution_lease(task.pk, owner)) if owner else None
         return ForumMetadataCollector(req, write_guard=guard)
 
     def handle(self, *args, **options):
@@ -47,15 +81,16 @@ class Command(BaseCommand):
             report['results'] = [{'id': article.pk, 'status': 'dry-run'} for article in articles]
             self.stdout.write(json.dumps(report, ensure_ascii=False))
             return
-        tasks = MonitorTask.objects.filter(name='PortalPostMonitor')
-        if options['task_id'] is not None:
-            tasks = tasks.filter(pk=options['task_id'])
-        candidates = list(tasks[:2])
-        if len(candidates) != 1:
-            raise CommandError('exactly one actual PortalPostMonitor task is required; use --task-id')
-        task = candidates[0]
-        if options['lease_owner'] is not None:
-            task._monitor_task_lease_owner = options['lease_owner']
+        try:
+            with metadata_execution(options['task_id'], options['lease_owner']) as task:
+                self.refresh_metadata(task, articles, report)
+        except MonitorTaskAdmissionBusy as exc:
+            raise CommandError(str(exc)) from exc
+        self.stdout.write(json.dumps(report, ensure_ascii=False))
+        if report['failed']:
+            raise CommandError('Forum metadata refresh failed; see safe JSON report')
+
+    def refresh_metadata(self, task, articles, report):
         collector = self.build_collector(task)
         try:
             collector.check_lease()
@@ -80,6 +115,3 @@ class Command(BaseCommand):
             session = getattr(req, 's', None)
             if session is not None:
                 session.close()
-        self.stdout.write(json.dumps(report, ensure_ascii=False))
-        if report['failed']:
-            raise CommandError('Forum metadata refresh failed; see safe JSON report')

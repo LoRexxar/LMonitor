@@ -388,6 +388,11 @@ class PlayerActivityTests(TestCase):
         self.assertNotIn('wow_spec_raid_ranking', sql)
 
     def test_anonymous_command_is_unresolved_without_request_or_row(self):
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        from botend.models import MonitorTask
+        task_type = next(i for i, plugin in enumerate(Monitor_Type_BaseObject_List)
+                         if plugin.__name__ == 'PlayerRaiderIOActivityMonitor')
+        MonitorTask.objects.create(name='PlayerRaiderIOActivityMonitor', type=task_type, env_limit=0)
         self.player.profile_url = ''; self.player.realm = 'anonymous'; self.player.save()
         out = io.StringIO()
         with patch('requests.get', side_effect=AssertionError('anonymous identity is private')):
@@ -397,6 +402,11 @@ class PlayerActivityTests(TestCase):
         self.assertFalse(RaiderIOCharacterActivity.objects.exists())
 
     def test_command_default_dry_run_then_apply_json_outcomes(self):
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        from botend.models import MonitorTask
+        task_type = next(i for i, plugin in enumerate(Monitor_Type_BaseObject_List)
+                         if plugin.__name__ == 'PlayerRaiderIOActivityMonitor')
+        MonitorTask.objects.create(name='PlayerRaiderIOActivityMonitor', type=task_type, env_limit=0)
         out = io.StringIO()
         with patch('requests.get', side_effect=AssertionError('dry run is local')):
             call_command('sync_player_raiderio_activity', class_name='Priest', spec='Holy', stdout=out)

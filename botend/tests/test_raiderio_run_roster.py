@@ -353,6 +353,11 @@ class RunRosterTests(TestCase):
             self.assertEqual(report['results'][0]['run_id'], 123)
             self.assertFalse(RaiderIORunRoster.objects.exists())
             self.assertNotIn('Tester', out.getvalue())
+            from LMonitor.config import Monitor_Type_BaseObject_List
+            from botend.models import MonitorTask
+            task_type = next(i for i, plugin in enumerate(Monitor_Type_BaseObject_List)
+                             if plugin.__name__ == 'PlayerRaiderIOActivityMonitor')
+            MonitorTask.objects.create(name='PlayerRaiderIOActivityMonitor', type=task_type, env_limit=0)
             with patch('requests.Session.get', return_value=Mock(status_code=200, json=lambda: details())) as get:
                 call_command('sync_player_raiderio_rosters', season=self.season.pk, apply=True, limit=1, stdout=io.StringIO())
                 resumed = io.StringIO()
