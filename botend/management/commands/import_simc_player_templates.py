@@ -4,12 +4,13 @@ import re
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 
 from botend.constants.simc_specs import (
     SIMC_KNOWN_SPECS as KNOWN_SPECS,
     SIMC_REQUIRED_PROFILE_SPECS as REQUIRED_PROFILE_SPECS,
 )
-from botend.models import SimcProfile, SimcTalentString
+from botend.models import SimcProfile, SimcTalentString, SimcReferenceSimulationConfig
 from botend.services.simc_player_config import validate_default_player_baseline, validate_player_baseline
 from botend.services.simc_hero_talents import resolve_hero_talent_names
 
@@ -168,22 +169,27 @@ class Command(BaseCommand):
                 active_system_keys = {
                     f'simc_upstream:{spec_key}' for spec_key, *_rest in validated
                 }
-                SimcProfile.objects.filter(
+                retired_profiles = SimcProfile.objects.filter(
                     user_id__isnull=True,
                     source=SimcProfile.SOURCE_SIMC_UPSTREAM,
                     system_key__startswith='simc_upstream:',
                     is_active=True,
-                ).exclude(system_key__in=active_system_keys).update(
-                    is_active=False, system_key=None,
-                )
-                active_talent_keys = active_system_keys
-                SimcTalentString.objects.filter(
+                ).exclude(system_key__in=active_system_keys)
+                retired_talents = SimcTalentString.objects.filter(
                     owner_user_id__isnull=True,
                     is_system=True,
                     system_key__startswith='simc_upstream:',
-                ).exclude(system_key__in=active_talent_keys).update(
-                    is_active=False, is_selectable=False,
-                )
+                ).exclude(system_key__in=active_system_keys).filter(Q(is_active=True) | Q(is_selectable=True))
+                # Freeze affected references before these bulk updates change the filters.
+                ranking_config_ids = list(SimcReferenceSimulationConfig.objects.filter(
+                    Q(simulations__profile_id__in=retired_profiles.values('pk')) |
+                    Q(simulations__talent_id__in=retired_talents.values('pk')),
+                ).order_by().values_list('pk', flat=True).distinct())
+                retired_profiles.update(is_active=False, system_key=None)
+                retired_talents.update(is_active=False, is_selectable=False)
+                if ranking_config_ids:
+                    from botend.services.simc_reference_ranking_index import invalidate_configs
+                    invalidate_configs(ranking_config_ids)
                 for (
                     spec_key, class_name, profile_baseline, talent_string,
                     current_profile_set, current_profile_version, hero_talent_names,

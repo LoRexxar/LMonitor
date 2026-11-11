@@ -87,6 +87,9 @@ class UnpinnedReferenceTests(TestCase):
         self.assertEqual(self.enqueue()['created'], 64)
         before = self.legacy_rows()
         SimcReferenceSimulation.objects.update(status='completed', dps=1234.5)
+        # This fixture uses a bulk completion, so explicitly maintain its read index.
+        from botend.services.simc_reference_ranking_index import refresh_configs
+        refresh_configs([self.config.pk])
         SimcBackendBinary.objects.filter(pk=self.backend.pk).update(
             current_version='new-binary', game_build='new-build', local_worker_enabled=False,
         )
@@ -141,6 +144,8 @@ class UnpinnedReferenceTests(TestCase):
             requested_by_id=self.user.pk, snapshot=frozen, signature=service.tasks._compute_content_hash(frozen),
             status='completed', dps=200,
         )
+        from botend.services.simc_reference_ranking_index import refresh_configs
+        refresh_configs([self.config.pk])
         results = self.results()
         self.assertEqual(results[0]['signature'], new.signature)
         self.assertEqual(results[0]['dps'], 200)

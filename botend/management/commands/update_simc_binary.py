@@ -438,6 +438,7 @@ class Command(BaseCommand):
         self.stdout.write(f'二进制版本: {display_version}')
         self.stdout.write(f'路径: {self.simc_binary_path}')
 
+    @transaction.atomic
     def _sync_default_template(self, git_hash=''):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
         template_path = str(cfg.get('simc_template') or 'LMonitor/simc_template.txt')
@@ -465,9 +466,18 @@ class Command(BaseCommand):
                 'sync_version': git_hash or '',
             }
         )
-        SimcContentTemplate.objects.filter(
+        from django.db.models import Q
+        from botend.models import SimcReferenceSimulationConfig
+        retired_templates = SimcContentTemplate.objects.filter(
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-        ).exclude(id=template.id).update(is_active=False, is_selectable=False)
+        ).exclude(id=template.id).filter(Q(is_active=True) | Q(is_selectable=True))
+        ranking_config_ids = list(SimcReferenceSimulationConfig.objects.filter(
+            settings__template_id__in=retired_templates.values('pk'),
+        ).order_by().values_list('pk', flat=True))
+        retired_templates.update(is_active=False, is_selectable=False)
+        if ranking_config_ids:
+            from botend.services.simc_reference_ranking_index import invalidate_configs
+            invalidate_configs(ranking_config_ids)
         action = '创建' if created else '更新'
         self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 基础模板: spec=default'))
 

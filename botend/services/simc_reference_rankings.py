@@ -2,85 +2,86 @@
 
 import math
 from collections import defaultdict
+from types import SimpleNamespace
 
-from django.db.models import CharField, Max, Value
+from django.db.models import Case, Exists, F, IntegerField, OuterRef, Value, When
 
-from botend.models import SimcReferencePublication, SimcReferenceSimulation
-from botend.services.simc_reference_simulations import snapshot, normalized_snapshot, validate_config, active_scenarios, scenario_simulation_params
-from botend.services.simc_task_service import _compute_content_hash
+from botend.models import SimcReferencePublication, SimcReferenceRankingEntry
+from botend.services.simc_reference_ranking_index import comparison_key
+from botend.services.simc_reference_simulations import active_scenarios, scenario_simulation_params
+
+
+def _read_queryset():
+    """Read only index identities, names and the result's authoritative facts.
+
+    Currentness is maintained by writers. No frozen input, resource payload,
+    binary version or player/tooltip resolution belongs on this path.
+    """
+    publication = SimcReferencePublication.objects.filter(
+        is_published=True, spec_key=OuterRef('spec_key'),
+        profiles=OuterRef('profile_id'), talents=OuterRef('talent_id'), apls=OuterRef('apl_id'),
+    )
+    return SimcReferenceRankingEntry.objects.filter(
+        Exists(publication), is_current=True,
+        config__settings__is_enabled=True,
+        config__settings__use_ptr=F('config__use_ptr'),
+        config__settings__backend__is_active=True,
+        config__settings__template__is_active=True,
+        config__settings__template__is_selectable=True,
+        config__settings__template__owner_user_id__isnull=True,
+        config__settings__template__spec__in=('default', 'all', '*'),
+        scenario__is_enabled=True, scenario__settings_id=F('config__settings_id'),
+        profile__is_active=True, profile__user_id__isnull=True,
+        profile__use_ptr=F('config__use_ptr'),
+        talent__is_active=True, talent__is_selectable=True,
+        talent__owner_user_id__isnull=True, talent__is_system=True,
+        apl__is_active=True, apl__is_selectable=True,
+        apl__owner_user_id__isnull=True, apl__is_system=True,
+        result__status='completed', result__dps__gt=0,
+    ).select_related('config', 'scenario', 'profile', 'talent', 'apl', 'result').only(
+        'id', 'comparison_key', 'config_id', 'scenario_id', 'profile_id', 'talent_id', 'apl_id', 'result_id',
+        'config__id', 'config__spec_key', 'config__use_ptr', 'config__settings_id',
+        'scenario__id', 'scenario__settings_id', 'scenario__name', 'scenario__simulation_params',
+        'profile__id', 'profile__name', 'talent__id', 'talent__name', 'apl__id', 'apl__name',
+        'result__id', 'result__signature', 'result__dps',
+    )
+
+
+def _project(entry, params):
+    return SimpleNamespace(
+        pk=entry.result_id, signature=entry.result.signature, dps=entry.result.dps,
+        config_id=entry.config_id, config=entry.config,
+        profile_id=entry.profile_id, profile=entry.profile,
+        talent_id=entry.talent_id, talent=entry.talent,
+        apl_id=entry.apl_id, apl=entry.apl,
+        current_scenario=entry.scenario, snapshot={'simulation_params': params},
+    )
 
 
 def _current_cohorts(config):
-    """返回按可比条件分组的当前有效结果，覆盖所有专精和分页。
-
-    模板按实际正文匹配，不按专精标签或模板 ID 匹配。每份输入只取最新成功
-    结果；重跑期间保留原有效结果。分母为组合数，并列采用 1、1、3 名次。
-    """
+    """Current indexed results, separated by every comparable scene parameter."""
     if not config.backend_id or not config.template_id or not config.is_enabled:
         return []
-    # 先在数据库缩小到可比较的路由和条件，二进制更新不影响历史结果。
-    candidates = SimcReferenceSimulation.objects.filter(
-        status='completed', dps__gt=0, config__settings__is_enabled=True,
-        config__use_ptr=config.use_ptr,
-        config__settings__backend_id=config.backend_id,
-        config__settings__template__content=config.template.content,
-    )
-    # Collapse legacy three-part and route-only snapshots before hydration.
-    latest_ids = candidates.order_by().values(
-        'config_id', 'profile_id', 'talent_id', 'apl_id', 'snapshot__spec', 'snapshot__use_ptr',
-        'snapshot__resources', 'snapshot__simulation_params', 'snapshot__backend__0',
-    ).annotate(latest=Max('pk')).values('latest')
-    rows = SimcReferenceSimulation.objects.filter(pk__in=latest_ids).select_related(
-        'config__settings__backend', 'config__settings__template', 'profile', 'talent', 'apl',
-    )
-    published = {}
-    publications = SimcReferencePublication.objects.filter(is_published=True)
-    # UNION keeps each M2M projection independent (no Cartesian products) while
-    # leaving room for the shared scenario query within the existing SQL budget.
-    projections = [publications.order_by().annotate(
-        resource_kind=Value(kind, output_field=CharField()),
-    ).values_list('spec_key', f'{kind}__pk', 'resource_kind')
-        for kind in ('profiles', 'talents', 'apls')]
-    for spec, resource_id, kind in projections[0].union(*projections[1:], all=True):
-        published.setdefault(spec, {}).setdefault(kind, set()).add(resource_id)
-
-    # All specs in this environment share Settings; resolve the complete scene
-    # list once rather than one database lookup per historical result.
-    scenes_by_params = {}
+    scenes = {}
     for scene in active_scenarios(config):
         try:
-            identity = _compute_content_hash(scenario_simulation_params(scene))
+            params = scenario_simulation_params(scene)
+            key = comparison_key(config, params)
         except ValueError:
             continue
-        scenes_by_params.setdefault(identity, []).append(scene)
-    current_signatures, cohorts = {}, defaultdict(list)
-    for row in rows:
-        if not math.isfinite(row.dps):
-            continue
-        params = (row.snapshot or {}).get('simulation_params', {})
-        matches = scenes_by_params.get(_compute_content_hash(params), [])
-        if len(matches) != 1 or matches[0].settings_id != row.config.settings_id:
-            continue
-        scenario = matches[0]
-        row.current_scenario = scenario
-        key = (row.config_id, row.profile_id, row.talent_id, row.apl_id, scenario.pk)
-        if key not in current_signatures:
-            try:
-                frozen = snapshot(row.config, row.profile, row.talent, row.apl, scenario,
-                                  published_resources=published.get(row.config.spec_key, {}))
-                current_signatures[key] = _compute_content_hash(frozen)
-            except ValueError:
-                current_signatures[key] = None
-        if current_signatures[key] != _compute_content_hash(normalized_snapshot(row.snapshot)):
-            continue
-        # 所有战斗参数均进入比较组，避免今后增加场景参数时混榜。
-        cohort = _compute_content_hash({
-            'params': params, 'use_ptr': row.config.use_ptr,
-            'backend': [row.config.backend_id],
-            'template': row.config.template.content,
-        })
-        cohorts[cohort].append(row)
-
+        scenes.setdefault(key, []).append(params)
+    # Ambiguous identical scenarios were never valid snapshot matches.
+    keys = [key for key, matches in scenes.items() if len(matches) == 1]
+    if not keys:
+        return []
+    cohorts = defaultdict(list)
+    entries = _read_queryset().filter(
+        comparison_key__in=keys, config__use_ptr=config.use_ptr,
+        config__settings__backend_id=config.backend_id,
+    )
+    for entry in entries:
+        if math.isfinite(entry.result.dps):
+            cohorts[entry.comparison_key].append(_project(entry, scenes[entry.comparison_key][0]))
     return cohorts.values()
 
 
@@ -108,7 +109,6 @@ def leaderboard(config, signature, scope):
     """按当前组合定位比较组，不允许借榜单读取历史或未公开资料。"""
     from botend.constants.wow import CLASS_CN, SPEC_CN, CLASS_SPEC_MAP
     from botend.services.simc_player_config import canonical_simc_profile_key
-    from botend.services.simc_reference_details import resource_links
     from django.urls import reverse
     from urllib.parse import urlencode
 
@@ -142,7 +142,13 @@ def leaderboard(config, signature, scope):
                 'resource_links': {kind: detail_url + '#' + section for kind, section in (
                     ('profile', 'reference-equipment'), ('talent', 'reference-talents'), ('apl', 'reference-apl'),
                 )},
-                'preview_links': resource_links(row.config, {'profile': row.profile, 'talent': row.talent, 'apl': row.apl}),
+                'preview_links': {
+                    kind: reverse('simc_reference_resource_preview', kwargs={
+                        'spec_key': row.config.spec_key, 'kind': kind, 'resource_id': resource.pk,
+                    }) + '?' + urlencode({'config': row.config_id, 'profile': row.profile_id,
+                                         'talent': row.talent_id, 'apl': row.apl_id})
+                    for kind, resource in (('profile', row.profile), ('talent', row.talent), ('apl', row.apl))
+                },
             })
         scene_signatures = {
             row.current_scenario.pk: row.signature
@@ -194,28 +200,18 @@ def ranking_page_context(config, signature, scope, *, admin=False):
 
 
 def ranking_entry(preferred_config_id=None):
-    """独立入口优先使用指定配置，再选择有当前公开结果的比较组。"""
-    from botend.models import SimcReferenceSimulationConfig
-    configs = list(SimcReferenceSimulationConfig.objects.filter(
-        settings__is_enabled=True,
-        spec_key__in=SimcReferencePublication.objects.filter(is_published=True).values('spec_key'),
-        pk__in=SimcReferenceSimulation.objects.filter(status='completed', dps__gt=0).values('config_id'),
-    ).select_related('settings__backend', 'settings__template').order_by('use_ptr', 'spec_key', 'pk'))
-    configs.sort(key=lambda config: str(config.pk) != str(preferred_config_id))
-    checked = set()
-    for config in configs:
-        try:
-            validate_config(config)
-        except ValueError:
-            continue
-        condition = _compute_content_hash([config.use_ptr, config.backend_id,
-                                           config.template.content, [scene.simulation_params for scene in active_scenarios(config)]])
-        if condition in checked:
-            continue
-        checked.add(condition)
-        rows = [row for cohort in _current_cohorts(config) for row in cohort]
-        if rows:
-            row = min(rows, key=lambda row: (row.config_id != config.pk,
-                      row.snapshot['simulation_params']['desired_targets'] != 1, row.config.spec_key, row.profile.name, row.talent.name, row.pk))
-            return row.config_id, row.signature, 'overall'
+    """Choose a public indexed default directly; never rebuild the leaderboard."""
+    try:
+        preferred = int(preferred_config_id)
+    except (TypeError, ValueError, OverflowError):
+        preferred = None
+    entries = _read_queryset().annotate(
+        preferred_order=Case(When(config_id=preferred, then=Value(0)), default=Value(1), output_field=IntegerField()),
+        single_order=Case(When(scenario__simulation_params__desired_targets=1, then=Value(0)),
+                          default=Value(1), output_field=IntegerField()),
+    ).order_by('preferred_order', 'config__use_ptr', 'config__spec_key', 'config_id',
+               'single_order', 'profile__name', 'talent__name', 'result_id')
+    entry = entries.first()
+    if entry is not None and math.isfinite(entry.result.dps):
+        return entry.config_id, entry.result.signature, 'overall'
     return None

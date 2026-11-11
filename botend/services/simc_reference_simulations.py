@@ -265,9 +265,17 @@ def maintain_simulations(batch_size=5):
             if not valid or not isinstance(dps, (int, float)) or isinstance(dps, bool) or not math.isfinite(dps) or dps <= 0:
                 _fail(row.pk, '任务未产生唯一、有效的 DPS 结果')
             else:
-                SimcReferenceSimulation.objects.filter(pk=row.pk, status='submitted').update(
-                    status='completed', dps=dps, updated_at=now, error='',
-                )
+                # Publication and its lightweight ranking pointer commit together.
+                # Match dispatch's lock order; no HTTP reader rebuilds this index.
+                from botend.services.simc_reference_ranking_index import sync_result
+                with transaction.atomic():
+                    config = SimcReferenceSimulationConfig.objects.select_for_update().get(pk=row.config_id)
+                    SimcReferenceSimulationSettings.objects.select_for_update().get(pk=config.settings_id)
+                    published = SimcReferenceSimulation.objects.filter(pk=row.pk, status='submitted').update(
+                        status='completed', dps=dps, updated_at=now, error='',
+                    )
+                    if published:
+                        sync_result(row.pk)
     ids = list(SimcReferenceSimulation.objects.filter(status='queued').order_by('pk').values_list('pk', flat=True)[:batch_size])
     for row_id in ids:
         claim = timezone.now()
