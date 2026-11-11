@@ -90,6 +90,30 @@ def event(fight=11, actor=232):
 
 
 class SnapshotLightReadRecoveryTests(TestCase):
+    def test_failed_database_write_keeps_stage_timings_and_recovery_file(self):
+        from unittest.mock import Mock, patch
+        from django.db import DatabaseError
+        from botend.services import wcl_combatant_snapshot as service
+        fetcher = Mock(_wcl_last_error='')
+        fetcher.fetch_wcl_combatant_info.return_value = [event()]
+        logs = []
+        with patch.object(service, 'load_staged_events', return_value=None), \
+                patch.object(service, 'stage_events', return_value={'status': 'stored'}), \
+                patch.object(service, 'discard_staged_events') as discard, \
+                patch.object(service.wcl_combatant_store, 'persist_events', side_effect=DatabaseError):
+            counts = service.collect_dungeon_combatants([sample()], fetcher, apply=True, log=logs.append)
+        self.assertEqual(counts['failed'], 1)
+        self.assertGreater(counts['validation_seconds'], 0)
+        self.assertGreater(counts['staging_seconds'], 0)
+        self.assertGreater(counts['fact_lookup_seconds'], 0)
+        self.assertGreater(counts['fact_write_seconds'], 0)
+        self.assertGreaterEqual(counts['fact_transaction_seconds'], counts['fact_write_seconds'])
+        self.assertEqual(counts['fact_readback_seconds'], 0)
+        self.assertEqual(counts['staging_cleanup_seconds'], 0)
+        discard.assert_not_called()
+        for key in service.COMBATANT_SAVE_TIMINGS:
+            self.assertTrue(any(key + '=' in line for line in logs))
+
     def test_preflight_and_replay_never_load_equipment_documents(self):
         from unittest.mock import Mock, patch
         from django.db import connection

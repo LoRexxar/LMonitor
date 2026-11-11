@@ -39,6 +39,112 @@ class RawStagingIsolationMixin:
         self.addCleanup(settings.disable)
 
 
+class RawStagingPreparationTests(SimpleTestCase):
+    """验证预处理及持锁边界；文件替身不代表已验证 POSIX 锁或磁盘持久性。"""
+
+    def test_prepare_roundtrip_serializes_event_tree_once(self):
+        import gzip
+        import hashlib
+        import json
+        from botend.services import wcl_raw_staging as raw
+        events = [{'fight': 1, 'sourceID': 7, 'unknown': {'完整字段': [1, 2, None]}}]
+        with patch.object(raw.time, 'time', return_value=100), patch.object(raw, '_json', wraps=raw._json) as encode:
+            identity, stamp, digest, packed = raw._prepare_event('Report', 1, events, 99, 10, 4096, 4096)
+        self.assertEqual(sum(call.args[0] is events for call in encode.call_args_list), 1)
+        value = json.loads(gzip.decompress(packed))
+        self.assertEqual(value, {'identity': identity, 'fetched_at': stamp, 'sha256': digest, 'events': events})
+        self.assertEqual(digest, hashlib.sha256(raw._json(events)).hexdigest())
+
+    @override_settings(WCL_RAW_STAGING_MAX_FILE_BYTES=100)
+    def test_large_raw_payload_is_rejected_before_compression_or_lock(self):
+        from botend.services import wcl_raw_staging as raw
+        with patch.object(raw.gzip, 'compress') as compress, patch.object(raw, '_locked') as lock:
+            result = raw.stage_events('Report', {1: [{'fight': 1, 'text': 'x' * 200}]})
+        self.assertEqual(result, {'status': 'quota', 'stored': 0})
+        compress.assert_not_called()
+        lock.assert_not_called()
+
+    def test_prepare_is_outside_lock_and_batches_are_bounded(self):
+        from contextlib import contextmanager
+        from datetime import datetime, timezone
+        import gzip
+        import json
+        from botend.services import wcl_raw_staging as raw
+        held, locks, files = False, [], {}
+        @contextmanager
+        def lock(**kwargs):
+            nonlocal held
+            self.assertFalse(held)
+            held = True
+            locks.append(True)
+            try:
+                yield 123
+            finally:
+                held = False
+        original_compress = gzip.compress
+        def compress(*args, **kwargs):
+            self.assertFalse(held)
+            return original_compress(*args, **kwargs)
+        def prune(*args):
+            self.assertTrue(held)
+            return ([(stamp, name, len(packed)) for name, (stamp, packed) in files.items()], {})
+        def write(fd, identity, stamp, packed):
+            self.assertTrue(held)
+            self.assertEqual(fd, 123)
+            files[identity + '.gz'] = (stamp, packed)
+        def read(fd, name, limit):
+            self.assertTrue(held)
+            return json.loads(gzip.decompress(files[name][1]))
+        events = {fight: [{'fight': fight, 'sourceID': 1}] for fight in range(1, 42)}
+        timings = {}
+        with patch.object(raw, '_locked', side_effect=lock), patch.object(raw, '_prune', side_effect=prune), \
+                patch.object(raw, '_write_payload', side_effect=write) as writer, \
+                patch.object(raw, '_read', side_effect=read), patch.object(raw.gzip, 'compress', side_effect=compress), \
+                patch.object(raw.time, 'time', return_value=100):
+            result = raw.stage_events('Report', events, timings=timings)
+            self.assertEqual((result['status'], result['stored']), ('stored', 41))
+            self.assertEqual(len(locks), 3)
+            self.assertEqual(writer.call_count, 41)
+            writer.reset_mock()
+            with patch.object(raw.time, 'time', return_value=105):
+                replay = raw.stage_events('Report', events, fetched_at=datetime.fromtimestamp(105, timezone.utc))
+            self.assertEqual(replay['stored'], 41)
+            writer.assert_not_called()
+        self.assertEqual({stamp for stamp, _ in files.values()}, {100})
+        self.assertGreater(timings['staging_prepare_seconds'], 0)
+        self.assertGreater(timings['staging_write_seconds'], 0)
+        for fight in events:
+            value = json.loads(gzip.decompress(files[raw._identity('Report', fight) + '.gz'][1]))
+            self.assertEqual(value['events'], events[fight])
+
+    def test_prepared_bytes_split_large_batch(self):
+        from botend.services import wcl_raw_staging as raw
+        events = {fight: [] for fight in range(1, 6)}
+        def prepare(code, fight, *args):
+            return str(fight), 100, 'digest', b'123'
+        with patch.object(raw, '_PREPARED_BYTES', 7), patch.object(raw, '_prepare_event', side_effect=prepare):
+            batches = list(raw._prepared_batches('Report', events, 100, {}, 10, 100, 100, None))
+        self.assertEqual([len(batch) for batch in batches], [2, 2, 1])
+        self.assertEqual(sum(len(batch) for batch in batches), 5)
+
+    def test_expiry_is_rechecked_after_waiting_for_lock(self):
+        from contextlib import contextmanager
+        from botend.services import wcl_raw_staging as raw
+        now = 100
+        @contextmanager
+        def lock(**kwargs):
+            nonlocal now
+            now = 111
+            yield 123
+        with override_settings(WCL_RAW_STAGING_TTL_SECONDS=10), \
+                patch.object(raw.time, 'time', side_effect=lambda: now), \
+                patch.object(raw, '_locked', side_effect=lock), patch.object(raw, '_prune', return_value=([], {})), \
+                patch.object(raw, '_write_payload') as write:
+            result = raw.stage_events('Report', {1: []})
+        self.assertEqual(result, {'status': 'expired', 'stored': 0})
+        write.assert_not_called()
+
+
 class RawStagingTests(RawStagingIsolationMixin, SimpleTestCase):
     def events(self):
         return {1: [{'fight': 1, 'sourceID': 3, 'unknown': {'keep': [1, 2]}}], 2: []}

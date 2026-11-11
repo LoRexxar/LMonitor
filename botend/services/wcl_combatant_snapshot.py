@@ -13,7 +13,15 @@ from django.db.models import Q
 from botend.constants.wow import resolve_spec_identity
 from botend.models import WclCombatantFetchState, WowItemSnapshot
 from botend.services import wcl_combatant_store
-from botend.services.wcl_raw_staging import load_staged_events, stage_events, discard_staged_events
+from botend.services.wcl_raw_staging import load_staged_events, stage_events, discard_staged_events, record_duration
+
+
+COMBATANT_SAVE_TIMINGS = (
+    'validation_seconds', 'staging_seconds', 'staging_prepare_seconds',
+    'staging_lock_wait_seconds', 'staging_lock_hold_seconds', 'staging_write_seconds',
+    'fact_transaction_seconds', 'fact_lookup_seconds', 'fact_write_seconds', 'fact_readback_seconds',
+    'fetch_state_seconds', 'staging_cleanup_seconds',
+)
 
 
 # WCL CombatantInfo uses zero-based equipment slots, not InventoryType IDs.
@@ -355,52 +363,60 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
             connections.close_all()
 
 
-def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_fight=None):
+def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_fight=None, timings=None):
     """Validate a complete batch and read back immutable facts on the caller."""
     from django.db import transaction
     from django.utils import timezone
-    by_fight = _validated_events(events, batch)
+    with record_duration(timings, 'validation_seconds'):
+        by_fight = _validated_events(events, batch)
     now = timezone.now()
     fetched_at_by_fight = fetched_at_by_fight or {}
     # Include authoritative empty fights, so recovery is all-or-nothing.
-    staged = stage_events(code, {fight: by_fight.get(fight, []) for fight in batch}, fetched_at=now,
-                          fetched_at_by_fight=fetched_at_by_fight)
+    with record_duration(timings, 'staging_seconds'):
+        staged = stage_events(code, {fight: by_fight.get(fight, []) for fight in batch}, fetched_at=now,
+                              fetched_at_by_fight=fetched_at_by_fight, timings=timings)
     if staged['status'] != 'stored':
         import logging
         logging.getLogger(__name__).warning('WCL raw staging skipped status=%s', staged['status'])
-    with transaction.atomic():
+    with record_duration(timings, 'fact_transaction_seconds'), transaction.atomic():
         # Collection has always been insert-only: an already recorded actor
         # wins even if a later source response differs. Keep that contract at
         # this boundary; the store's explicit migration/conflict checks remain
         # strict for its other callers. No new teammate is dropped.
-        existing = wcl_combatant_store.load_facts(
-            [{'report_code': code, 'fight_id': fight} for fight in batch], identities_only=True)
+        with record_duration(timings, 'fact_lookup_seconds'):
+            existing = wcl_combatant_store.load_facts(
+                [{'report_code': code, 'fight_id': fight} for fight in batch], identities_only=True)
         recorded = {fight: {event['sourceID'] for event in payloads}
                     for (_, fight), payloads in existing.items()}
         new_events = {fight: [event for event in payloads
                              if event['sourceID'] not in recorded.get(fight, set())]
                       for fight, payloads in by_fight.items()}
-        written = wcl_combatant_store.persist_events(
-            code, new_events, fetched_at=now, fetched_at_by_fight=fetched_at_by_fight)
+        with record_duration(timings, 'fact_write_seconds'):
+            written = wcl_combatant_store.persist_events(
+                code, new_events, fetched_at=now, fetched_at_by_fight=fetched_at_by_fight)
     matched, missing = 0, 0
     missing_fights = set()
-    for observations, references in _fact_read_batches(batch_rows):
-        persisted = _load_facts(references, identities_only=True)
-        for row in observations:
-            key = _fight_key(row)
-            if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
-                matched += 1
-            else:
-                missing += 1
-                missing_fights.add(key[1])
-        del persisted
-    with transaction.atomic():
+    with record_duration(timings, 'fact_readback_seconds'):
+        for observations, references in _fact_read_batches(batch_rows):
+            persisted = _load_facts(references, identities_only=True)
+            for row in observations:
+                key = _fight_key(row)
+                if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
+                    matched += 1
+                else:
+                    missing += 1
+                    missing_fights.add(key[1])
+            del persisted
+    with record_duration(timings, 'fetch_state_seconds'), transaction.atomic():
         WclCombatantFetchState.objects.filter(
             report_code=code, fight_id__in=[0, *sorted(set(batch) - missing_fights)]).delete()
         for fight in sorted(missing_fights):
             _save_negative_fetch_state(code, fight, 'missing', fetched_at_by_fight.get(fight, now))
     # Do not extend a negative-cache window with successful stale raw responses.
-    transaction.on_commit(lambda: discard_staged_events(code, batch))
+    def cleanup():
+        with record_duration(timings, 'staging_cleanup_seconds'):
+            discard_staged_events(code, batch)
+    transaction.on_commit(cleanup)
     return written, matched, missing
 
 
@@ -521,6 +537,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     admission_last_completed = -1
     started = last_progress = time.monotonic()
     counts.update(batches_completed=0, batches_dispatched=0, fetch_seconds=0.0, save_seconds=0.0)
+    counts.update({key: 0.0 for key in COMBATANT_SAVE_TIMINGS})
 
     def stop_collection(error, deadline=None):
         nonlocal stopped, fatal_error, fatal_retry_at
@@ -548,7 +565,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             fields = ('batches_completed', 'batches_dispatched', 'undispatched_batches',
                       'in_flight', 'workers', 'pending', 'matched', 'missing',
                       'permission_denied', 'failed', 'transient_errors', 'transient_cached',
-                      'deferred_reports', 'circuit_open', 'fetch_seconds', 'save_seconds', 'elapsed_seconds')
+                      'deferred_reports', 'circuit_open', 'fetch_seconds', 'save_seconds', 'elapsed_seconds') + COMBATANT_SAVE_TIMINGS
             log('WCL combatants progress ' + ' '.join(f'{key}={counts[key]}' for key in fields))
         if progress:
             progress(dict(counts))
@@ -629,7 +646,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 try:
                     if events is not None:
                         written, matched, missing = _persist_combatant_batch(
-                            code, batch, batch_rows, events, fetched_at_by_fight=fetched_at_by_fight)
+                            code, batch, batch_rows, events, fetched_at_by_fight=fetched_at_by_fight, timings=counts)
                         counts['snapshots_written'] += written
                         counts['matched'] += matched
                         counts['missing'] += missing
