@@ -64,8 +64,8 @@ class ReferenceRankingTests(TestCase):
         self.assertEqual([r['ranking'] for r in projected], [self.rank(row), self.rank(aoe)])
         self.client.force_login(self.user)
         response = self.client.get(self.url)
-        self.assertContains(response, '全职业 <strong>2</strong> / 3')
-        self.assertContains(response, '本专精 <strong>1</strong> / 2')
+        self.assertContains(response, '排行榜 <strong>2</strong> / 3')
+        self.assertNotContains(response, '本专精 <strong>')
 
     def test_ties_latest_success_and_pending_rerun(self):
         row = self.result(200)
@@ -261,15 +261,18 @@ class ReferenceRankingTests(TestCase):
         portal_url = reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall'])
         self.assertEqual(self.client.get(portal_url).status_code, 200)
         self.client.force_login(self.user)
-        response = self.client.get(url)
+        response = self.client.get(url, follow=True)
         self.assertContains(response, 'dashboard-primary-nav')
         self.assertContains(response, '返回模拟结果管理')
         self.assertContains(response, '5 目标')
         self.assertContains(response, '300 秒')
-        self.assertContains(response, '未模拟')
-        self.assertContains(response, 'aria-disabled="true"')
+        self.assertTrue(all(option['url'] for option in response.context['scene_options']))
+        self.assertNotContains(response, '当前专精')
+        self.assertNotContains(response, '当前配置')
         self.assertIn('no-store', response['Cache-Control'])
-        self.assertContains(self.client.get(self.url), f'href="{url}"')
+        result_page = self.client.get(self.url)
+        self.assertContains(result_page, '查看同配置与场景的排行榜')
+        self.assertContains(result_page, f'?settings={self.config.settings_id}&amp;scenario={anchor.scenario_id}')
         self.assertNotContains(self.client.get(self.url), 'data-ranking-panel')
 
     def test_navigation_exists_without_selected_simulation_and_empty_entry_is_read_only(self):
@@ -326,7 +329,7 @@ class ReferenceRankingTests(TestCase):
                                                      'talent': [str(other['talent'].pk)], 'apl': [str(other['apl'].pk)],
                                                      'scenario': [str(other_row.scenario_id)]})
             self.assertContains(portal, f'href="{escape(row["resource_links"][kind])}"')
-        admin = self.client.get(reverse('simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']))
+        admin = self.client.get(reverse('simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']), follow=True)
         self.assertContains(admin, f'data-wow-item-tooltip-url="{escape(row["preview_links"]["talent"])}"')
         self.assertContains(admin, 'talent_tree_thumbnail.js')
         self.assertContains(admin, '前台配置')

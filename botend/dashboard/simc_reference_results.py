@@ -63,26 +63,33 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
 
     def get(self, request, config_id=None, signature=None, scope='overall'):
         from botend.dashboard.dashboard import DashboardView
-        from botend.services.simc_reference_rankings import ranking_page_context, ranking_entry
-        if config_id is None:
-            entry = ranking_entry(request.GET.get('config'))
-            if entry:
-                response = redirect('simc_reference_rankings', *entry)
-                response['Cache-Control'] = 'private, no-store'
-                response['X-Robots-Tag'] = 'noindex, nofollow'
-                return response
-            board = {'empty_ranking': True, 'module_section': 'rankings', 'admin_ranking': True,
-                     'module_reference_url': reverse('simc_reference_results'),
-                     'module_rankings_url': reverse('simc_reference_rankings_entry')}
-        else:
-            config = get_object_or_404(SimcReferenceSimulationConfig.objects.select_related('settings__template').only(
-                'id', 'spec_key', 'use_ptr', 'settings_id', 'settings__id', 'settings__backend_id',
-                'settings__template_id', 'settings__is_enabled', 'settings__template__id',
-                'settings__template__content',
-            ), pk=config_id)
-            board = ranking_page_context(config, signature, scope, admin=True)
-            if board is None:
-                raise Http404('当前配置已更新或不再公开，请返回结果管理查看排名')
+        from botend.services.simc_reference_rankings import admin_ranking_page_context
+        settings_id = _positive_id(request.GET['settings']) if request.GET.get('settings') else None
+        scene_id = _positive_id(request.GET['scenario']) if request.GET.get('scenario') else None
+        # Historical per-result/spec URLs are aliases, never a ranking filter.
+        legacy_id = config_id or (_positive_id(request.GET['config']) if request.GET.get('config') else None)
+        if legacy_id is not None:
+            config = get_object_or_404(SimcReferenceSimulationConfig.objects.only('id', 'settings_id'), pk=legacy_id)
+            if signature is not None:
+                if len(signature) != 64 or any(c not in '0123456789abcdef' for c in signature):
+                    raise Http404('排行榜链接无效')
+                old = SimcReferenceSimulation.objects.filter(config_id=config.pk, signature=signature).only('id', 'scenario_id', 'snapshot').order_by('-pk').first()
+                if scene_id is None and old:
+                    scene_id = old.scenario_id
+                    if scene_id is None:
+                        legacy_scene = scenario_for_snapshot(config, old.snapshot)
+                        scene_id = legacy_scene.pk if legacy_scene else None
+            from urllib.parse import urlencode
+            params = {'settings': config.settings_id}
+            if scene_id is not None:
+                params['scenario'] = scene_id
+            response = redirect(reverse('simc_reference_rankings_entry') + '?' + urlencode(params))
+            response['Cache-Control'] = 'private, no-store'
+            response['X-Robots-Tag'] = 'noindex, nofollow'
+            return response
+        board = admin_ranking_page_context(settings_id, scene_id)
+        if board is None:
+            raise Http404('模拟配置或场景不存在、已停用，或场景不属于该配置')
         dashboard = DashboardView()
         dashboard.setup(request)
         context = dashboard.get_context_data(title='后台', page_name='frontend-rankings', include_stats=False)

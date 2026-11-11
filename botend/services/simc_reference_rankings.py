@@ -105,51 +105,56 @@ def current_rankings(config):
     return rankings
 
 
-def leaderboard(config, signature, scope):
-    """按当前组合定位比较组，不允许借榜单读取历史或未公开资料。"""
+def _ranked_entries(rows, anchor_pk=None):
+    """One formatter for public contextual rankings and admin condition groups."""
     from botend.constants.wow import CLASS_CN, SPEC_CN, CLASS_SPEC_MAP
     from botend.services.simc_player_config import canonical_simc_profile_key
     from django.urls import reverse
     from urllib.parse import urlencode
-
-    if scope not in ('overall', 'spec'):
-        return None
     labels = {
         canonical_simc_profile_key('beast_mastery' if spec == 'BeastMastery' else spec.lower(), cls):
             f'{CLASS_CN[cls]} · {SPEC_CN[spec]}'
         for cls, specs in CLASS_SPEC_MAP.items() for spec in specs
     }
+    entries, previous, rank = [], None, 0
+    for index, row in enumerate(sorted(rows, key=lambda item: (-item.dps, item.pk)), 1):
+        if row.dps != previous:
+            rank = index
+        previous = row.dps
+        detail_url = reverse('portal_simc_reference') + '?' + urlencode({
+            'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
+            'scenario': row.current_scenario.pk,
+        })
+        entries.append({
+            'rank': rank, 'spec': labels.get(row.config.spec_key, row.config.spec_key),
+            'profile': row.profile.name, 'talent': row.talent.name, 'apl': row.apl.name,
+            'dps': row.dps, 'is_current': row.pk == anchor_pk,
+            'detail_url': detail_url,
+            'resource_links': {kind: detail_url + '#' + section for kind, section in (
+                ('profile', 'reference-equipment'), ('talent', 'reference-talents'), ('apl', 'reference-apl'),
+            )},
+            'preview_links': {
+                kind: reverse('simc_reference_resource_preview', kwargs={
+                    'spec_key': row.config.spec_key, 'kind': kind, 'resource_id': resource.pk,
+                }) + '?' + urlencode({'config': row.config_id, 'profile': row.profile_id,
+                                     'talent': row.talent_id, 'apl': row.apl_id})
+                for kind, resource in (('profile', row.profile), ('talent', row.talent), ('apl', row.apl))
+            },
+        })
+    return entries
+
+
+def leaderboard(config, signature, scope):
+    """按当前组合定位比较组，不允许借榜单读取历史或未公开资料。"""
+    if scope not in ('overall', 'spec'):
+        return None
     cohorts = list(_current_cohorts(config))
     for candidates in cohorts:
         anchor = next((row for row in candidates if row.config_id == config.pk and row.signature == signature), None)
         if anchor is None:
             continue
         rows = candidates if scope == 'overall' else [row for row in candidates if row.config.spec_key == config.spec_key]
-        entries, previous, rank = [], None, 0
-        for index, row in enumerate(sorted(rows, key=lambda item: (-item.dps, item.pk)), 1):
-            if row.dps != previous:
-                rank = index
-            previous = row.dps
-            detail_url = reverse('portal_simc_reference') + '?' + urlencode({
-                'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
-                'scenario': row.current_scenario.pk,
-            })
-            entries.append({
-                'rank': rank, 'spec': labels.get(row.config.spec_key, row.config.spec_key),
-                'profile': row.profile.name, 'talent': row.talent.name, 'apl': row.apl.name,
-                'dps': row.dps, 'is_current': row.pk == anchor.pk,
-                'detail_url': detail_url,
-                'resource_links': {kind: detail_url + '#' + section for kind, section in (
-                    ('profile', 'reference-equipment'), ('talent', 'reference-talents'), ('apl', 'reference-apl'),
-                )},
-                'preview_links': {
-                    kind: reverse('simc_reference_resource_preview', kwargs={
-                        'spec_key': row.config.spec_key, 'kind': kind, 'resource_id': resource.pk,
-                    }) + '?' + urlencode({'config': row.config_id, 'profile': row.profile_id,
-                                         'talent': row.talent_id, 'apl': row.apl_id})
-                    for kind, resource in (('profile', row.profile), ('talent', row.talent), ('apl', row.apl))
-                },
-            })
+        entries = _ranked_entries(rows, anchor.pk)
         scene_signatures = {
             row.current_scenario.pk: row.signature
             for cohort in cohorts for row in cohort
@@ -166,6 +171,59 @@ def leaderboard(config, signature, scope):
     return None
 
 
+def admin_ranking_page_context(settings_id=None, scenario_id=None):
+    """A complete settings/scenario leaderboard, independent of any result/spec."""
+    from urllib.parse import urlencode
+    from django.urls import reverse
+    from botend.models import SimcReferenceSimulationSettings
+
+    available = list(SimcReferenceSimulationSettings.objects.filter(
+        is_enabled=True, backend__is_active=True, template__is_active=True,
+        template__is_selectable=True, template__owner_user_id__isnull=True,
+        template__spec__in=('default', 'all', '*'),
+    ).select_related('template').only(
+        'id', 'use_ptr', 'backend_id', 'template_id', 'template__id', 'template__content',
+    ).order_by('use_ptr', 'pk'))
+    root = reverse('simc_reference_rankings_entry')
+    base = {'entries': [], 'current': None, 'scope_options': [], 'settings_options': [],
+            'scene_options': [], 'empty_ranking': True, 'admin_ranking': True,
+            'module_section': 'rankings', 'module_reference_url': reverse('simc_reference_results'),
+            'module_rankings_url': root, 'return_url': reverse('simc_reference_results'),
+            'return_label': '返回模拟结果管理', 'scope_label': '全部方案'}
+    if not available:
+        return None if settings_id is not None or scenario_id is not None else base
+    selected = next((item for item in available if item.pk == settings_id), None) if settings_id is not None else available[0]
+    if selected is None:
+        return None
+    def url(setting, scene=None):
+        params = {'settings': setting.pk}
+        if scene is not None:
+            params['scenario'] = scene.pk
+        return root + '?' + urlencode(params)
+    base['settings_options'] = [dict(label='PTR' if item.use_ptr else '正式服',
+        selected=item.pk == selected.pk, url=url(item)) for item in available]
+    scenes = list(selected.scenarios.filter(is_enabled=True).order_by('display_order', 'pk'))
+    scene = next((item for item in scenes if item.pk == scenario_id), None) if scenario_id is not None else (scenes[0] if scenes else None)
+    if scene is None:
+        return None if scenario_id is not None else base
+    try:
+        params = scenario_simulation_params(scene)
+    except ValueError:
+        return None
+    routing = SimpleNamespace(use_ptr=selected.use_ptr, backend_id=selected.backend_id, template=selected.template)
+    key = comparison_key(routing, params)
+    rows = [_project(entry, params) for entry in _read_queryset().filter(
+        config__settings_id=selected.pk, scenario_id=scene.pk, comparison_key=key,
+    ) if math.isfinite(entry.result.dps)]
+    base.update(entries=_ranked_entries(rows), empty_ranking=not rows,
+                use_ptr=selected.use_ptr, targets=params['desired_targets'], duration=params['max_time'],
+                iterations=params['iterations'], scenario_id=scene.pk, scenario_name=scene.name,
+                settings_id=selected.pk, module_rankings_url=url(selected, scene))
+    base['scene_options'] = [dict(label=item.name, scenario_id=item.pk,
+        selected=item.pk == scene.pk, url=url(selected, item)) for item in scenes]
+    return base
+
+
 def ranking_page_context(config, signature, scope, *, admin=False):
     """独立榜单的范围、场景切换和返回配置链接。"""
     from urllib.parse import urlencode
@@ -173,6 +231,9 @@ def ranking_page_context(config, signature, scope, *, admin=False):
 
     if len(signature) != 64 or any(c not in '0123456789abcdef' for c in signature):
         return None
+    if admin:
+        scene_id = _read_queryset().filter(config_id=config.pk, result__signature=signature).values_list('scenario_id', flat=True).first()
+        return admin_ranking_page_context(config.settings_id, scene_id)
     board = leaderboard(config, signature, scope)
     if board is None:
         return None
