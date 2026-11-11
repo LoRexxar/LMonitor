@@ -104,7 +104,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 key = f'{class_name}/{spec_name}'
                 profiles_key = key + ':profiles'
                 required.append(profiles_key)
-                saved = progress.stages.get(profiles_key, {})
+                pending_profiles = progress.pending_profiles(profiles_key)
+                saved = progress.stages.get(profiles_key, pending_profiles or {})
                 total_inserted += saved.get('players', 0)
                 refreshed_identities.update(saved.get('identities', []))
                 if progress.done(profiles_key):
@@ -116,16 +117,24 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     before_counts = self._profile_cache.counts.copy()
                     spec_started = time.monotonic()
                     if not progress.done(profiles_key):
-                        players = self._fetch_top_players(class_name, spec_name, season.rio_season)
+                        waiting = []
+                        if pending_profiles:
+                            from botend.services.player_daily_resume import restore
+                            players, waiting = restore(self, season, class_name, spec_name,
+                                                       pending_profiles['remaining'])
+                            logger.info(f'[SpecDetailPlayer] phase=profile_resume {key} '
+                                        f'ready={len(players)} waiting={len(waiting)}')
+                        else:
+                            players = self._fetch_top_players(class_name, spec_name, season.rio_season)
                         fetched = time.monotonic()
                         logger.info(f'[SpecDetailPlayer] phase=daily_fetch_enrich {key} seconds={fetched-spec_started:.3f} players={len(players)}')
                         if players:
                             progress.check_scope()
                             count, identities, failures = self._write_daily_profiles(season, class_name, spec_name, players)
-                            total_inserted += count
+                            total_inserted += sum(not p.get('_profile_refresh_failed') for p in players)
                             refreshed_identities.update(identities)
-                            if not failures:
-                                progress.mark(profiles_key, {'players': count, 'identities': sorted(identities)})
+                            progress.record_profiles(profiles_key, players, identities,
+                                previous=pending_profiles, waiting=waiting)
                         logger.info(f'[SpecDetailPlayer] phase=daily_profile_write {key} seconds={time.monotonic()-fetched:.3f}')
                     logger.info(f'[SpecDetailPlayer] 专精 {key} 耗时 {time.monotonic()-spec_started:.1f}s，详情缓存统计 '
                                 f'{dict(self._profile_cache.counts-before_counts)}')
@@ -141,9 +150,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         bound_count = refresh_bound_characters(self, season, refreshed_identities,
             completed={key.split(':', 1)[1] for key in progress.stages if key.startswith('binding:')},
             on_complete=lambda digest: progress.mark('binding:' + digest), on_failure=binding_failures.append,
-            defer_stats=True)
+            defer_stats=True, respect_backoff=True)
         complete = all(progress.done(key) for key in required) and not binding_failures
-        progress.finish(complete)
+        progress.finish(complete, failed_bindings=binding_failures)
         logger.info(f'[SpecDetailPlayer] 人物采集耗时 {time.monotonic()-started:.1f}s，详情缓存统计 '
                     f'{dict(self._profile_cache.counts)}，完成={complete}，人物={total_inserted}，绑定={bound_count}')
         return complete
@@ -233,8 +242,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             refreshed_identities.add(activity_identity_digest(**identity))
                 except Exception as e:
                     failures += 1
+                    player['_profile_refresh_failed'] = True
                     from botend.models import MonitorTaskLeaseLost
-                    if isinstance(e, MonitorTaskLeaseLost):
+                    from django.db import DatabaseError
+                    if isinstance(e, (MonitorTaskLeaseLost, DatabaseError)):
                         raise
                     logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
 
@@ -674,7 +685,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         payload = self._get_profile_cache().get(
             profile, season, fetch, signal=getattr(profile, '_ranking_signal', ''),
-            signal_scope=getattr(profile, '_ranking_scope', ''))
+            signal_scope=getattr(profile, '_ranking_scope', ''),
+            required_after=getattr(profile, '_profile_required_after', None))
         if not fetched:
             # 详情复用不能冻结活动与队伍成员各自的更新时钟。
             self._get_activity_collector().refresh(profile, season)
@@ -868,6 +880,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 player['_profile_refresh_unavailable'] = True
                 continue
 
+            char_data = None
+            attempt_started = timezone.now()
             try:
                 season = getattr(self, '_activity_season', None)
                 if season:
@@ -876,6 +890,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     from botend.services.raiderio_profile_cache import ranking_signal
                     identity._ranking_signal = player.get('_ranking_signal', ranking_signal(player))
                     identity._ranking_scope = f"{player.get('_class_name', '')}/{player.get('_spec_name', '')}"
+                    from botend.services.player_daily_resume import required_after
+                    identity._profile_required_after = required_after(player.get('_profile_required_after'))
                     if region.lower() == 'cn':
                         # Preserve the existing CN profile branch, but activity is supported.
                         self._get_activity_collector().refresh(identity, season)
@@ -887,6 +903,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     char_data = self._request_raiderio_character(region, realm, name)
                 if not char_data:
                     player['_profile_refresh_failed'] = True
+                    # 失败恢复不能用缺少原始榜单信号的旧缓存认证成功。
+                    player.setdefault('_profile_required_after', attempt_started.isoformat())
                     continue
 
                 self._pending_build_code = None  # 重置 build_code
@@ -953,6 +971,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
             except Exception as e:
                 player['_profile_refresh_failed'] = True
+                if not char_data:
+                    player.setdefault('_profile_required_after', attempt_started.isoformat())
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
         # 再从本地 ranking 表补充缺失的天赋（WCL 的 talents_json 更可靠）

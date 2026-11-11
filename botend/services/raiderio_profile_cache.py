@@ -64,7 +64,7 @@ class ProfileCache:
     def __init__(self):
         self.counts = Counter()
 
-    def get(self, player, season, fetch, *, signal='', signal_scope=''):
+    def get(self, player, season, fetch, *, signal='', signal_scope='', required_after=None):
         identity = player_identity(player)
         if not season.is_active or player.season_id != season.pk:
             self.counts['wrong_season'] += 1
@@ -91,6 +91,7 @@ class ProfileCache:
             if row.scope_token != scope:
                 changed = True
             if (row.payload and row.fetched_at and not changed
+                    and (required_after is None or row.fetched_at >= required_after)
                     and timedelta(0) <= now - row.fetched_at < ttl):
                 if signal and previous != signal:
                     row.ranking_signals = {**signals, signal_scope: signal}

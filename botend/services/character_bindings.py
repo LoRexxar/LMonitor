@@ -176,15 +176,27 @@ def active_targets():
 
 
 def refresh_bound_characters(monitor, season, refreshed_identities=(), *, completed=(),
-                             on_complete=None, on_failure=None, defer_stats=False):
+                             on_complete=None, on_failure=None, defer_stats=False, respect_backoff=False):
     seen = set(completed)
     already_refreshed = set(refreshed_identities)
     refreshed = 0
     from utils.log import logger
-    for binding in active_targets().iterator():
+    targets = active_targets()
+    waiting_until = {}
+    if respect_backoff:
+        from botend.services.player_daily_resume import deadlines
+        digests = list(dict.fromkeys(targets.exclude(identity_digest__in=seen | already_refreshed)
+                                    .values_list('identity_digest', flat=True)))
+        if digests:
+            waiting_until = dict(zip(digests, deadlines(season, [], binding_digests=digests)))
+    for binding in targets.iterator():
         if binding.identity_digest in seen:
             continue
         seen.add(binding.identity_digest)
+        if waiting_until.get(binding.identity_digest, timezone.now()) > timezone.now():
+            if on_failure:
+                on_failure(binding.identity_digest)
+            continue
         try:
             identity = {'region': binding.region, 'realm_slug': binding.realm_slug,
                         'character_name': normalized_name(binding.character_name)}

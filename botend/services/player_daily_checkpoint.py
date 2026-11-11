@@ -65,17 +65,88 @@ class DailyProgress:
         self.stages[key] = value
         self._save()
 
-    def finish(self, complete):
+    def pending_profiles(self, key):
+        value = self.stages.get(key + ':pending')
+        if not isinstance(value, dict) or value.get('version') != 1:
+            return None
+        from botend.services.player_daily_resume import reference, required_after
+        try:
+            refs = value['remaining']
+            if not isinstance(refs, list) or not refs:
+                return None
+            for ref in refs:
+                if not isinstance(ref, dict) or reference(ref) is None:
+                    return None
+                required_after(ref.get('required_after'))
+            if type(value['players']) is not int or value['players'] < 0:
+                return None
+            if not isinstance(value['identities'], list) or not all(
+                    isinstance(identity, str) for identity in value['identities']):
+                return None
+        except (KeyError, TypeError, ValueError):
+            return None
+        return value
+
+    def record_profiles(self, key, players, identities, *, previous=None, waiting=()):
+        """在资料写入事务完成后记录结果，未成功写入的身份不会被认证。"""
+        from botend.services.player_daily_resume import reference
+        previous = previous or {}
+        remaining = list(waiting)
+        for player in players:
+            if player.get('_profile_refresh_failed'):
+                ref = reference(player)
+                if ref is None:
+                    # 身份本身不完整时仍需重读榜单，不能冻结不可修复的引用。
+                    return
+                remaining.append(ref)
+        successes = sum(not p.get('_profile_refresh_failed') for p in players)
+        value = {'players': previous.get('players', 0) + successes,
+                 'identities': sorted(set(previous.get('identities', [])) | set(identities))}
+        self.check_scope()
+        self.stages.pop(key + ':pending', None)
+        if remaining:
+            self.stages[key + ':pending'] = {**value, 'version': 1, 'remaining': remaining}
+        else:
+            self.stages[key] = value
+        self._save()
+
+    def finish(self, complete, *, failed_bindings=()):
         self.check_scope()
         self.complete = bool(complete)
+        self.stages['bindings:checked'] = True
+        self.stages.pop('bindings:pending', None)
+        if failed_bindings:
+            self.stages['bindings:pending'] = sorted(set(failed_bindings))
         self._save()
+
+    def _retry_at(self):
+        from botend.services.player_daily_resume import deadlines
+        now = timezone.now()
+        fallback = now + timedelta(minutes=30)
+        refs, unknown = [], not self.stages.get('bindings:checked', False)
+        for cls, specs in self.plan.get('classes', {}).items():
+            for spec in specs:
+                key = f'{cls}/{spec}:profiles'
+                if self.done(key):
+                    continue
+                pending = self.pending_profiles(key)
+                if pending:
+                    refs.extend(pending['remaining'])
+                else:
+                    unknown = True
+        bindings = self.stages.get('bindings:pending', [])
+        clocks = deadlines(self.season, refs, binding_digests=bindings) if refs or bindings else []
+        if unknown or not clocks:
+            clocks.append(fallback)
+        return max(fallback, min(clocks))
 
     def _save(self):
         summary = {'kind': 'player_daily', 'day': self.day.isoformat(), 'scope': self.scope,
                    'state': 'complete' if self.complete else 'partial', 'stages': len(self.stages),
-                   'retry_at': (timezone.now() + timedelta(minutes=30)).isoformat()}
+                   'retry_at': self._retry_at().isoformat()}
         players = sum(value.get('players', 0) for key, value in self.stages.items()
-                      if key.endswith(':profiles') and isinstance(value, dict))
+                      if (key.endswith(':profiles') or key.endswith(':profiles:pending'))
+                      and isinstance(value, dict))
         summary['label'] = f'{self.season.season_key}@players={players}@'
         flag = json.dumps(summary, ensure_ascii=False, separators=(',', ':'))
         if self.persistent:
