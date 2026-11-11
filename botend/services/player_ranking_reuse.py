@@ -6,7 +6,7 @@ from django.db.models import Count, Max, Q
 from django.utils import timezone
 
 from botend.models import SpecDungeonRanking, SpecRaidRanking
-from botend.services.wcl_combatant_store import fact_revision
+from botend.services.wcl_combatant_store import fact_revisions
 from botend.raiderio_identity import normalized_name
 from botend.services.spec_aggregation_cache import load_state, save_state
 from botend.services.spec_stats_snapshot import content_digest
@@ -52,6 +52,33 @@ def identity(region, realm, name):
     return tuple(normalized_name(value) for value in values) if all(values) else None
 
 
+def _target_where(players):
+    where = Q()
+    for player in players:
+        where |= Q(region=player['region'], realm=player['realm'], character_name=player['name'])
+    return where
+
+
+def _target_fact_versions(queries, targets):
+    """只检查当前候选人物的榜单战斗引用，查询与传输均不含大 JSON。"""
+    references = defaultdict(set)
+    players = list(targets.values())
+    for start in range(0, len(players), 100):
+        where = _target_where(players[start:start + 100])
+        for qs in queries.values():
+            rows = qs.filter(where, fight_id__gt=0).exclude(report_code='').order_by().values(
+                'region', 'realm', 'character_name', 'report_code', 'fight_id')
+            for row in rows:
+                key = identity(row['region'], row['realm'], row['character_name'])
+                if key in targets:
+                    references[key].add((row['report_code'], row['fight_id']))
+    fights = set().union(*references.values()) if references else set()
+    versions = fact_revisions([{'report_code': code, 'fight_id': fight} for code, fight in fights])
+    return {key: content_digest([[code, fight, versions[code, fight]]
+                                 for code, fight in sorted(references.get(key, ()))])
+            for key in targets}
+
+
 def ranking_fallbacks(season, players):
     """复用同一来源版本下的结果；大JSON仅加载最终命中的人物行。"""
     groups = defaultdict(dict)
@@ -63,8 +90,6 @@ def ranking_fallbacks(season, players):
     if not groups:
         return result, counts
     now = timezone.now().timestamp()
-    # 主键索引末端读取，不扫描大型JSON表；新事实到达后立即重查此前缺失。
-    facts_version = fact_revision()
     for (cls, spec), targets in groups.items():
         counts['candidates'] += len(targets)
         queries = {kind: model.objects.filter(season_id=season.pk, class_name=cls, spec_name=spec)
@@ -72,8 +97,9 @@ def ranking_fallbacks(season, players):
         # 每个专精只读两份标量版本；新增、替换、删除及正常更新时间变化均失效。
         revisions = {kind: qs.aggregate(count=Count('pk'), newest=Max('last_updated'), last_id=Max('pk'))
                      for kind, qs in queries.items()}
-        fingerprint = content_digest(['player-ranking-reuse-v2-central', revisions, facts_version,
+        fingerprint = content_digest(['player-ranking-reuse-v3-scoped-facts', revisions,
                                       getattr(season, 'game_build', ''), getattr(season, 'rio_season', '')])
+        facts_versions = _target_fact_versions(queries, targets)
         scope = f'player-ranking:{cls}:{spec}'
         cached = load_state(season.pk, scope, fingerprint) or {}
         cached = cached if isinstance(cached, dict) else {}
@@ -85,7 +111,8 @@ def ranking_fallbacks(season, players):
             ref = entry.get('ref') if isinstance(entry, dict) else None
             valid_ref = ref is None or (isinstance(ref, list) and len(ref) == 2
                                        and ref[0] in MODELS and type(ref[1]) is int)
-            if (type(stamp) in (int, float) and 0 <= now - stamp < RECHECK.total_seconds() and valid_ref):
+            if (type(stamp) in (int, float) and 0 <= now - stamp < RECHECK.total_seconds() and valid_ref
+                    and entry.get('facts_version') == facts_versions[key]):
                 entries[digest] = entry
                 refs[key] = ref
                 counts['cache_hits'] += 1
@@ -122,9 +149,7 @@ def ranking_fallbacks(season, players):
         for kind, qs in queries.items():
             if not unresolved:
                 break
-            where = Q()
-            for player in unresolved.values():
-                where |= Q(region=player['region'], realm=player['realm'], character_name=player['name'])
+            where = _target_where(unresolved.values())
             selected = {}
             for row in qs.filter(where).exclude(talents_json=[]).order_by('-last_updated', '-pk').values(
                     'pk', 'region', 'realm', 'character_name'):
@@ -137,15 +162,18 @@ def ranking_fallbacks(season, players):
                 if row is None:
                     continue
                 result[key, cls, spec] = row
-                entries[content_digest(key)] = {'checked_at': now, 'ref': [kind, pk]}
+                entries[content_digest(key)] = {'checked_at': now, 'ref': [kind, pk],
+                                                'facts_version': facts_versions[key]}
                 unresolved.pop(key)
             if unresolved:
                 for key, row in _central_candidates(qs, where, unresolved, cls, spec).items():
                     result[key, cls, spec] = row
-                    entries[content_digest(key)] = {'checked_at': now, 'ref': [kind, row.pk]}
+                    entries[content_digest(key)] = {'checked_at': now, 'ref': [kind, row.pk],
+                                                    'facts_version': facts_versions[key]}
                     unresolved.pop(key)
         for key in unresolved:
-            entries[content_digest(key)] = {'checked_at': now, 'ref': None}
+            entries[content_digest(key)] = {'checked_at': now, 'ref': None,
+                                            'facts_version': facts_versions[key]}
         if pending:
             # 每个专精仅保存当前候选的轻量引用，不存装备、天赋或历史人物全集。
             save_state(season.pk, scope, fingerprint, entries)

@@ -228,3 +228,33 @@ class CompactStoreTests(TestCase):
         self.assertEqual(store.persist_events('Report', events, fetched_at=now), 0)
         for fight, stamp in clocks.items():
             self.assertEqual(set(Fact.objects.filter(fight_id=fight).values_list('fetched_at', flat=True)), {stamp})
+
+    def test_scoped_revisions_are_bounded_and_never_read_json(self):
+        records = [dict(report_code=f'Report{i}', fight_id=11) for i in range(201)]
+        with CaptureQueriesContext(connection) as queries:
+            revisions = store.fact_revisions(records + records)
+        self.assertEqual(len(revisions), 201)
+        self.assertTrue(all(value == [(0, None), (0, None)] for value in revisions.values()))
+        self.assertEqual(len(queries), 6)
+        self.assertFalse(any(field in q['sql'] for q in queries
+                             for field in ('payload_json', 'identity_json', 'attributes_json', 'document')))
+        with self.assertNumQueries(0):
+            self.assertEqual(store.fact_revisions([{}, {'report_code': '', 'fight_id': 1}]), {})
+
+    def test_scoped_revision_detects_late_lower_pk_and_retirement(self):
+        records = [dict(report_code='Report', fight_id=11)]
+        newer = WclCombatantSnapshot.objects.create(pk=20, report_code='Report', fight_id=11,
+                                                    actor_id=2, payload_json=event(2))
+        first = store.fact_revisions(records)
+        older = WclCombatantSnapshot.objects.create(pk=10, report_code='Report', fight_id=11,
+                                                    actor_id=1, payload_json=event(1))
+        second = store.fact_revisions(records)
+        self.assertEqual(first['Report', 11][0], (1, 20))
+        self.assertEqual(second['Report', 11][0], (2, 20))
+        store.persist_events('Report', {11: [event(1), event(2)]})
+        third = store.fact_revisions(records)
+        self.assertNotEqual(second, third)
+        WclCombatantSnapshot.objects.filter(pk__in=[older.pk, newer.pk]).delete()
+        retired = store.fact_revisions(records)
+        self.assertEqual(retired['Report', 11][0], (0, None))
+        self.assertEqual(retired['Report', 11][1], third['Report', 11][1])

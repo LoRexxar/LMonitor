@@ -209,6 +209,67 @@ class Top20ProfileReuseTests(TestCase):
         result, _ = ranking_fallbacks(self.season, [player])
         self.assertEqual(result, {})
 
+    def test_unrelated_facts_preserve_positive_negative_cache_and_recheck_clock(self):
+        from botend.services.wcl_combatant_store import persist_events
+        players = [self.player('已知'), self.player('缺失')]
+        self.ranking(name='已知', report_code='Known', fight_id=1)
+        self.ranking(name='缺失', talents_json=[], report_code='Missing', fight_id=1)
+        # 同名人物在其他专精或赛季的引用也不能进入本轮依赖。
+        self.ranking(name='缺失', spec_name='Frost', talents_json=[], report_code='OtherSpec', fight_id=1)
+        other_season = SeasonMeta.objects.create(season_key='其他赛季', season_name='其他赛季',
+                                                mplus_zone_id=3, raid_zone_id=4)
+        self.ranking(name='缺失', season_id=other_season.pk, talents_json=[], report_code='OtherSeason', fight_id=1)
+        now = timezone.now()
+        with patch('django.utils.timezone.now', return_value=now):
+            ranking_fallbacks(self.season, players)
+        state = SpecAggregationWorkCache.objects.get()
+        payload, updated = deepcopy(state.payload), state.updated_at
+        event = {'sourceID': 7, 'specID': 63, 'source': {'id': 7, 'name': '缺失', 'server': '测试服务器'},
+                 'talentTree': [{'id': 1234, 'rank': 1}]}
+        for code, fight in (('Unrelated', 1), ('Missing', 2), ('OtherSpec', 1), ('OtherSeason', 1)):
+            persist_events(code, {fight: [event]})
+        with patch('django.utils.timezone.now', return_value=now + timedelta(hours=2)), \
+                CaptureQueriesContext(connection) as queries:
+            result, counts = ranking_fallbacks(self.season, players)
+        self.assertEqual(counts, {'candidates': 2, 'cache_hits': 2, 'queried': 0})
+        self.assertEqual(len(result), 1)
+        state.refresh_from_db()
+        self.assertEqual((state.payload, state.updated_at), (payload, updated))
+        fact_reads = [q['sql'] for q in queries if 'wow_wcl_combatant_' in q['sql']]
+        self.assertTrue(fact_reads)
+        self.assertFalse(any(field in sql for sql in fact_reads
+                             for field in ('payload_json', 'identity_json', 'attributes_json', 'document')))
+
+    def test_new_fact_rechecks_only_dependent_player_among_twenty(self):
+        from botend.services import player_ranking_reuse as reuse
+        from botend.services.wcl_combatant_store import persist_events
+        players = [self.player(f'角色{i}') for i in range(20)]
+        for i, player in enumerate(players):
+            self.ranking(name=player['name'], talents_json=[], report_code='SharedReport', fight_id=i + 1)
+        now = timezone.now()
+        with patch('django.utils.timezone.now', return_value=now):
+            self.assertEqual(ranking_fallbacks(self.season, players)[0], {})
+        old_entries = deepcopy(SpecAggregationWorkCache.objects.get().payload)
+        target = players[7]
+        persist_events('SharedReport', {8: [{'sourceID': 7, 'specID': 63,
+            'source': {'id': 7, 'name': target['name'], 'server': target['realm']},
+            'talentTree': [{'id': 1234, 'rank': 1}]}]})
+        projected_targets = []
+        original = reuse._central_candidates
+        def project(*args, **kwargs):
+            projected_targets.append(set(args[2]))
+            return original(*args, **kwargs)
+        with patch('django.utils.timezone.now', return_value=now + timedelta(hours=2)), \
+                patch.object(reuse, '_central_candidates', side_effect=project) as central:
+            result, counts = ranking_fallbacks(self.season, players)
+        self.assertEqual(counts, {'candidates': 20, 'cache_hits': 19, 'queried': 1})
+        self.assertEqual(len(result), 1)
+        self.assertEqual(next(iter(result.values())).talents_json[0]['talentID'], 1234)
+        self.assertEqual(central.call_count, 1)
+        self.assertEqual(projected_targets, [{identity(target['region'], target['realm'], target['name'])}])
+        new_entries = SpecAggregationWorkCache.objects.get().payload
+        self.assertEqual(sum(old_entries[key] == new_entries[key] for key in old_entries), 19)
+
     def test_local_fallback_does_not_overwrite_already_complete_talents(self):
         self.ranking(talents_json=[{'talent_id': 999}])
         player = self.player(talents=nodes())

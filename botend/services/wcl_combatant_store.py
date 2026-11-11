@@ -9,7 +9,7 @@ import hashlib
 import json
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Count, Max, Q
 from django.utils import timezone
 
 from botend.models import WclCombatantDocument, WclCombatantFact, WclCombatantSnapshot
@@ -231,6 +231,29 @@ def persist_events(report_code, by_fight, *, fetched_at=None, fetched_at_by_figh
         if inputs:
             written += _persist_chunk(report_code, inputs, fetched_at, fetched_at_by_fight)
     return written
+
+
+def fact_revisions(records):
+    """按报告、战斗查询轻量版本，避免无关事实使人物缓存整体失效。
+
+    同时记录行数与最大主键，识别较小主键延迟提交和旧表退役。
+    正事实不可变；不读取身份、属性或共享文档。
+    """
+    keys = set()
+    for record in records:
+        code, fight = record.get('report_code'), _positive_int(record.get('fight_id'))
+        if isinstance(code, str) and code and fight:
+            keys.add((code, fight))
+    keys = sorted(keys)
+    versions = {key: [(0, None), (0, None)] for key in keys}
+    for start in range(0, len(keys), BATCH_SIZE):
+        where = _scope(keys[start:start + BATCH_SIZE])
+        for index, model in enumerate((WclCombatantSnapshot, WclCombatantFact)):
+            rows = model.objects.filter(where).order_by().values('report_code', 'fight_id').annotate(
+                count=Count('pk'), last_id=Max('pk'))
+            for row in rows:
+                versions[row['report_code'], row['fight_id']][index] = (row['count'], row['last_id'])
+    return versions
 
 
 def fact_revision():
