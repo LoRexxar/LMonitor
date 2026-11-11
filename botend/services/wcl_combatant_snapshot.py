@@ -66,8 +66,9 @@ def match_combatant(events, record, class_name, spec_name):
     return matches[0] if len(matches) == 1 else None
 
 
-def _load_facts(records, *, fetched_before=None):
-    return wcl_combatant_store.load_facts(records, fetched_before=fetched_before)
+def _load_facts(records, *, fetched_before=None, identities_only=False):
+    return wcl_combatant_store.load_facts(
+        records, fetched_before=fetched_before, identities_only=identities_only)
 
 
 def _fact_read_batches(records, target_limit=100):
@@ -329,9 +330,10 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
     sent_token = business_requests_sent.set(0)
     started = time.monotonic()
     try:
-        staged = load_staged_events(code, batch)
+        staged = load_staged_events(code, batch, with_fetched_at=True)
         if staged is not None:
-            return staged, '', None, time.monotonic() - started
+            events, fetched_at_by_fight = staged
+            return events, '', None, time.monotonic() - started, fetched_at_by_fight
         if factory is not None:
             close_old_connections()
             fetcher = factory()
@@ -340,24 +342,29 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
         if error == 'admission_busy' and business_requests_sent.get():
             # Pagination may already have sent HTTP. Defer, never replay it.
             error = 'admission_deferred'
-        return events, error, getattr(fetcher, '_wcl_retry_at', None), time.monotonic() - started
+        from django.utils import timezone
+        fetched_at = timezone.now()
+        return (events, error, getattr(fetcher, '_wcl_retry_at', None), time.monotonic() - started,
+                {fight: fetched_at for fight in batch})
     except Exception:
         # No exception bodies, report codes, player names, or credentials in logs.
-        return None, 'worker_exception', None, time.monotonic() - started
+        return None, 'worker_exception', None, time.monotonic() - started, {}
     finally:
         business_requests_sent.reset(sent_token)
         if factory is not None:
             connections.close_all()
 
 
-def _persist_combatant_batch(code, batch, batch_rows, events):
+def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_fight=None):
     """Validate a complete batch and read back immutable facts on the caller."""
     from django.db import transaction
     from django.utils import timezone
     by_fight = _validated_events(events, batch)
     now = timezone.now()
+    fetched_at_by_fight = fetched_at_by_fight or {}
     # Include authoritative empty fights, so recovery is all-or-nothing.
-    staged = stage_events(code, {fight: by_fight.get(fight, []) for fight in batch}, fetched_at=now)
+    staged = stage_events(code, {fight: by_fight.get(fight, []) for fight in batch}, fetched_at=now,
+                          fetched_at_by_fight=fetched_at_by_fight)
     if staged['status'] != 'stored':
         import logging
         logging.getLogger(__name__).warning('WCL raw staging skipped status=%s', staged['status'])
@@ -366,18 +373,19 @@ def _persist_combatant_batch(code, batch, batch_rows, events):
         # wins even if a later source response differs. Keep that contract at
         # this boundary; the store's explicit migration/conflict checks remain
         # strict for its other callers. No new teammate is dropped.
-        existing = wcl_combatant_store.load_facts([
-            {'report_code': code, 'fight_id': fight} for fight in batch])
+        existing = wcl_combatant_store.load_facts(
+            [{'report_code': code, 'fight_id': fight} for fight in batch], identities_only=True)
         recorded = {fight: {event['sourceID'] for event in payloads}
                     for (_, fight), payloads in existing.items()}
         new_events = {fight: [event for event in payloads
                              if event['sourceID'] not in recorded.get(fight, set())]
                       for fight, payloads in by_fight.items()}
-        written = wcl_combatant_store.persist_events(code, new_events, fetched_at=now)
+        written = wcl_combatant_store.persist_events(
+            code, new_events, fetched_at=now, fetched_at_by_fight=fetched_at_by_fight)
     matched, missing = 0, 0
     missing_fights = set()
     for observations, references in _fact_read_batches(batch_rows):
-        persisted = _load_facts(references)
+        persisted = _load_facts(references, identities_only=True)
         for row in observations:
             key = _fight_key(row)
             if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
@@ -390,7 +398,7 @@ def _persist_combatant_batch(code, batch, batch_rows, events):
         WclCombatantFetchState.objects.filter(
             report_code=code, fight_id__in=[0, *sorted(set(batch) - missing_fights)]).delete()
         for fight in sorted(missing_fights):
-            _save_negative_fetch_state(code, fight, 'missing', now)
+            _save_negative_fetch_state(code, fight, 'missing', fetched_at_by_fight.get(fight, now))
     # Do not extend a negative-cache window with successful stale raw responses.
     transaction.on_commit(lambda: discard_staged_events(code, batch))
     return written, matched, missing
@@ -446,7 +454,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
 
     for batch_records, references in _fact_read_batches(records):
         started = time.monotonic()
-        facts = _load_facts(references)
+        facts = _load_facts(references, identities_only=True)
         counts['preflight_load_seconds'] += time.monotonic() - started
         counts['preflight_fact_rows'] += sum(len(rows) for rows in facts.values())
         counts['preflight_fights'] += sum(_fight_key(row) is not None for row in references)
@@ -612,15 +620,16 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                     admission_check()
                 code, batch, batch_rows = inflight.pop(future)
                 try:
-                    events, error, retry_at, fetch_seconds = future.result()
+                    events, error, retry_at, fetch_seconds, fetched_at_by_fight = future.result()
                 except Exception:
-                    events, error, retry_at, fetch_seconds = None, 'worker_exception', None, 0.0
+                    events, error, retry_at, fetch_seconds, fetched_at_by_fight = None, 'worker_exception', None, 0.0, {}
                 counts['batches_completed'] += 1
                 counts['fetch_seconds'] += fetch_seconds  # summed worker wall, not elapsed throughput
                 save_started = time.monotonic()
                 try:
                     if events is not None:
-                        written, matched, missing = _persist_combatant_batch(code, batch, batch_rows, events)
+                        written, matched, missing = _persist_combatant_batch(
+                            code, batch, batch_rows, events, fetched_at_by_fight=fetched_at_by_fight)
                         counts['snapshots_written'] += written
                         counts['matched'] += matched
                         counts['missing'] += missing

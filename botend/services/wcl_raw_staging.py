@@ -5,6 +5,7 @@ validated events, not the canonical business projection. No identifiers in paths
 or diagnostics. TTL is measured from source fetch, never extended by reads.
 """
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import fcntl
 import gzip
 import hashlib
@@ -161,18 +162,20 @@ def _failure(exc):
     return {'status': status, 'stored': 0}
 
 
-def stage_events(code, by_fight, *, fetched_at=None):
+def stage_events(code, by_fight, *, fetched_at=None, fetched_at_by_fight=None):
     """Best effort; returns identifier-free status/stored/bytes metadata."""
     try:
         ttl, budget, file_limit = _limits()
         now = time.time()
-        stamp = fetched_at.timestamp() if fetched_at is not None else now
+        default_stamp = fetched_at.timestamp() if fetched_at is not None else now
         with _locked() as fd:
             kept, summary = _prune(fd, now, ttl, budget, file_limit)
-            if not 0 <= now - stamp < ttl:
-                return {'status': 'expired', 'stored': 0}
             stored = 0
             for fight, events in by_fight.items():
+                source_time = (fetched_at_by_fight or {}).get(fight)
+                stamp = source_time.timestamp() if source_time is not None else default_stamp
+                if not 0 <= now - stamp < ttl:
+                    return {'status': 'expired', 'stored': stored}
                 identity = _identity(code, fight)
                 if not isinstance(events, list) or any(not isinstance(e, dict) or e.get('fight') != fight for e in events):
                     raise ValueError('Invalid staging events')
@@ -228,13 +231,14 @@ def stage_events(code, by_fight, *, fetched_at=None):
         return _failure(exc)
 
 
-def load_staged_events(code, fights):
-    """Return all requested events or None; a partial cache never authorizes facts."""
+def load_staged_events(code, fights, *, with_fetched_at=False):
+    """仅完整命中时返回事件；恢复调用可同时取得逐场原始采集时间。"""
     try:
         ttl, budget, file_limit = _limits()
         with _locked() as fd:
             _prune(fd, time.time(), ttl, budget, file_limit)
             result = []
+            fetched_at_by_fight = {}
             for fight in sorted(set(fights)):
                 identity = _identity(code, fight)
                 value = _read(fd, identity + '.gz', file_limit)
@@ -243,7 +247,8 @@ def load_staged_events(code, fights):
                         or value['identity'] != identity or any(not isinstance(e, dict) or e.get('fight') != fight for e in value['events'])):
                     raise ValueError('Staging identity mismatch')
                 result.extend(value['events'])
-            return result
+                fetched_at_by_fight[fight] = datetime.fromtimestamp(stamp, tz=timezone.utc)
+            return (result, fetched_at_by_fight) if with_fetched_at else result
     except FileNotFoundError:
         return None
     except _CACHE_ERRORS as exc:

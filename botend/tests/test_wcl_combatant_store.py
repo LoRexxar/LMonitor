@@ -182,3 +182,49 @@ class CompactStoreTests(TestCase):
             migration.guard_reverse(apps, None)
         Document.objects.all().delete()
         migration.guard_reverse(apps, None)
+
+    def test_identity_reads_preserve_matching_without_loading_documents(self):
+        from botend.services.wcl_combatant_snapshot import match_combatant
+        old = timezone.now() - timedelta(days=2)
+        for actor in (1, 2):
+            WclCombatantSnapshot.objects.create(report_code='Report', fight_id=11, actor_id=actor,
+                                               payload_json=event(actor), fetched_at=old)
+        store.persist_events('Report', {11: [event(1), event(3)]}, fetched_at=old)
+        store.persist_events('Report', {11: [event(4)]})
+        records = [dict(report_code='Report', fight_id=11)]
+        cutoff = old + timedelta(hours=1)
+        with CaptureQueriesContext(connection) as queries:
+            identities = store.load_facts(records, identities_only=True, fetched_before=cutoff)
+        self.assertEqual([e['sourceID'] for e in identities['Report', 11]], [1, 2, 3])
+        self.assertFalse(any('wow_wcl_combatant_document' in q['sql'] for q in queries))
+        self.assertFalse(any('attributes_json' in q['sql'] for q in queries))
+        legacy_payload_reads = [q['sql'] for q in queries if 'payload_json' in q['sql']]
+        self.assertEqual(len(legacy_payload_reads), 1)
+        self.assertIn('JSON_EXTRACT', legacy_payload_reads[0].upper())
+        complete = store.load_facts(records, fetched_before=cutoff)
+        for actor in (1, 2, 3):
+            row = dict(character_name=f'Player{actor}', realm='Realm')
+            light = match_combatant(identities['Report', 11], row, 'DeathKnight', 'Frost')
+            full = match_combatant(complete['Report', 11], row, 'DeathKnight', 'Frost')
+            self.assertEqual(light['sourceID'], full['sourceID'])
+            self.assertNotIn('gear', light)
+            self.assertNotIn('talentTree', light)
+            self.assertIn('gear', full)
+        with self.assertNumQueries(0):
+            self.assertFalse(store.load_facts([], identities_only=True))
+
+    def test_identity_reads_ignore_invalid_legacy_actors(self):
+        for actor, payload in ((1, []), (2, {'sourceID': 9}), (3, None)):
+            WclCombatantSnapshot.objects.create(report_code='Report', fight_id=11, actor_id=actor,
+                                               payload_json=payload if payload is not None else {})
+        self.assertFalse(store.load_facts([dict(report_code='Report', fight_id=11)], identities_only=True))
+
+    def test_per_fight_clocks_survive_bulk_batches_and_replay(self):
+        _, Fact = self.models()
+        now = timezone.now()
+        clocks = {11: now - timedelta(hours=12), 12: now - timedelta(hours=3)}
+        events = {fight: [event(actor, fight) for actor in range(1, 71)] for fight in clocks}
+        self.assertEqual(store.persist_events('Report', events, fetched_at_by_fight=clocks), 140)
+        self.assertEqual(store.persist_events('Report', events, fetched_at=now), 0)
+        for fight, stamp in clocks.items():
+            self.assertEqual(set(Fact.objects.filter(fight_id=fight).values_list('fetched_at', flat=True)), {stamp})

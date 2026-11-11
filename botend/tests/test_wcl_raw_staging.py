@@ -239,6 +239,8 @@ class RawStagingRecoveryTests(RawStagingIsolationMixin, TransactionTestCase):
 
     def test_db_failure_replays_raw_without_another_source_request(self):
         from unittest.mock import Mock
+        from datetime import timedelta
+        from django.utils import timezone
         from django.db import DatabaseError
         from botend.models import WclCombatantFact, WclCombatantSnapshot, WclCombatantFetchState
         from botend.services import wcl_combatant_snapshot as service
@@ -246,16 +248,21 @@ class RawStagingRecoveryTests(RawStagingIsolationMixin, TransactionTestCase):
         payload = {**event(), 'unknown_transport': {'original': [1, 2]}}
         fetcher = Mock(_wcl_last_error='')
         fetcher.fetch_wcl_combatant_info.return_value = [payload]
-        with patch.object(service.wcl_combatant_store, 'persist_events', side_effect=DatabaseError):
+        original_time = timezone.now() - timedelta(hours=12)
+        with patch.object(service.wcl_combatant_store, 'persist_events', side_effect=DatabaseError), \
+                patch('django.utils.timezone.now', return_value=original_time):
             failed = service.collect_dungeon_combatants([sample()], fetcher, apply=True)
         self.assertEqual((failed['failed'], failed['matched']), (1, 0))
         self.assertFalse(WclCombatantFact.objects.exists())
         self.assertFalse(WclCombatantFetchState.objects.exists())
         self.assertEqual(load_staged_events('Report', [11]), [payload])
+        self.assertEqual(load_staged_events('Report', [11], with_fetched_at=True),
+                         ([payload], {11: original_time}))
         recovered = service.collect_dungeon_combatants([sample()], fetcher, apply=True)
         self.assertEqual((recovered['matched'], recovered['snapshots_written']), (1, 1))
         fetcher.fetch_wcl_combatant_info.assert_called_once()
         self.assertFalse(WclCombatantSnapshot.objects.exists())
+        self.assertEqual(WclCombatantFact.objects.get().fetched_at, original_time)
         self.assertIsNone(load_staged_events('Report', [11]))
 
     @override_settings(WCL_RAW_STAGING_MAX_BYTES=1)

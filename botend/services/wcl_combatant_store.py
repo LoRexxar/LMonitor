@@ -74,8 +74,8 @@ def _project_fact(row):
     return result
 
 
-def load_facts(records, *, fetched_before=None):
-    """Bounded DB-only full-fight reads; compact rows take precedence per actor."""
+def load_facts(records, *, fetched_before=None, identities_only=False):
+    """按战斗有界读取，新事实优先；身份模式不加载属性或装备、天赋文档。"""
     keys = set()
     for record in records:
         code, fight = record.get('report_code'), _positive_int(record.get('fight_id'))
@@ -85,7 +85,11 @@ def load_facts(records, *, fetched_before=None):
     result = defaultdict(list)
     for start in range(0, len(keys), BATCH_SIZE):
         where = _scope(keys[start:start + BATCH_SIZE])
-        compact = WclCombatantFact.objects.filter(where).prefetch_related('gear_document', 'talent_document')
+        compact = WclCombatantFact.objects.filter(where)
+        if identities_only:
+            compact = compact.only('pk', 'report_code', 'fight_id', 'actor_id', 'identity_json')
+        else:
+            compact = compact.prefetch_related('gear_document', 'talent_document')
         legacy = WclCombatantSnapshot.objects.filter(where)
         if fetched_before is not None:
             compact = compact.filter(fetched_at__lte=fetched_before)
@@ -94,15 +98,20 @@ def load_facts(records, *, fetched_before=None):
         compact_ids = []
         for row in compact:
             compact_ids.append(row.pk)
-            actors[(row.report_code, row.fight_id, row.actor_id)] = _project_fact(row)
+            actors[(row.report_code, row.fight_id, row.actor_id)] = (
+                deepcopy(row.identity_json) if identities_only else _project_fact(row))
         # Inspect only legacy identities first: never transfer its large raw
         # JSON when a compact actor already satisfies the requested cutoff.
         missing_ids = [row['pk'] for row in legacy.values('pk', 'report_code', 'fight_id', 'actor_id')
                        if (row['report_code'], row['fight_id'], row['actor_id']) not in actors]
         for offset in range(0, len(missing_ids), 200):
+            fields = (tuple('payload_json__' + key for key in (*IDENTITY_KEYS, 'source'))
+                      if identities_only else ('payload_json',))
             for row in WclCombatantSnapshot.objects.filter(pk__in=missing_ids[offset:offset + 200]).values(
-                    'report_code', 'fight_id', 'actor_id', 'payload_json'):
-                payload = row['payload_json']
+                    'report_code', 'fight_id', 'actor_id', *fields):
+                # 旧表由数据库提取身份字段，不传输或反序列化装备、天赋原文。
+                payload = ({key: row['payload_json__' + key] for key in (*IDENTITY_KEYS, 'source')}
+                           if identities_only else row['payload_json'])
                 if isinstance(payload, dict) and _positive_int(payload.get('sourceID')) == row['actor_id']:
                     actors[(row['report_code'], row['fight_id'], row['actor_id'])] = canonical_event(payload)
         # Copy+retire commits atomically, but READ COMMITTED SELECTs can straddle
@@ -112,13 +121,14 @@ def load_facts(records, *, fetched_before=None):
         # not a max-PK watermark: a lower allocated PK can commit later.
         # Already projected documents are never transferred a second time.
         for row in compact.exclude(pk__in=compact_ids):
-            actors[(row.report_code, row.fight_id, row.actor_id)] = _project_fact(row)
+            actors[(row.report_code, row.fight_id, row.actor_id)] = (
+                deepcopy(row.identity_json) if identities_only else _project_fact(row))
         for (code, fight, actor), payload in sorted(actors.items()):
             result[(code, fight)].append(payload)
     return result
 
 
-def _persist_chunk(code, inputs, fetched_at):
+def _persist_chunk(code, inputs, fetched_at, fetched_at_by_fight):
     """One bounded insert batch; caller owns transaction and rollback."""
     keys = sorted({(code, fight) for fight, actor in inputs})
     where = Q()
@@ -175,7 +185,7 @@ def _persist_chunk(code, inputs, fetched_at):
                 attributes_json={key: canonical[key] for key in ATTRIBUTE_KEYS if key in canonical},
                 gear_document=docs.get(_hash(['gear', canonical['gear']])) if 'gear' in canonical else None,
                 talent_document=docs.get(_hash(['talents', canonical['talentTree']])) if 'talentTree' in canonical else None,
-                fetched_at=old.fetched_at if old is not None else fetched_at,
+                fetched_at=old.fetched_at if old is not None else fetched_at_by_fight.get(fight, fetched_at),
                 source_hash=_hash(raw), canonical_hash=digest))
         try:
             with transaction.atomic():
@@ -187,7 +197,7 @@ def _persist_chunk(code, inputs, fetched_at):
     return 0
 
 
-def persist_events(report_code, by_fight, *, fetched_at=None):
+def persist_events(report_code, by_fight, *, fetched_at=None, fetched_at_by_fight=None):
     """Bulk-insert all validated actors, refusing canonical conflicts atomically.
 
     Report input must have passed _validated_events; identity assertions here
@@ -197,6 +207,7 @@ def persist_events(report_code, by_fight, *, fetched_at=None):
     if not isinstance(report_code, str) or not report_code or len(report_code) > 50:
         raise ValueError('Invalid CombatantInfo report code')
     fetched_at = fetched_at if fetched_at is not None else timezone.now()
+    fetched_at_by_fight = fetched_at_by_fight or {}
     written = 0
     with transaction.atomic():
         inputs = {}
@@ -215,10 +226,10 @@ def persist_events(report_code, by_fight, *, fetched_at=None):
                     raise ValueError('Conflicting CombatantInfo batch actors')
                 inputs[key] = (raw, canonical)
                 if len(inputs) >= BATCH_SIZE:
-                    written += _persist_chunk(report_code, inputs, fetched_at)
+                    written += _persist_chunk(report_code, inputs, fetched_at, fetched_at_by_fight)
                     inputs = {}
         if inputs:
-            written += _persist_chunk(report_code, inputs, fetched_at)
+            written += _persist_chunk(report_code, inputs, fetched_at, fetched_at_by_fight)
     return written
 
 

@@ -89,6 +89,59 @@ def event(fight=11, actor=232):
                 critMelee=1410, versatilityDamageDone=-114)
 
 
+class SnapshotLightReadRecoveryTests(TestCase):
+    def test_preflight_and_replay_never_load_equipment_documents(self):
+        from unittest.mock import Mock, patch
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from botend.services import wcl_combatant_snapshot as service
+        from botend.services import wcl_combatant_store as store
+        payload = {**event(), 'gear': [{'id': 123}], 'talentTree': [{'id': 456}]}
+        store.persist_events('Report', {11: [payload]})
+        fetcher = Mock()
+        with patch.object(service, 'stage_events', return_value={'status': 'stored'}), \
+                patch.object(service, 'discard_staged_events'), CaptureQueriesContext(connection) as queries:
+            counts = service.collect_dungeon_combatants([sample()], fetcher, apply=True)
+            replay = service._persist_combatant_batch('Report', [11], [sample()], [payload])
+        self.assertEqual(counts['cached'], 1)
+        self.assertEqual(replay, (0, 1, 0))
+        fetcher.fetch_wcl_combatant_info.assert_not_called()
+        self.assertFalse(any('wow_wcl_combatant_document' in q['sql'] for q in queries))
+        self.assertFalse(any('attributes_json' in q['sql'] for q in queries))
+
+    def test_recovery_preserves_each_fight_clock_and_empty_response_expiry(self):
+        from contextlib import nullcontext
+        from datetime import timedelta
+        from unittest.mock import Mock, patch
+        from botend.models import WclCombatantFetchState
+        from botend.services import wcl_combatant_snapshot as service
+        from botend.services import wcl_raw_staging as raw
+        now = timezone.now()
+        clocks = {11: now - timedelta(hours=12), 12: now - timedelta(hours=8),
+                  13: now - timedelta(hours=3)}
+        envelopes = {raw._identity('Report', fight): dict(identity=raw._identity('Report', fight),
+                     fetched_at=stamp.timestamp(), events=[] if fight == 12 else [event(fight)])
+                     for fight, stamp in clocks.items()}
+        def read(fd, name, limit):
+            return envelopes[name[:-3]]
+        fetcher = Mock()
+        # 只替代文件系统边界；保留暂存解包、线程结果传递与真实数据库持久化。
+        with patch.object(raw, '_locked', side_effect=lambda: nullcontext(0)), \
+                patch.object(raw, '_prune'), patch.object(raw, '_read', side_effect=read), \
+                patch.object(service, 'stage_events', return_value={'status': 'stored'}) as stage, \
+                patch.object(service, 'discard_staged_events'):
+            counts = service.collect_dungeon_combatants([sample(fight) for fight in clocks], fetcher, apply=True)
+        self.assertEqual((counts['matched'], counts['missing'], counts['failed']), (2, 1, 0))
+        fetcher.fetch_wcl_combatant_info.assert_not_called()
+        self.assertEqual(stage.call_args.kwargs['fetched_at_by_fight'], clocks)
+        for fight in (11, 13):
+            self.assertEqual(WclCombatantFact.objects.get(fight_id=fight).fetched_at, clocks[fight])
+        missing = WclCombatantFetchState.objects.get(fight_id=12)
+        self.assertEqual(missing.checked_at, clocks[12])
+        self.assertEqual(missing.retry_after, clocks[12] + service.WCL_COMBATANT_MISSING_TTL)
+        self.assertLess(missing.retry_after, now)
+
+
 class SnapshotCollectionTests(RawStagingIsolationMixin, TestCase):
     def setUp(self):
         super().setUp()
