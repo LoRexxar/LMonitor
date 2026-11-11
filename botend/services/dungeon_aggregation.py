@@ -21,7 +21,7 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 
 # Bump when selection, aggregation, source interpretation or display code changes.
-ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v5-ranked100'
+ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v6-sample-facts'
 _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at', 'variant_text_templates'}
 
 
@@ -252,20 +252,27 @@ def _metadata_dependencies(records, facts, class_name, spec_name, *, context=Non
     # 当前版本解析器将所有使用场景固定到正式服；同一依赖检查无需重复查询四次。
     resolved_versions = {usage: getattr(version, 'pk', None)
                          for usage in (*TalentVersionResolver.DEFAULT_FLAG_BY_USAGE, 'retail')}
+    # 单本拆分后，相同引用集合仍只查询一次；上下文仅存活于本轮发布。
+    spell_key = ('spell-rows', tuple(sorted(reference_ids)))
+    if spell_key not in context:
+        context[spell_key] = _content_rows(WowSpellSnapshot.objects.filter(spell_id__in=reference_ids))
+    grants_key = ('talent-grants', getattr(version, 'pk', None), class_name)
+    if grants_key not in context:
+        context[grants_key] = effective_grants(version, class_name)
     return {
         'items': item_rows,
         'enchant_catalog': sorted(catalog.items()),
         'variants': variants,
         'gear_scope': gear_scope,
         # 当前分支版本的内容由节点、解析输出及结构文件覆盖；无关版本和构建时间不触发全量重算。
-        'talent_grants': effective_grants(version, class_name),
+        'talent_grants': context[grants_key],
         'talent_versions': {'id': getattr(version, 'pk', None),
                             'branch': getattr(version, 'branch', None)},
         'resolved_versions': resolved_versions,
         'talent_nodes': nodes,
         'talent_names': supplements,
         # Direct snapshot fallbacks also supply names for raw WCL nodes.
-        'spells': _content_rows(WowSpellSnapshot.objects.filter(spell_id__in=reference_ids)),
+        'spells': context[spell_key],
         'resolved_talents': context[resolved_key],
         'hero_names': hero_names,
     }
@@ -306,8 +313,12 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             selected = [row for row in selected if combatants._fight_key(row)]
         by_dungeon[dungeon_id] = [row for row in selected if combatants._fight_key(row)]
     selected = [row for rows in by_dungeon.values() for row in rows]
-    facts = combatants._load_facts(selected, fetched_before=source_cutoff)
-    metadata = _metadata_dependencies(selected, facts, class_name, spec_name)
+    facts = combatants.load_matched_facts(selected, class_name, spec_name, fetched_before=source_cutoff)
+    metadata, context = {}, {}
+    for dungeon_id, rows in by_dungeon.items():
+        scope_facts = combatants.matched_facts(rows, facts, class_name, spec_name)
+        metadata[dungeon_id] = content_digest(
+            _metadata_dependencies(rows, scope_facts, class_name, spec_name, context=context))
     fingerprint = content_digest({
         'algorithm': ALGORITHM_VERSION,
         'storage_version': 4,
@@ -331,7 +342,7 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             scope = f'dungeon:{class_name}:{spec_name}:{dungeon_id}'
             scope_fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': name,
                 'storage_version': 4, 'rows': rows,
-                'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata})
+                'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata[dungeon_id]})
             detail = load_work(season.id, scope, scope_fingerprint)
             if detail is None:
                 detail = stats.SpecStatsService._compute_dungeon_records(

@@ -498,6 +498,46 @@ class DungeonAggregationReuseTests(TestCase):
         with patch.object(facts, '_load_facts', side_effect=AssertionError('second read')):
             self.assertEqual(facts.enrich_dungeon_records([row], 'Warrior', 'Arms', facts={})[0]['stats_json'], {})
 
+    def test_sample_projection_excludes_teammate_details_and_unrelated_item_changes(self):
+        from botend.services import wcl_combatant_store as store
+        row = self.row()
+        WowItemSnapshot.objects.create(item_id=123, name='Sample', name_zh='样本装备')
+        teammate_item = WowItemSnapshot.objects.create(item_id=999, name='Teammate', name_zh='队友装备')
+        store.persist_events(row.report_code, {row.fight_id: [
+            {'sourceID': actor, 'specID': 71,
+             'source': {'id': actor, 'name': row.character_name if actor == 1 else f'Buddy{actor}', 'server': row.realm},
+             'critMelee': actor * 100, 'gear': [{'id': 123 if actor == 1 else 999, 'slot': 0}]}
+            for actor in range(1, 31)]})
+        with patch.object(store, '_project_fact', wraps=store._project_fact) as project:
+            first = self.aggregate()
+        self.assertEqual([call.args[0].actor_id for call in project.call_args_list], [1])
+        WowItemSnapshot.objects.filter(pk=teammate_item.pk).update(name_zh='队友装备新名称')
+        with patch.object(stats.SpecStatsService, '_compute_dungeon_records', side_effect=AssertionError('无关队友触发重算')):
+            second = self.aggregate()
+        self.assertTrue(second['reused'])
+        self.assertEqual(first['generation'], second['generation'])
+        # 新增同名歧义必须使此前匹配失效，不能把目标筛选变成忽略歧义。
+        store.persist_events(row.report_code, {row.fight_id: [{
+            'sourceID': 31, 'specID': 71,
+            'source': {'id': 31, 'name': row.character_name, 'server': row.realm}, 'critMelee': 999}]})
+        self.assertFalse(self.aggregate()['reused'])
+        self.assertNotIn('secondary_stats', self.detail(1))
+
+    def test_one_dungeon_item_change_does_not_recompute_other_dungeon(self):
+        self.row()
+        self.row(dungeon=2, gear_json=[{'id': 456, 'slot': 'head'}])
+        WowItemSnapshot.objects.create(item_id=123, name='First', name_zh='第一件')
+        second = WowItemSnapshot.objects.create(item_id=456, name='Second', name_zh='第二件')
+        self.aggregate()
+        WowItemSnapshot.objects.filter(pk=second.pk).update(name_zh='第二件新名称')
+        with patch.object(stats.SpecStatsService, '_compute_dungeon_records',
+                          wraps=stats.SpecStatsService._compute_dungeon_records) as compute, \
+                CaptureQueriesContext(connection) as queries:
+            self.aggregate()
+        self.assertEqual([call.args[2] for call in compute.call_args_list], [2, 'all'])
+        self.assertFalse([q['sql'] for q in queries if q['sql'].lstrip().upper().startswith(
+            ('INSERT ', 'UPDATE ', 'DELETE '))])
+
     def test_legacy_candidates_keep_hundred_unique_players_and_top5_order(self):
         SpecDungeonRanking.objects.bulk_create([
             SpecDungeonRanking(season_id=self.season.id, dungeon_id=1, dungeon_name='One',
@@ -581,7 +621,7 @@ class DungeonAggregationReuseTests(TestCase):
             self.assertIsInstance(result[key], (int, float))
             self.assertGreaterEqual(result[key], 0)
         self.assertTrue(all(isinstance(v, int) for k, v in result.items()
-                            if k not in duration_fields | {'retry_at'}))
+                            if k not in duration_fields | set(facts.COMBATANT_SAVE_TIMINGS) | {'retry_at'}))
 
 
     def test_current_identity_rebuild_uses_existing_facts_and_leaves_other_class_reusable(self):

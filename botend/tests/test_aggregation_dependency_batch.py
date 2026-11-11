@@ -142,3 +142,65 @@ class AggregationDependencyBatchTests(TestCase):
         with self.assertRaisesMessage(ValueError, '聚合期间天赋结构已更新'):
             run(changed_structure)
         self.assertEqual((path / 'raid.json').read_bytes(), before)
+
+    def test_changed_scope_reuses_prepared_inputs_without_database_writes(self):
+        path = Path(self.tmp.name) / str(self.season.pk) / 'Mage/Fire'
+        run = lambda: SpecDetailAggregationMonitor._aggregate_raid(
+            self.season, 'Mage', 'Fire', str(path), publish=publish_stats)
+        run()
+        SpecRaidRanking.objects.filter(pk=self.rows[0].pk).update(dps=345)
+        with patch.object(raid, '_inputs', wraps=raid._inputs) as inputs, \
+                patch.object(raid, '_fingerprint', wraps=raid._fingerprint) as fingerprints, \
+                CaptureQueriesContext(connection) as queries:
+            run()
+        self.assertEqual(inputs.call_count, len(self.scopes))
+        self.assertEqual(fingerprints.call_count, len(self.scopes))
+        self.assertFalse([q['sql'] for q in queries if q['sql'].lstrip().upper().startswith(
+            ('INSERT ', 'UPDATE ', 'DELETE '))])
+        detail = read_projection(path / 'raid.json', 'raid-5-1')
+        self.assertEqual(detail['zone_groups'][0]['bosses'][0]['dps']['avg'], 345)
+
+    def test_input_budget_exhaustion_rereads_changed_source_instead_of_reusing_old_fingerprint(self):
+        buffer = raid.RaidInputBuffer(max_bytes=0)
+        fingerprints = raid.raid_fingerprints(self.scopes, prepared_inputs=buffer)
+        self.assertEqual(buffer.used_bytes, 0)
+        SpecRaidRanking.objects.filter(pk=self.rows[0].pk).update(dps=456)
+        with patch.object(raid, '_inputs', wraps=raid._inputs) as inputs:
+            result, fingerprint, hit = raid.raid_stats(
+                *self.scopes[0], fingerprint=fingerprints[0], prepared_inputs=buffer)
+        self.assertEqual(inputs.call_count, 1)
+        self.assertFalse(hit)
+        self.assertNotEqual(fingerprint, fingerprints[0])
+        self.assertEqual(result['dps']['avg'], 456)
+
+    def test_input_buffer_is_bound_to_scope_selection_and_cutoff_and_releases_on_take(self):
+        from django.utils import timezone
+        buffer = raid.RaidInputBuffer(max_bytes=4096)
+        scope, cutoff = self.scopes[0], timezone.now()
+        rows, facts = [{'id': 1}], {}
+        buffer.remember(scope, [1], cutoff, rows, facts, 'fingerprint')
+        self.assertGreater(buffer.used_bytes, 0)
+        self.assertLessEqual(buffer.used_bytes, 4096)
+        self.assertIsNone(buffer.take(self.scopes[1], [1], cutoff))
+        self.assertIsNone(buffer.take(scope, None, cutoff))
+        self.assertIsNone(buffer.take(scope, [1], None))
+        self.assertEqual(buffer.take(scope, [1], cutoff), (rows, facts, 'fingerprint'))
+        self.assertEqual(buffer.used_bytes, 0)
+        self.assertIsNone(buffer.take(scope, [1], cutoff))
+
+    def test_raid_fingerprint_and_computation_only_hydrate_sample_actor(self):
+        from botend.services import wcl_combatant_store as store
+        other = WowItemSnapshot.objects.create(item_id=999, name='Other', name_zh='队友装备')
+        store.persist_events('Report', {1: [
+            {'sourceID': actor, 'specID': 63,
+             'source': {'id': actor, 'name': 'Player' if actor == 1 else f'Other{actor}', 'server': 'Realm'},
+             'gear': [{'id': 123 if actor == 1 else 999, 'slot': 0}]}
+            for actor in range(1, 31)]})
+        with patch.object(store, '_project_fact', wraps=store._project_fact) as project:
+            result, fingerprint, hit = raid.raid_stats(*self.scopes[0])
+        self.assertFalse(hit)
+        self.assertEqual([call.args[0].actor_id for call in project.call_args_list], [1])
+        WowItemSnapshot.objects.filter(pk=other.pk).update(name_zh='队友装备更新')
+        replay, same_fingerprint, hit = raid.raid_stats(*self.scopes[0])
+        self.assertTrue(hit)
+        self.assertEqual((replay, same_fingerprint), (result, fingerprint))

@@ -155,6 +155,29 @@ def combatant_gear(gear, enchant_catalog=None):
     return result
 
 
+def matched_facts(records, facts, class_name, spec_name):
+    """按样本划分日志内容；保留唯一身份匹配的角色，不携带其他队友详情。"""
+    selected = defaultdict(dict)
+    for row in records:
+        fight = _fight_key(row)
+        event = match_combatant(facts.get(fight, []), row, class_name, spec_name)
+        if event is not None:
+            selected[fight][int(event['sourceID'])] = event
+    return {key: [events[actor] for actor in sorted(events)] for key, events in sorted(selected.items())}
+
+
+def load_matched_facts(records, class_name, spec_name, *, fetched_before=None):
+    """先核对整场轻量身份，再读取样本角色的属性、装备和天赋。"""
+    records = list(records)
+    identities = _load_facts(records, fetched_before=fetched_before, identities_only=True)
+    selected = matched_facts(records, identities, class_name, spec_name)
+    actor_scopes = {key: [int(event['sourceID']) for event in events] for key, events in selected.items()}
+    del identities, selected
+    if not actor_scopes:
+        return {}
+    return _load_facts(records, fetched_before=fetched_before, actor_ids_by_fight=actor_scopes)
+
+
 def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
     """Return independent dicts; stats/race exclusively from the exact WCL log.
 

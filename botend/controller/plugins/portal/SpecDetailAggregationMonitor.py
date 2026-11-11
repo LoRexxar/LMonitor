@@ -183,7 +183,7 @@ class SpecDetailAggregationMonitor(BaseScan):
         if not season.raid_encounters and not season.raid_zones:
             return
 
-        from botend.services.raid_aggregation import raid_stats, raid_fingerprints
+        from botend.services.raid_aggregation import raid_stats, raid_fingerprints, RaidInputBuffer
         from botend.services.spec_stats_snapshot import content_digest, reusable_projection
         from botend.services.stats_talent_dependencies import structure_token
         token = structure_token(class_name)
@@ -194,6 +194,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                         if cycle is not None else None)
         source_cutoff = cycle.collected_at if cycle is not None else None
         prepared = {}
+        prepared_inputs = RaidInputBuffer()
         checked = []
         scopes = [(season.id, enc['id'], RAID_BOSS_CN.get(enc['name'], enc['name']),
                    class_name, spec_name, difficulty)
@@ -202,7 +203,8 @@ class SpecDetailAggregationMonitor(BaseScan):
         # Let each scope read its current inputs once in raid_stats instead of
         # doing a speculative full fingerprint and immediately redoing it on miss.
         if os.path.isfile(path):
-            for scope, fingerprint in zip(scopes, raid_fingerprints(scopes, selected_ids=selected_ids, source_cutoff=source_cutoff)):
+            for scope, fingerprint in zip(scopes, raid_fingerprints(
+                    scopes, selected_ids=selected_ids, source_cutoff=source_cutoff, prepared_inputs=prepared_inputs)):
                 difficulty, boss_id = scope[-1], scope[1]
                 prepared[difficulty, boss_id] = fingerprint
                 checked.append([difficulty, boss_id, fingerprint])
@@ -224,6 +226,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             result, fingerprint, hit = raid_stats(
                 season.id, enc['id'], cn_name, class_name, spec_name, difficulty,
                 fingerprint=prepared.get((difficulty, enc['id'])),
+                prepared_inputs=prepared_inputs,
                 selected_ids=selected_ids[f'{difficulty}:{enc["id"]}'] if selected_ids is not None else None,
                 source_cutoff=source_cutoff)
             fingerprints.append([difficulty, enc['id'], fingerprint])
