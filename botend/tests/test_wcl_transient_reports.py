@@ -86,7 +86,7 @@ class TransientReportTests(RawStagingIsolationMixin, TransactionTestCase):
         self.assertFalse(WclCombatantFact.objects.filter(report_code='Paged').exists())
         self.assertFalse(WclCombatantFetchState.objects.filter(status='missing').exists())
 
-    def test_three_consecutive_reports_open_circuit_without_claiming_completion(self):
+    def test_three_consecutive_reports_open_circuit_but_allow_publication_before_repair(self):
         from botend.models import SeasonMeta
         season = SeasonMeta.objects.create(season_key='transient', season_name='测试',
                                           mplus_zone_id=1, raid_zone_id=1)
@@ -102,8 +102,12 @@ class TransientReportTests(RawStagingIsolationMixin, TransactionTestCase):
         self.assertEqual(result['deferred_reports'], 3)
         self.assertEqual(fetcher._wcl_last_error, 'http_503')
         self.assertEqual(fetcher._wcl_retry_at.isoformat(), result['retry_at'])
-        self.assertFalse(finish_collection(cycle, result))
+        self.assertTrue(finish_collection(cycle, result))
         cycle.refresh_from_db()
+        self.assertEqual(cycle.phase, 'ready')
+        self.assertIsNone(cycle.next_retry_at)
+        from botend.tests.wcl_cycle_helpers import publish_attempt
+        publish_attempt(cycle)
         self.assertEqual(cycle.phase, 'combatants')
         self.assertEqual(cycle.next_retry_at, fetcher._wcl_retry_at)
 

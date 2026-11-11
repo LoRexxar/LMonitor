@@ -36,7 +36,9 @@ class CombatantResume:
         self.remaining.difference_update(row['_cycle_ref'] for row in rows)
 
     def counts(self, counts):
-        return {**counts, 'selected': len(self.references),
+        control = {key: self.cycle.counts[key] for key in ('_ranking_pending', '_ranking_retry_at')
+                   if key in (self.cycle.counts or {})}
+        return {**control, **counts, 'selected': len(self.references),
                 'cached': counts.get('cached', 0) + self.skipped,
                 'resumed_cached': self.skipped}
 

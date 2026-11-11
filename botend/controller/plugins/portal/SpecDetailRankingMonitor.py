@@ -18,7 +18,7 @@ from botend.services.wcl_ranking_payload import compact_ranking_talents
 from botend.services.wcl_ranking_time import parse_ranking_fight_started_at
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, begin_collection, checkpoint_scope, defer_cycle,
-    fenced_cycle, finish_collection, freeze_samples,
+    fenced_cycle, finish_collection, freeze_samples, frozen_season,
 )
 
 from utils.log import logger
@@ -76,19 +76,27 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         try:
             check_wcl_storage()
             if self._cycle.phase == 'rankings':
-                if season.mplus_encounters and not self._collect_dungeon_rankings(season):
-                    defer_cycle(self._cycle, 'dungeon rankings incomplete', self._wcl_retry_at)
-                    return False
-                if season.raid_encounters:
-                    for difficulty, name in ((5, 'Mythic'), (4, 'Heroic')):
-                        if not self._collect_raid_rankings(season, difficulty, name):
-                            defer_cycle(self._cycle, 'raid rankings incomplete', self._wcl_retry_at)
-                            return False
-                identities = [(cls, spec) for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
-                freeze_samples(self._cycle, season, identities)
+                from django.utils.dateparse import parse_datetime
+                retry = parse_datetime((self._cycle.counts or {}).get('_ranking_retry_at') or '')
+                if self._cycle.selected_samples and retry and timezone.is_aware(retry) and retry > timezone.now():
+                    # 榜单仍在退避时，允许先补已有冻结样本的详情。
+                    with fenced_cycle(self._cycle, phases=('rankings',)) as current:
+                        current.phase = self._cycle.phase = 'combatants'
+                        current.save(update_fields=['phase'])
+                else:
+                    if self._cycle.selected_samples:
+                        season = frozen_season(self._cycle, season)
+                    if season.mplus_encounters:
+                        self._collect_dungeon_rankings(season)
+                    if season.raid_encounters:
+                        for difficulty, name in ((5, 'Mythic'), (4, 'Heroic')):
+                            if self._ranking_source_waiting():
+                                break
+                            self._collect_raid_rankings(season, difficulty, name)
+                    identities = [(cls, spec) for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
+                    freeze_samples(self._cycle, season, identities, allow_partial=True, retry_at=self._wcl_retry_at)
 
-            # All rankings finish before one global report/fight supplement.
-            # Retries read frozen IDs, never a newly selected cohort.
+            # 本轮榜单尝试后补充已冻结的日志引用，单项失败不再阻塞发布。
             from botend.services.wcl_collection_resume import collect_cycle_combatants
             counts = collect_cycle_combatants(
                 self._cycle, self, log=logger.info,
@@ -119,6 +127,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
     def _scope_complete(self, scope):
         cycle = getattr(self, '_cycle', None)
         return cycle is not None and scope in cycle.completed_scopes
+
+    def _ranking_source_waiting(self):
+        retry = getattr(self, '_wcl_retry_at', None)
+        return retry is not None and retry > timezone.now()
 
     def _checkpoint(self, scope):
         cycle = getattr(self, '_cycle', None)
@@ -273,18 +285,23 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
     def _collect_dungeon_rankings(self, season):
         """先采集各专精的100条轻量日志引用，范围失败时保留旧数据。"""
+        complete = True
         for encounter in season.mplus_encounters:
+            if self._ranking_source_waiting():
+                return False
             enc_id, enc_name = encounter['id'], encounter['name']
             scope = f'dungeon:{enc_id}'
             if self._scope_complete(scope):
                 continue
             records = []
+            scope_failed = False
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
                     rows = self._select_ranking_headers(enc_id, class_name, spec_name)
                     if rows is None:
                         logger.error('[SpecDetailRanking] M+ %s 轻量榜单不完整，保留旧数据', enc_id)
-                        return False
+                        scope_failed = True
+                        break
                     records.extend(SpecDungeonRanking(
                         season_id=season.id, dungeon_id=enc_id, dungeon_name=enc_name,
                         class_name=class_name, spec_name=spec_name,
@@ -293,6 +310,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                         fight_started_at=parse_ranking_fight_started_at(row), last_updated=timezone.now(),
                         **self._header_values(row)) for row in rows)
                     time.sleep(0.3)
+                if scope_failed:
+                    break
+            if scope_failed:
+                complete = False
+                continue
             if not records:
                 self._checkpoint(scope)
                 continue
@@ -303,7 +325,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     update_fields=self._header_update_fields(self.DUNGEON_UPDATE_FIELDS))
                 self._checkpoint(scope)
             logger.info('[SpecDetailRanking] M+ %s 轻量榜单同步: %s', enc_id, result)
-        return True
+        return complete
 
     @staticmethod
     def _header_update_fields(fields):
@@ -376,26 +398,36 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         """团本同样按页补足100条有效引用，各首领和难度独立同步。"""
         zones = {enc['id']: zone for zone in season.raid_zones or []
                  for enc in zone.get('encounters', [])}
+        complete = True
         for encounter in season.raid_encounters:
+            if self._ranking_source_waiting():
+                return False
             enc_id, enc_name = encounter['id'], encounter['name']
             scope = f'raid:{difficulty}:{enc_id}'
             if self._scope_complete(scope):
                 continue
             zone = zones.get(enc_id, {})
             records = []
+            scope_failed = False
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
                     rows = self._select_ranking_headers(enc_id, class_name, spec_name, difficulty=difficulty)
                     if rows is None:
                         logger.error('[SpecDetailRanking] 首领 %s/%s 轻量榜单不完整，保留旧数据',
                                      enc_id, difficulty_name)
-                        return False
+                        scope_failed = True
+                        break
                     records.extend(SpecRaidRanking(
                         season_id=season.id, boss_id=enc_id, boss_name=enc_name, difficulty=difficulty,
                         raid_zone_id=zone.get('id'), raid_zone_name=zone.get('name', ''),
                         class_name=class_name, spec_name=spec_name, kill_time=row.get('duration'),
                         last_updated=timezone.now(), **self._header_values(row)) for row in rows)
                     time.sleep(0.3)
+                if scope_failed:
+                    break
+            if scope_failed:
+                complete = False
+                continue
             if not records:
                 self._checkpoint(scope)
                 continue
@@ -407,7 +439,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     update_fields=self._header_update_fields(self.RAID_UPDATE_FIELDS))
                 self._checkpoint(scope)
             logger.info('[SpecDetailRanking] 首领 %s/%s 轻量榜单同步: %s', enc_id, difficulty_name, result)
-        return True
+        return complete
 
     @staticmethod
     def _ranking_business_key(row, key_fields):

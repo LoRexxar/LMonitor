@@ -253,14 +253,17 @@ class RaidUnknownSpecTests(RawStagingIsolationMixin, TransactionTestCase):
                         raise response
                     return response
                 with patch('requests.post', side_effect=fetch) as http:
-                    self.assertFalse(self.monitor.scan(''))
+                    self.assertTrue(self.monitor.scan(''))
                 self.assertEqual(http.call_count, 3)
                 old.refresh_from_db()
                 self.assertEqual(old.dps, self.ranking['amount'])
                 self.assertEqual(old.talents_json, before['talents_json'])
                 cycle = WclCollectionCycle.objects.get()
-                self.assertEqual(cycle.phase, 'combatants')
+                self.assertEqual(cycle.phase, 'ready')
                 self.assertEqual(set(cycle.completed_scopes), {'raid:5:3455', 'raid:4:3455'})
+                from botend.tests.wcl_cycle_helpers import publish_attempt
+                publish_attempt(cycle)
+                self.assertEqual(cycle.phase, 'combatants')
                 self.assertIsNotNone(cycle.next_retry_at)
                 self.assertFalse(WclCombatantFact.objects.exists())
                 statuses = list(WclCombatantFetchState.objects.values_list('status', flat=True))

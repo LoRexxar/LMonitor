@@ -1,8 +1,7 @@
-"""Durable WCL ingestion barrier. Control rows contain references, never facts.
+"""WCL 每轮尝试后发布已有结果，来源失败在发布后继续补采。
 
-Lock order: MonitorTask -> MonitorTaskLease -> SeasonMeta -> cycle. Network and
-aggregation computation run outside transactions. Only scope replacement and
-final local publication are performed under a cycle fence.
+控制状态只保存引用。锁顺序为任务、租约、赛季、周期；网络和聚合计算在事务外执行，
+榜单替换与最终文件发布仍验证周期所有权，发布失败时优先恢复发布。
 """
 from contextlib import contextmanager
 from copy import copy
@@ -72,12 +71,22 @@ def _save(current, cycle, **updates):
     current.save(update_fields=list(updates))
 
 
+def _retire_previous_partial(cycle, now):
+    """已发布的旧日批次不阻塞新榜单；新批次继续复用其已采事实。"""
+    if (cycle and cycle.published_at and cycle.phase in COLLECTING
+            and cycle.slot < ranking_slot(now)):
+        cycle.phase, cycle.next_retry_at = 'published', None
+        cycle.save(update_fields=['phase', 'next_retry_at'])
+        return None
+    return cycle
+
+
 def begin_collection(season, task=None, *, now=None):
     now = now or timezone.now()
     owner = getattr(task, '_wcl_cycle_owner', None) or uuid4().hex
     with task_lease_guard(task):
         SeasonMeta.objects.select_for_update().get(pk=season.pk)
-        cycle = active_cycle(season.pk, lock=True)
+        cycle = _retire_previous_partial(active_cycle(season.pk, lock=True), now)
         if cycle:
             if cycle.phase not in COLLECTING or (cycle.next_retry_at and cycle.next_retry_at > now):
                 return None
@@ -123,31 +132,51 @@ def defer_cycle(cycle, error, retry_at=None, *, counts=None):
         _save(current, cycle, **updates)
 
 
-def freeze_samples(cycle, season, identities):
+def freeze_samples(cycle, season, identities, *, allow_partial=False, retry_at=None):
     """冻结轻量榜单入选记录，后续只补这些日志的详情。"""
     from botend.services.spec_stats_service import _select_dungeon_sample_records
     expected = {f'dungeon:{enc["id"]}' for enc in season.mplus_encounters or []}
     expected.update(f'raid:{difficulty}:{enc["id"]}'
                     for difficulty in (5, 4) for enc in season.raid_encounters or [])
     with fenced_cycle(cycle, phases=('rankings',)) as current:
-        if not expected.issubset(current.completed_scopes):
+        if not allow_partial and not expected.issubset(current.completed_scopes):
             raise ValueError('cannot freeze unfinished ranking scopes')
+        previous_pending = set((current.counts or {}).get('_ranking_pending', []))
         selected = {}
         for class_name, spec_name in identities:
             scopes = {}
             for enc in season.mplus_encounters or []:
+                previous = current.selected_samples.get(f'{class_name}/{spec_name}', {})
+                if str(enc['id']) in previous and f'dungeon:{enc["id"]}' not in previous_pending:
+                    scopes[str(enc['id'])] = previous[str(enc['id'])]
+                    continue
                 rows = SpecDungeonRanking.objects.filter(season_id=season.pk,
                     dungeon_id=enc['id'], class_name=class_name, spec_name=spec_name)
                 scopes[str(enc['id'])] = [row['id'] for row in _select_dungeon_sample_records(
                     rows, max_samples=100, hydrate_fields=('id',))]
             selected[f'{class_name}/{spec_name}'] = scopes
             from botend.services.raid_aggregation import select_raid_records
-            selected[f'raid:{class_name}/{spec_name}'] = {
-                f'{difficulty}:{enc["id"]}': [row['id'] for row in select_raid_records(
-                    season.pk, enc['id'], class_name, spec_name, difficulty, hydrate_fields=('id',))]
-                for difficulty in (5, 4) for enc in season.raid_encounters or []}
+            raid_scopes = {}
+            previous = current.selected_samples.get(f'raid:{class_name}/{spec_name}', {})
+            for difficulty in (5, 4):
+                for enc in season.raid_encounters or []:
+                    key = f'{difficulty}:{enc["id"]}'
+                    if key in previous and f'raid:{key}' not in previous_pending:
+                        raid_scopes[key] = previous[key]
+                    else:
+                        raid_scopes[key] = [row['id'] for row in select_raid_records(
+                            season.pk, enc['id'], class_name, spec_name, difficulty, hydrate_fields=('id',))]
+            selected[f'raid:{class_name}/{spec_name}'] = raid_scopes
 
-        _save(current, cycle, selected_samples=selected, phase='combatants', next_retry_at=None, error='')
+        counts = dict(current.counts or {})
+        counts.pop('_ranking_pending', None)
+        counts.pop('_ranking_retry_at', None)
+        missing = sorted(expected - set(current.completed_scopes))
+        if missing:
+            counts['_ranking_pending'] = missing
+            counts['_ranking_retry_at'] = _retry_deadline(retry_at).isoformat()
+        _save(current, cycle, selected_samples=selected, counts=counts,
+              phase='combatants', next_retry_at=None, error='')
 
 
 def frozen_season(cycle, season):
@@ -159,8 +188,12 @@ def frozen_season(cycle, season):
     projected = copy(season)
     dungeon_ids = dict.fromkeys(int(key) for name, scopes in cycle.selected_samples.items()
                                 if not name.startswith('raid:') for key in scopes)
-    raid_ids = dict.fromkeys(int(scope.split(':')[2]) for scope in cycle.completed_scopes
-                             if scope.startswith('raid:'))
+    # 以冻结范围排序，避免补齐顺序改变榜单顺序并使无关发布缓存失效。
+    raid_ids = dict.fromkeys(int(scope.split(':')[1]) for name, scopes in cycle.selected_samples.items()
+                            if name.startswith('raid:') for scope in scopes)
+    for scope in cycle.completed_scopes:
+        if scope.startswith('raid:'):
+            raid_ids.setdefault(int(scope.split(':')[2]), None)
     current_dungeons = {int(enc['id']): enc for enc in season.mplus_encounters or []}
     current_bosses = {int(enc['id']): enc for enc in season.raid_encounters or []}
     dungeon_names = {}
@@ -218,10 +251,30 @@ def frozen_combatant_records(cycle, *, references=None):
     return records
 
 
+def collection_incomplete(counts):
+    return bool(counts.get('failed', 0) or counts.get('pending', 0) or counts.get('_ranking_pending'))
+
+
+def _retry_deadline(value, *, now=None):
+    now = now or timezone.now()
+    if isinstance(value, str):
+        value = parse_datetime(value)
+    if value is not None and timezone.is_naive(value):
+        value = timezone.make_aware(value, LOCAL_TZ)
+    return value if value and value > now else now + RETRY_DELAY
+
+
 def finish_collection(cycle, counts):
+    """一次采集尝试结束即可发布；来源缺项在发布后继续恢复。"""
+    counts = dict(counts)
+    counts.pop('_collection_retry_at', None)
+    deadlines = []
     if counts.get('failed', 0) or counts.get('pending', 0):
-        defer_cycle(cycle, 'combatants incomplete', counts.get('retry_at'), counts=counts)
-        return False
+        deadlines.append(_retry_deadline(counts.get('retry_at')))
+    if counts.get('_ranking_pending'):
+        deadlines.append(_retry_deadline(counts.get('_ranking_retry_at')))
+    if deadlines:
+        counts['_collection_retry_at'] = min(deadlines).isoformat()
     with fenced_cycle(cycle, phases=('combatants',)) as current:
         _save(current, cycle, phase='ready', counts=counts, collected_at=timezone.now(),
               next_retry_at=None, error='')
@@ -268,7 +321,11 @@ def _metadata_projection_due(published):
 
 def finish_publication(cycle, *, metadata_checked_at=None):
     with fenced_cycle(cycle, phases=('aggregating',)) as current:
-        fields = {'phase': 'published', 'published_at': timezone.now(), 'next_retry_at': None, 'error': '',
+        incomplete = collection_incomplete(current.counts or {})
+        phase = ('rankings' if current.counts.get('_ranking_pending') else 'combatants') if incomplete else 'published'
+        fields = {'phase': phase, 'published_at': timezone.now(),
+                  'next_retry_at': _retry_deadline(current.counts.get('_collection_retry_at')) if incomplete else None,
+                  'error': '',
                   'counts': ({**(current.counts or {}), 'statistics_contract': 'wcl-log-v2'}
                              if metadata_checked_at is None else current.counts)}
         if metadata_checked_at is not None:
@@ -301,6 +358,8 @@ def scheduled_cycle_due_at(task, now):
         if cycle:
             if cycle.phase not in COLLECTING:
                 return None
+            if cycle.published_at and cycle.slot < ranking_slot(now):
+                return ranking_slot(now)
             due = cycle.next_retry_at or cycle.last_attempt_at
             return due if due <= now else None
         # Before the first durable claim, preserve the legacy daily-slot contract.
@@ -341,6 +400,8 @@ def fence_claimed_cycle(task, *, claim_time):
         return
     SeasonMeta.objects.select_for_update().get(pk=season.pk)
     cycle = active_cycle(season.pk, lock=True)
+    if task.name == 'SpecDetailRankingMonitor':
+        cycle = _retire_previous_partial(cycle, claim_time)
     phases = COLLECTING if task.name == 'SpecDetailRankingMonitor' else PUBLISHING
     task._wcl_cycle_owner = uuid4().hex
     if cycle is None and task.name == 'SpecDetailRankingMonitor':

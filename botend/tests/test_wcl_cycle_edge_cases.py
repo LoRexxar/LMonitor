@@ -18,6 +18,7 @@ from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetail
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
 from botend.services.wcl_collection_cycle import begin_collection, checkpoint_scope, freeze_samples, finish_collection
 from botend.wow.talents.parser import normalize_talent_payload
+from botend.tests.wcl_cycle_helpers import publish_attempt
 
 RANKING = 'botend.controller.plugins.portal.SpecDetailRankingMonitor'
 AGGREGATION = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
@@ -167,14 +168,15 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
         with patch(RANKING + '.CLASS_SPEC_MAP', {'Mage': ['Fire', 'Frost']}), \
              patch.object(self.monitor, 'fetch_wcl_rankings', return_value=self.page()) as rankings, \
              patch.object(self.monitor, 'fetch_wcl_combatant_info', side_effect=quota):
-            self.assertFalse(self.monitor.scan(''))
+            self.assertTrue(self.monitor.scan(''))
         self.assertEqual(rankings.call_count, 4)
         old.refresh_from_db()
         self.assertEqual(old.dps, 123)
         cycle = WclCollectionCycle.objects.get()
-        self.assertEqual(cycle.phase, 'combatants')
+        self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(set(cycle.completed_scopes), {'raid:5:201', 'raid:4:201'})
         self.assertIsNone(cycle.published_at)
+        publish_attempt(cycle)
         self.assertEqual(cycle.next_retry_at, self.now + timedelta(hours=1))
         with patch(RANKING + '.timezone.now', return_value=cycle.next_retry_at), \
              patch.object(self.monitor, 'fetch_wcl_rankings', side_effect=AssertionError('恢复日志不得重抓榜单')), \
@@ -218,7 +220,7 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
         self.assertEqual(cycle.selected_samples, {'Mage/Fire': {'101': []},
             'raid:Mage/Fire': {'5:201': [old.pk], '4:201': []}})
 
-    def test_invalid_raid_combatant_payload_blocks_publication_and_preserves_frozen_rankings(self):
+    def test_invalid_raid_combatant_payload_preserves_rankings_and_remains_retryable_after_publication(self):
         old = self.old_raid()
         before = SpecRaidRanking.objects.filter(pk=old.pk).values().get()
         for events in ([{}], [{'fight': 1, 'sourceID': 7, 'specID': 63,
@@ -228,13 +230,15 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
                 WclCollectionCycle.objects.all().delete()
                 with patch.object(self.monitor, 'fetch_wcl_rankings', return_value=self.page()), \
                      patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=events):
-                    self.assertFalse(self.monitor.scan(''))
+                    self.assertTrue(self.monitor.scan(''))
                 old.refresh_from_db()
                 self.assertEqual(old.dps, 123)
                 cycle = WclCollectionCycle.objects.get()
-                self.assertEqual(cycle.phase, 'combatants')
+                self.assertEqual(cycle.phase, 'ready')
                 self.assertIsNone(cycle.published_at)
                 self.assertGreater(cycle.counts['failed'], 0)
+                publish_attempt(cycle)
+                self.assertEqual(cycle.phase, 'combatants')
 
     def test_bad_raid_empty_container_never_checkpoints(self):
         for page in ({}, {'rankings': []}, {'rankings': [], 'hasMorePages': True},
@@ -242,10 +246,11 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
             with self.subTest(page=page):
                 WclCollectionCycle.objects.all().delete()
                 with patch.object(self.monitor, 'fetch_wcl_rankings', return_value=page):
-                    self.assertFalse(self.monitor.scan(''))
+                    self.assertTrue(self.monitor.scan(''))
                 cycle = WclCollectionCycle.objects.get()
-                self.assertEqual(cycle.phase, 'rankings')
+                self.assertEqual(cycle.phase, 'ready')
                 self.assertEqual(cycle.completed_scopes, [])
+                self.assertEqual(set(cycle.counts['_ranking_pending']), {'raid:5:201', 'raid:4:201'})
 
     def test_nonempty_raid_invalid_pagination_preserves_boss_and_resumes(self):
         for pagination in ({}, {'hasMorePages': None}, {'hasMorePages': 'false'},
@@ -269,19 +274,21 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
                                   side_effect=lambda query, variables: (
                                       invalid_response if 'specName: "Frost"' in query
                                       and 'difficulty: 5,' in query else valid_response)) as fetch:
-                    self.assertFalse(self.monitor.scan(''))
-                self.assertEqual(fetch.call_count, 2)
-                self.assertEqual(list(boss.order_by('pk').values()), before)
+                    self.assertTrue(self.monitor.scan(''))
+                self.assertEqual(fetch.call_count, 4)
+                self.assertEqual(list(boss.filter(difficulty=5).order_by('pk').values()), before)
                 cycle = WclCollectionCycle.objects.get()
+                self.assertEqual(cycle.phase, 'ready')
+                self.assertEqual(cycle.completed_scopes, ['raid:4:201'])
+                publish_attempt(cycle)
                 self.assertEqual(cycle.phase, 'rankings')
-                self.assertEqual(cycle.completed_scopes, [])
                 self.assertGreater(cycle.next_retry_at, self.now)
 
                 with patch(RANKING + '.CLASS_SPEC_MAP', {'Mage': ['Fire', 'Frost']}), \
                      patch(RANKING + '.timezone.now', return_value=cycle.next_retry_at), \
                      patch.object(self.monitor, '_wcl_graphql', return_value=valid_response) as fetch:
                     self.assertTrue(self.monitor.scan(''))
-                self.assertEqual(fetch.call_count, 3)  # 成功的史诗第一页不再重抓。
+                self.assertEqual(fetch.call_count, 1)  # 英雄范围已完成，史诗成功页仍复用。
                 cycle.refresh_from_db()
                 self.assertEqual(WclCollectionCycle.objects.count(), 1)
                 self.assertEqual(cycle.phase, 'ready')
@@ -296,15 +303,17 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
         page['hasMorePages'] = True
         response = {'worldData': {'encounter': {'characterRankings': page}}}
         with patch.object(self.monitor, '_wcl_graphql', return_value=response) as fetch:
-            self.assertFalse(self.monitor.scan(''))
-        self.assertEqual(fetch.call_count, 2)
-        for call, page_number in zip(fetch.call_args_list, (1, 2)):
+            self.assertTrue(self.monitor.scan(''))
+        self.assertEqual(fetch.call_count, 4)
+        for call, page_number in zip(fetch.call_args_list, (1, 2, 1, 2)):
             self.assertIn(f'page: {page_number}', call.args[0])
             self.assertIn('includeCombatantInfo: false', call.args[0])
         self.assertEqual(SpecRaidRanking.objects.filter(pk=old.pk).values().get(), before)
         cycle = WclCollectionCycle.objects.get()
-        self.assertEqual(cycle.phase, 'rankings')
+        self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(cycle.completed_scopes, [])
+        publish_attempt(cycle)
+        self.assertEqual(cycle.phase, 'rankings')
         self.assertIsNotNone(cycle.next_retry_at)
 
     def test_frozen_scope_survives_season_changes_and_manual_replay(self):

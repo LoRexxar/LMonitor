@@ -15,6 +15,7 @@ from botend.models import MonitorTask, SeasonMeta, SpecDungeonRanking, WclCollec
 from botend.plugin_sync import claim_next_monitor_task, release_monitor_task_lease
 from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
+from botend.tests.wcl_cycle_helpers import publish_attempt
 
 RANKING = 'botend.controller.plugins.portal.SpecDetailRankingMonitor'
 AGGREGATION = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
@@ -87,7 +88,7 @@ class WclCollectionCycleTests(TestCase):
         self.assertEqual(fetch.call_count, 1)
         sleep.assert_not_called()
 
-    def test_checkpoint_resume_freezes_once_after_all_rankings(self):
+    def test_checkpoint_publishes_partial_rankings_before_resuming_missing_scope(self):
         monitor = self.monitor()
         requests = []
         def fetch(enc_id, *args, **kwargs):
@@ -104,12 +105,15 @@ class WclCollectionCycleTests(TestCase):
                 patch(RANKING + '.timezone.now', return_value=self.now), \
                 patch.object(monitor, 'fetch_wcl_rankings', side_effect=fetch), \
                 patch(COMBATANTS + '.collect_dungeon_combatants', return_value={'failed': 0, 'pending': 0, 'missing': 2}) as logs:
-            self.assertFalse(monitor.scan(''))
+            self.assertTrue(monitor.scan(''))
             cycle = WclCollectionCycle.objects.get()
-            self.assertEqual(cycle.phase, 'rankings')
+            self.assertEqual(cycle.phase, 'ready')
             self.assertEqual(cycle.completed_scopes, ['dungeon:101'])
+            self.assertIsNone(cycle.next_retry_at)
+            self.assertTrue(logs.called)
+            publish_attempt(cycle)
+            self.assertEqual(cycle.phase, 'rankings')
             self.assertEqual(cycle.next_retry_at, self.now + timedelta(hours=1))
-            logs.assert_not_called()
             with patch(RANKING + '.timezone.now', return_value=self.now + timedelta(hours=1)):
                 self.assertTrue(monitor.scan(''))
             cycle.refresh_from_db()
@@ -198,7 +202,10 @@ class WclCollectionCycleTests(TestCase):
             return None
         with patch(RANKING + '.timezone.now', return_value=self.now), \
                 patch.object(monitor, 'fetch_wcl_combatant_info', side_effect=quota):
-            self.assertFalse(monitor.scan(''))
+            self.assertTrue(monitor.scan(''))
+            cycle.refresh_from_db()
+            self.assertEqual(cycle.phase, 'ready')
+            publish_attempt(cycle)
         cycle.refresh_from_db()
         self.assertEqual(cycle.phase, 'combatants')
         self.assertEqual(cycle.counts['pending'], 1)

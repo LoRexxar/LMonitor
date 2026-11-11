@@ -114,15 +114,14 @@ class DungeonCollectionPipelineTests(RawStagingIsolationMixin, TestCase):
         self.assertEqual(next_cycle.counts['reports_requested'], 0)
         self.assertEqual(WclCombatantFact.objects.count(), 3)
 
-    def test_bad_rankings_preserve_old_scope_and_never_enter_collection_union(self):
+    def test_bad_rankings_preserve_old_scope_while_other_scopes_publish(self):
         invalid_pages = [
             {}, {'rankings': [], 'hasMorePages': True},
             {'rankings': [self.ranking(1), 'invalid-row'], 'hasMorePages': False},
             {'rankings': [self.ranking(1), {**self.ranking(1, 233), 'gear': 'invalid'}],
              'hasMorePages': False},
         ]
-        # Commit the valid scope first, then prove the bad scope blocks the
-        # whole cohort without rolling back that valid checkpoint.
+        # 失败范围保留旧记录，成功范围照常发布；失败响应不能替换有效日志引用。
         self.season.mplus_encounters.reverse()
         self.season.save(update_fields=['mplus_encounters'])
         target = self.media / 'aggregated' / str(self.season.pk) / 'DeathKnight/Frost/dungeon.json'
@@ -149,38 +148,42 @@ class DungeonCollectionPipelineTests(RawStagingIsolationMixin, TestCase):
                 def combatants(code, fights):
                     calls.append((code, fights))
                     return [event(fight) for fight in fights]
-                self.assertFalse(self.run_monitor(ranking, combatants))
+                self.assertTrue(self.run_monitor(ranking, combatants))
                 old.refresh_from_db()
                 self.assertEqual(old.character_name, 'Previous')
                 self.assertEqual(SpecDungeonRanking.objects.filter(pk=old.pk).values().get(), old_values)
                 self.assertEqual(list(SpecDungeonRanking.objects.filter(dungeon_id=1)
                                       .values_list('pk', flat=True)), [old.pk])
-                self.assertEqual(calls, [])
+                self.assertTrue(all(fights in ([2], [10]) for _, fights in calls))
                 self.assertEqual(WclCombatantSnapshot.objects.get().payload_json, event(10))
                 self.assertEqual(SpecDungeonRanking.objects.get(dungeon_id=2).character_name, 'Player232')
                 cycle = WclCollectionCycle.objects.get()
-                self.assertEqual(cycle.phase, 'rankings')
+                self.assertEqual(cycle.phase, 'ready')
                 self.assertEqual(cycle.completed_scopes, ['dungeon:2'])
-                self.assertEqual(cycle.selected_samples, {})
-                self.assertIsNone(cycle.collected_at)
+                self.assertEqual(cycle.selected_samples['DeathKnight/Frost']['1'], [old.pk])
+                self.assertIsNotNone(cycle.collected_at)
                 self.assertIsNone(cycle.published_at)
-                self.assertIsNotNone(cycle.next_retry_at)
+                self.assertIsNone(cycle.next_retry_at)
                 self.task.refresh_from_db()
-                self.assertEqual(self.task.flag, 'last-good')
+                self.assertEqual(self.task.flag, f'{self.season.season_key}@rankings@{cycle.pk}')
                 aggregation = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
                 with patch(aggregation + '.CLASS_SPEC_MAP', {'DeathKnight': ['Frost']}), \
                      patch(aggregation + '.timezone.now', return_value=self.now):
-                    # The independent leaderboard may refresh, never WCL.
+                    # 本轮有效榜单和已有日志先发布，缺项仍留在待补范围内。
                     self.assertTrue(SpecDetailAggregationMonitor(None, None).scan(''))
                 cycle.refresh_from_db()
                 self.assertEqual(cycle.phase, 'rankings')
-                self.assertIsNone(cycle.published_at)
+                self.assertIsNotNone(cycle.published_at)
+                self.assertIsNotNone(cycle.next_retry_at)
+                self.assertEqual(cycle.counts['_ranking_pending'], ['dungeon:1'])
+                published = target.read_bytes()
+                self.assertNotEqual(published, b'{"last_good": true}')
                 for allow_legacy in (False, True):
                     with self.assertRaises(CommandError):
                         call_command('aggregate_spec_stats', season_id=self.season.pk,
                                      class_name='DeathKnight', spec_name='Frost',
                                      dungeon_only=True, allow_legacy=allow_legacy)
-                self.assertEqual(target.read_bytes(), b'{"last_good": true}')
+                self.assertEqual(target.read_bytes(), published)
 
     def test_identity_projection_retains_exact_selection_order_without_large_json(self):
         SpecDungeonRanking.objects.bulk_create([

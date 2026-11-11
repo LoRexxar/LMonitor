@@ -139,6 +139,10 @@ class SpecDetailAggregationMonitor(BaseScan):
                 return True
             logger.info('[SpecDetailAggregation] 启动普通团本统计：周期=%s，数据截止=%s',
                         getattr(cycle, 'pk', '未知'), cycle.collected_at)
+            counts = cycle.counts or {}
+            logger.info('[SpecDetailAggregation] 本轮结果先发布：已匹配=%s，失败=%s，待处理=%s，待补榜单范围=%s',
+                        counts.get('cached', 0) + counts.get('matched', 0), counts.get('failed', 0),
+                        counts.get('pending', 0), len(counts.get('_ranking_pending', [])))
             season = frozen_season(cycle, season)
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:

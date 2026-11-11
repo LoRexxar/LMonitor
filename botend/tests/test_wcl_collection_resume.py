@@ -10,6 +10,7 @@ from botend.models import (SeasonMeta, SpecDungeonRanking, SpecRaidRanking, WclC
                            WclCombatantFact, WclCombatantFetchState)
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, finish_collection, frozen_combatant_records,
+    begin_aggregation, finish_publication, collection_incomplete,
 )
 from botend.services.wcl_collection_resume import (
     CHECKPOINT_KEY, CombatantResume, collect_cycle_combatants,
@@ -47,7 +48,12 @@ class WclCollectionResumeTests(RawStagingIsolationMixin, TransactionTestCase):
     def run_collection(self):
         self.cycle.refresh_from_db()
         counts = collect_cycle_combatants(self.cycle, self.fetcher)
-        return counts, finish_collection(self.cycle, counts)
+        self.assertTrue(finish_collection(self.cycle, counts))
+        complete = not collection_incomplete(counts)
+        if not complete:
+            self.cycle = begin_aggregation(self.season)
+            finish_publication(self.cycle)
+        return counts, complete
 
     def test_retry_reads_only_remaining_then_verifies_all_without_http_replay(self):
         self.store(0, 1)
