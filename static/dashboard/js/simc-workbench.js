@@ -1382,6 +1382,7 @@
         }
     }
     window.simcWorkbenchLoadPanel = activate;
+    window.simcWorkbenchEditApl = editManagedApl;
     window.simcWorkbenchDeactivatePanel = deactivate;
     window.simcWorkbenchShowTaskDetail = (resource, id) => showTaskDetail(resource, id).catch(notify);
     window.simcWorkbenchLoadTaskResource = (_resource, page = 1) => {

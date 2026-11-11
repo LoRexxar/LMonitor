@@ -126,7 +126,7 @@ class ReferencePublicationTests(TestCase):
         self.enqueue()
         response = self.client.get(self.url)
         self.assertContains(response, 'aria-label="选择专精"')
-        self.assertContains(response, '组合与状态')
+        self.assertContains(response, '补齐模拟结果')
         self.assertEqual(response.context['scheme_page'].paginator.count, 1)
         self.assertContains(response, '等待派发')
         self.assertContains(response, f'<option value="{self.url}" selected>')
@@ -228,15 +228,15 @@ class ReferencePublicationTests(TestCase):
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
         self.assertEqual(SimcTask.objects.count(), 0)
 
-    def test_admin_navigation_uses_sidebar_and_publication_controls_share_header(self):
+    def test_admin_navigation_uses_sidebar_and_separates_context_from_directory_actions(self):
         from bs4 import BeautifulSoup
         self.login()
         publication = self.client.get(self.publication_url)
         soup = BeautifulSoup(publication.content, 'html.parser')
-        controls = soup.select_one('.publication-heading .publication-controls')
+        controls = soup.select_one('.reference-context-bar')
         self.assertIsNotNone(controls)
         self.assertIsNotNone(controls.select_one('#publication-spec-select'))
-        self.assertIsNotNone(controls.select_one('button[name=action][value=sync]'))
+        self.assertIsNotNone(soup.select_one('.simc-page-heading details button[name=action][value=sync]'))
         self.assertEqual(len(soup.select('button[name=action][value=sync]')), 1)
         ranking_url = reverse('simc_reference_rankings_entry')
         for url in (self.publication_url, self.url, ranking_url):
@@ -253,6 +253,56 @@ class ReferencePublicationTests(TestCase):
         portal = self.client.get(reverse('portal_simc_reference'), {'spec': self.config.spec_key})
         self.assertIsNotNone(BeautifulSoup(portal.content, 'html.parser').select_one('nav[aria-label="模拟资料页面导航"]'))
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
+
+    def test_source_editor_links_preserve_resource_and_return_context(self):
+        from urllib.parse import parse_qs, urlsplit
+        self.login()
+        response = self.client.get(self.publication_url, {'config': self.config.pk})
+        for section, resource in zip(response.context['publication_sections'], (self.profile, self.talent, self.apl)):
+            query = parse_qs(urlsplit(section['choices'][0]['editor_url']).query)
+            self.assertEqual(query['simc_id'], [str(resource.pk)])
+            self.assertEqual(query['simc_resource'], [section['kind']])
+            self.assertEqual(query['reference_config'], [str(self.config.pk)])
+            self.assertEqual(query['reference_return'], ['publication'])
+        results = self.client.get(self.url)
+        for link in results.context['scheme_page'][0]['editor_links'].values():
+            self.assertEqual(parse_qs(urlsplit(link).query)['reference_return'], ['results'])
+        self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_combination_summary_counts_every_public_apl(self):
+        other = SimcApl.objects.create(name='另一份公开 APL', spec='warrior_fury',
+                                      class_name='warrior', is_system=True, source='simc_builtin',
+                                      is_selectable=True, content='actions=/wait')
+        self.publication.apls.add(other)
+        self.login()
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['selected'].combination_count, 2)
+        self.assertEqual(response.context['scheme_page'].paginator.count, 2)
+
+    def test_publication_permission_does_not_grant_source_editing(self):
+        user = User.objects.create_user('仅发布管理员')
+        group = DashboardUserGroup.objects.create(name='仅管理公开范围', permission_codes=['frontend.simulations'])
+        group.users.add(user)
+        self.client.force_login(user)
+        response = self.client.get(self.publication_url, {'config': self.config.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['workflow']['can_edit'])
+        self.assertNotContains(response, 'simc_resource=')
+
+    def test_settings_save_preserves_return_config_without_starting_tasks(self):
+        self.login()
+        url = reverse('simc_reference_settings')
+        payload = scenario_settings_payload(self.config.settings, self.backend, self.template,
+                                            [(1, 300, 2000), (5, 300, 2000)])
+        payload['config'] = self.config.pk
+        response = self.client.post(url, payload, follow=True)
+        self.assertEqual(response.context['return_config'], self.config)
+        self.assertEqual(response.context['workflow']['results_url'],
+                         reverse('simc_reference_results') + f'?config={self.config.pk}')
+        self.assertContains(response, f'branch=ptr&amp;config={self.config.pk}')
+        self.assertEqual(SimcTask.objects.count(), 0)
+        payload['config'] = 99999999
+        self.assertEqual(self.client.post(url, payload).status_code, 404)
 
     def test_global_settings_page_updates_all_specs_without_enqueuing(self):
         self.login()

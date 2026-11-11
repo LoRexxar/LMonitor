@@ -1,16 +1,18 @@
 {% extends 'dashboard/simc_reference_management_base.html' %}
 {% block management_heading %}
 <header class="simc-page-heading publication-heading">
-  <div class="publication-heading-copy"><h1 id="reference-admin-title">模拟配置</h1><p>全部专精共享独立场景，可同时保留相同目标数的不同战斗时长。</p></div>
-  <div class="publication-controls"><div class="result-spec-selector"><label for="simulation-settings-branch">游戏分支</label><select id="simulation-settings-branch" aria-label="选择游戏分支"><option value="{% url 'simc_reference_settings' %}?branch=retail"{% if branch == 'retail' %} selected{% endif %}>正式服</option><option value="{% url 'simc_reference_settings' %}?branch=ptr"{% if branch == 'ptr' %} selected{% endif %}>PTR</option></select></div></div>
+  <div><h1 id="reference-admin-title">模拟配置</h1><p>维护公开组合共用的执行环境与战斗场景。</p></div>
 </header>
+{% endblock %}
+{% block management_selector %}
+<div class="reference-context-bar"><div class="result-spec-selector"><label for="simulation-settings-branch">游戏分支</label><select id="simulation-settings-branch" aria-label="选择游戏分支"><option value="{% url 'simc_reference_settings' %}?branch=retail{% if return_config %}&amp;config={{ return_config.pk }}{% endif %}"{% if branch == 'retail' %} selected{% endif %}>正式服</option><option value="{% url 'simc_reference_settings' %}?branch=ptr{% if return_config %}&amp;config={{ return_config.pk }}{% endif %}"{% if branch == 'ptr' %} selected{% endif %}>PTR</option></select></div><a class="reference-heading-link" href="{{ workflow.results_url }}">返回模拟结果</a></div>
 {% endblock %}
 {% block management_actions %}{% endblock %}
 {% block management_workspace %}
-<section class="results-workspace" aria-label="共享模拟场景"><div class="results-history">
+<section class="results-workspace reference-settings-workspace" aria-label="共享模拟场景"><div class="results-history">
   <h2>{% if branch == 'ptr' %}PTR{% else %}正式服{% endif %} · 共享模拟场景</h2>
   <p class="admin-note">本页设置对该分支的全部专精生效。保存不会自动开始模拟，历史任务及其冻结输入保持不变。</p>
-  <form class="settings-form" method="post">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="branch" value="{{ branch }}">{{ settings_form.as_p }}
+  <form class="settings-form" method="post">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="branch" value="{{ branch }}">{% if return_config %}<input type="hidden" name="config" value="{{ return_config.pk }}">{% endif %}{{ settings_form.as_p }}
     <fieldset data-scenario-editor><legend>模拟场景</legend>
     <p class="admin-note">每行独立设置，例如 1 目标 / 300 秒、5 目标 / 300 秒、20 目标 / 40 秒及 20 目标 / 300 秒。取消启用后前台隐藏，移除已有行将停用并保留历史证据。</p>
     {{ scenario_formset.management_form }}{{ scenario_formset.non_form_errors }}

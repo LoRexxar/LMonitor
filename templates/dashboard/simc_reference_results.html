@@ -8,20 +8,21 @@
 <script defer src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261110_shared_talents"></script>
 {% endblock %}
 {% block management_heading %}
-<header class="simc-page-heading"><div><h1 id="reference-admin-title">模拟结果管理</h1><p>选择专精，查看下方的配置组合、模拟状态与结果。</p></div></header>
+<header class="simc-page-heading"><div><h1 id="reference-admin-title">模拟结果管理</h1><p>检查公开组合的执行状态、DPS 与报告，更新发生变化的结果。</p></div><a class="reference-heading-link" href="{{ workflow.rankings_url }}">查看完整榜单</a></header>
 {% endblock %}
 {% block management_selector %}
-<div class="result-spec-selector">
+<div class="reference-context-bar"><div class="result-spec-selector">
 {% if spec_count %}<label for="result-spec-select">职业专精</label><select id="result-spec-select" aria-label="选择专精">{% for class_name, specs in spec_groups %}<optgroup label="{{ class_name }}">{% for spec in specs %}<option value="{% url 'simc_reference_spec_results' spec.key %}"{% if selected.spec_key == spec.key %} selected{% endif %}>{{ spec.label }}</option>{% endfor %}</optgroup>{% endfor %}</select>{% else %}<p class="empty">暂无可管理的专精，请先在<a href="{% url 'simc_reference_publication' %}">公开配置管理</a>中同步目录并指定公开配置。</p>{% endif %}
-</div>
+</div>{% if selected %}<div class="reference-context-links"><a href="{{ workflow.publication_url }}">调整公开范围</a><a href="{% url 'portal_simc_reference' %}?spec={{ selected.spec_key }}" target="_blank" rel="noopener">查看前台</a></div>{% endif %}</div>
 {% endblock %}
 {% block management_actions %}{% endblock %}
 {% block management_workspace %}
 {% if selected %}
 <section class="results-workspace" aria-label="{{ selected.label }}模拟结果">
-<div class="results-header"><div><h2>{{ selected.label }} · 组合与状态{% if selected.use_ptr %} · PTR{% endif %}</h2><p>{{ active_scenarios|length }} 个启用场景 · {% if selected.use_ptr %}PTR{% else %}正式服{% endif %}</p></div><div class="results-header-links"><a href="{% url 'simc_reference_settings' %}?branch={{ selected.use_ptr|yesno:'ptr,retail' }}">模拟配置</a><a href="{{ management_url }}?config={{ selected.pk }}"><i class="fas fa-sync-alt" aria-hidden="true"></i>刷新状态</a><a href="{% url 'portal_simc_reference' %}?spec={{ selected.spec_key }}" target="_blank" rel="noopener">查看前台</a></div></div>
+<div class="results-header"><div><h2>{{ selected.label }}{% if selected.use_ptr %} · PTR{% endif %}</h2><p>{{ selected.combination_count }} 个公开组合 · {{ active_scenarios|length }} 个启用场景 · {% if selected.use_ptr %}PTR{% else %}正式服{% endif %}</p></div><div class="results-header-links"><a href="{{ workflow.settings_url }}">模拟配置</a><a href="{{ management_url }}?config={{ selected.pk }}">刷新状态</a></div></div>
 {% if configs|length > 1 %}<nav class="management-tabs" aria-label="游戏分支">{% for config in configs %}<a href="?config={{ config.pk }}"{% if config.pk == selected.pk %} aria-current="page"{% endif %}>{% if config.use_ptr %}PTR{% else %}正式服{% endif %}</a>{% endfor %}</nav>{% endif %}
-<div class="admin-toolbar results-batch-actions"><form method="post">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><button name="action" value="generate">补齐已公开方案结果</button></form><form method="post">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><button name="action" value="rerun">重跑已公开方案</button></form></div>
+{% if selected.issue %}<div class="reference-readiness" role="status"><strong>模拟条件需要完善</strong><p>{{ selected.issue }}</p><a href="{{ workflow.settings_url }}">前往模拟配置</a></div>{% endif %}
+{% if not history_scheme %}<div class="results-operation-bar"><p>补齐未完成或已过期的结果，保留当前有效结果。</p><div><form method="post">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><button class="primary" name="action" value="generate"{% if selected.issue or not selected.combination_count %} disabled{% endif %}>补齐模拟结果</button></form><details class="reference-more"><summary>更多操作</summary><div><form method="post">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><button name="action" value="rerun"{% if selected.issue or not selected.combination_count %} disabled{% endif %}>重跑已公开方案</button></form><a href="{{ workflow.publication_url }}">调整公开范围</a></div></details></div></div>{% endif %}
 {% if history_scheme %}<div class="results-history">{% include 'dashboard/_frontend_simulation_history.html' %}</div>{% else %}{% include 'dashboard/_frontend_simulation_schemes.html' %}{% endif %}
 </section>
 {% endif %}

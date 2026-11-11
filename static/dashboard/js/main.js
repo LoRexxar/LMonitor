@@ -348,6 +348,7 @@ function activateDashboardLocation() {
     window.requestAnimationFrame(() => {
         const link = target.querySelector('a');
         if (link) link.click();
+        if (window.openSimcReferenceResource) window.openSimcReferenceResource(params);
     });
 }
 
