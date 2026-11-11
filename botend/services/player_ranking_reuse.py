@@ -16,25 +16,51 @@ RECHECK = timedelta(hours=24)
 MODELS = {'dungeon': SpecDungeonRanking, 'raid': SpecRaidRanking}
 
 
-def _central_candidates(qs, where, targets, cls, spec):
+def _central_candidates(qs, where, targets, cls, spec, *, hydrated=None):
     """只读中央日志，按现有榜单的新旧顺序选择可复用的天赋事实。"""
     from .wcl_combatant_snapshot import _fact_read_batches, _load_facts, _fight_key, match_combatant
     from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-    rows = list(qs.filter(where, fight_id__gt=0).exclude(report_code='').order_by(
-        '-last_updated', '-pk').values('pk', 'report_code', 'fight_id', 'character_name', 'realm', 'region'))
+    if not targets:
+        return {}
+    rows = [row for row in qs.filter(where, fight_id__gt=0).exclude(report_code='').order_by(
+        '-last_updated', '-pk').values('pk', 'report_code', 'fight_id', 'character_name', 'realm', 'region')
+        if identity(row['region'], row['realm'], row['character_name']) in targets]
     positions = {row['pk']: i for i, row in enumerate(rows)}
     selected = {}
     for batch, references in _fact_read_batches(rows):
-        facts = _load_facts(references)
+        # 先对整场轻量身份做唯一匹配，再按报告、战斗、角色读取详情。
+        # 身份重名、服务器或专精不匹配时，不能通过缩小详情范围绕过校验。
+        identities = _load_facts(references, identities_only=True)
+        actor_scopes, matches = defaultdict(set), {}
         for row in batch:
             key = identity(row['region'], row['realm'], row['character_name'])
             if key not in targets or (key in selected and positions[selected[key][0]] < positions[row['pk']]):
                 continue
-            event = match_combatant(facts.get(_fight_key(row), []), row, cls, spec)
+            fight = _fight_key(row)
+            event = match_combatant(identities.get(fight, []), row, cls, spec)
+            if event is not None:
+                actor = int(event['sourceID'])
+                actor_scopes[fight].add(actor)
+                matches[row['pk']] = actor
+        del identities
+        if not matches:
+            continue
+        facts = _load_facts(references, actor_ids_by_fight=actor_scopes)
+        by_actor = {(code, fight, int(event['sourceID'])): event
+                    for (code, fight), events in facts.items() for event in events}
+        for row in batch:
+            if row['pk'] not in matches:
+                continue
+            key = identity(row['region'], row['realm'], row['character_name'])
+            if key in selected and positions[selected[key][0]] < positions[row['pk']]:
+                continue
+            event = by_actor.get((*_fight_key(row), matches[row['pk']]))
+            event = match_combatant([event], row, cls, spec)
             talents = SpecDetailBase.parse_wcl_talent_tree((event or {}).get('talentTree') or [])
             if talents:
                 selected[key] = (row['pk'], talents, event)
-    hydrated = qs.in_bulk([value[0] for value in selected.values()]) if selected else {}
+    if hydrated is None:
+        hydrated = qs.in_bulk([value[0] for value in selected.values()]) if selected else {}
     from .wcl_combatant_snapshot import combatant_gear, _enchant_catalog
     catalog = _enchant_catalog([value[2] for value in selected.values()]) if selected else {}
     result = {}
@@ -137,7 +163,7 @@ def ranking_fallbacks(season, players):
                     central_refs[ref[0]][key] = row.pk
         for kind, target_refs in central_refs.items():
             projected = _central_candidates(queries[kind], Q(pk__in=list(target_refs.values())),
-                                            target_refs, cls, spec)
+                                            target_refs, cls, spec, hydrated=loaded.get(kind, {}))
             for key in target_refs:
                 if key in projected:
                     result[key, cls, spec] = projected[key]

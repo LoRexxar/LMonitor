@@ -258,3 +258,23 @@ class CompactStoreTests(TestCase):
         retired = store.fact_revisions(records)
         self.assertEqual(retired['Report', 11][0], (0, None))
         self.assertEqual(retired['Report', 11][1], third['Report', 11][1])
+
+    def test_actor_scopes_keep_exact_fight_identity_and_legacy_precedence(self):
+        old = timezone.now() - timedelta(days=2)
+        records = [dict(report_code='Report', fight_id=fight) for fight in (11, 12)]
+        for fight in (11, 12):
+            WclCombatantSnapshot.objects.create(report_code='Report', fight_id=fight, actor_id=1,
+                                               payload_json=event(1, fight), fetched_at=old)
+            store.persist_events('Report', {fight: [event(2, fight), event(3, fight)]}, fetched_at=old)
+        store.persist_events('Report', {11: [event(1)]})
+        scopes = {('Report', 11): [1], ('Report', 12): [2]}
+        loaded = store.load_facts(records, actor_ids_by_fight=scopes)
+        self.assertEqual(loaded, {('Report', 11): [store.canonical_event(event(1))],
+                                  ('Report', 12): [store.canonical_event(event(2, 12))]})
+        legacy = store.load_facts(records, actor_ids_by_fight={('Report', 12): [1]})
+        self.assertEqual(legacy, {('Report', 12): [store.canonical_event(event(1, 12))]})
+        self.assertFalse(store.load_facts(records, actor_ids_by_fight=scopes,
+                                          fetched_before=old - timedelta(seconds=1)))
+        with self.assertNumQueries(0):
+            self.assertFalse(store.load_facts(records, actor_ids_by_fight={}))
+            self.assertFalse(store.load_facts(records, actor_ids_by_fight={('Report', 11): [0, True, -1, 'bad']}))

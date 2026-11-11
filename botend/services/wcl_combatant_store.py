@@ -74,17 +74,28 @@ def _project_fact(row):
     return result
 
 
-def load_facts(records, *, fetched_before=None, identities_only=False):
-    """按战斗有界读取，新事实优先；身份模式不加载属性或装备、天赋文档。"""
+def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None):
+    """按战斗有界读取，可限于已核对身份的角色；空角色范围不读取整场。"""
     keys = set()
     for record in records:
         code, fight = record.get('report_code'), _positive_int(record.get('fight_id'))
         if isinstance(code, str) and code and fight:
             keys.add((code, fight))
     keys = sorted(keys)
+    actor_scopes = None
+    if actor_ids_by_fight is not None:
+        actor_scopes = {key: sorted({actor for value in actor_ids_by_fight.get(key, ())
+                                    if (actor := _positive_int(value)) is not None}) for key in keys}
+        keys = [key for key in keys if actor_scopes[key]]
     result = defaultdict(list)
     for start in range(0, len(keys), BATCH_SIZE):
-        where = _scope(keys[start:start + BATCH_SIZE])
+        batch = keys[start:start + BATCH_SIZE]
+        if actor_scopes is None:
+            where = _scope(batch)
+        else:
+            where = Q()
+            for code, fight in batch:
+                where |= Q(report_code=code, fight_id=fight, actor_id__in=actor_scopes[code, fight])
         compact = WclCombatantFact.objects.filter(where)
         if identities_only:
             compact = compact.only('pk', 'report_code', 'fight_id', 'actor_id', 'identity_json')

@@ -175,7 +175,7 @@ class Top20ProfileReuseTests(TestCase):
                 result, counts = ranking_fallbacks(self.season, players)
             self.assertEqual(len(result), 20)
             reads = [q['sql'] for q in queries if 'wow_wcl_combatant_snapshot' in q['sql'] and
-                     'payload_json' in q['sql']]
+                     'payload_json' in q['sql'] and 'JSON_EXTRACT' not in q['sql'].upper()]
             self.assertEqual(len(reads), 1)
             for i, player in enumerate(players):
                 key = identity(player['region'], player['realm'], player['name'])
@@ -199,6 +199,56 @@ class Top20ProfileReuseTests(TestCase):
         self.assertEqual(projected.talents_json[0]['talentID'], 1234)
         self.assertEqual(projected.gear_json[0]['id'], 456)
         self.assertFalse(WclCombatantSnapshot.objects.exists())
+
+    def test_central_reuse_hydrates_only_target_actor_and_reuses_loaded_ranking(self):
+        from botend.services import wcl_combatant_store as store
+        player = self.player()
+        self.ranking(talents_json=[], gear_json=[], report_code='Team', fight_id=1)
+        events = [{'sourceID': actor, 'specID': 63,
+                   'source': {'id': actor, 'name': player['name'] if actor == 1 else f'其他角色{actor}',
+                              'server': player['realm']},
+                   'talentTree': [{'id': 1000 + actor, 'rank': 1}], 'gear': [{'id': 2000 + actor}]}
+                  for actor in range(1, 31)]
+        store.persist_events('Team', {1: events})
+        for run in range(2):
+            with patch.object(store, '_project_fact', wraps=store._project_fact) as project, \
+                    CaptureQueriesContext(connection) as queries:
+                result, counts = ranking_fallbacks(self.season, [player])
+            self.assertEqual([call.args[0].actor_id for call in project.call_args_list], [1])
+            row = next(iter(result.values()))
+            self.assertEqual(row.talents_json[0]['talentID'], 1001)
+            self.assertEqual(row.gear_json[0]['id'], 2001)
+            self.assertEqual(counts['cache_hits'], run)
+            ranking_payloads = [q['sql'] for q in queries if 'wow_spec_dungeon_ranking' in q['sql']
+                                and 'gear_json' in q['sql'] and 'talents_json' in q['sql']]
+            self.assertEqual(len(ranking_payloads), 1)
+
+    def test_ambiguous_central_identity_never_loads_actor_details(self):
+        from botend.services import wcl_combatant_store as store
+        player = self.player()
+        self.ranking(talents_json=[], gear_json=[], report_code='Ambiguous', fight_id=1)
+        store.persist_events('Ambiguous', {1: [
+            {'sourceID': actor, 'specID': 63,
+             'source': {'id': actor, 'name': player['name'], 'server': player['realm']},
+             'talentTree': [{'id': 1000 + actor, 'rank': 1}]} for actor in (1, 2)]})
+        with patch.object(store, '_project_fact', wraps=store._project_fact) as project:
+            result, _ = ranking_fallbacks(self.season, [player])
+        self.assertEqual(result, {})
+        project.assert_not_called()
+
+    def test_newer_empty_talents_still_fall_back_to_older_valid_log(self):
+        from botend.services.wcl_combatant_store import persist_events
+        player = self.player()
+        older = self.ranking(dungeon_id=1, talents_json=[], report_code='Older', fight_id=1,
+                             last_updated=timezone.now() - timedelta(hours=1))
+        self.ranking(dungeon_id=2, talents_json=[], report_code='Newer', fight_id=1)
+        base = {'sourceID': 1, 'specID': 63,
+                'source': {'id': 1, 'name': player['name'], 'server': player['realm']}}
+        persist_events('Older', {1: [{**base, 'talentTree': [{'id': 1234, 'rank': 1}]}]})
+        persist_events('Newer', {1: [{**base, 'talentTree': []}]})
+        result, _ = ranking_fallbacks(self.season, [player])
+        self.assertEqual(next(iter(result.values())).pk, older.pk)
+        self.assertEqual(next(iter(result.values())).talents_json[0]['talentID'], 1234)
 
     def test_deletion_and_wrong_identity_never_reuse_other_profile(self):
         row = self.ranking()

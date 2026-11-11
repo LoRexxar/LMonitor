@@ -15,7 +15,7 @@ from botend.tests.test_wcl_combatant_store import event
 
 
 class CombatantRetirementRaceTests(TransactionTestCase):
-    def read_during_retirement(self, *, before_payload, identities_only=False):
+    def read_during_retirement(self, *, before_payload, identities_only=False, actor_ids_by_fight=None):
         old = timezone.now() - timedelta(days=2)
         cutoff = old + timedelta(hours=1)
         # Full-fight teammates, shared documents, an already compact actor, and
@@ -64,7 +64,7 @@ class CombatantRetirementRaceTests(TransactionTestCase):
         try:
             with connection.execute_wrapper(pause):
                 got = store.load_facts([{'report_code': 'Report', 'fight_id': 11}], fetched_before=cutoff,
-                                       identities_only=identities_only)
+                                       identities_only=identities_only, actor_ids_by_fight=actor_ids_by_fight)
         finally:
             ready.set()
             worker.join(6)
@@ -77,6 +77,8 @@ class CombatantRetirementRaceTests(TransactionTestCase):
         self.assertEqual(WclCombatantFact.objects.count(), 4)
         self.assertEqual(WclCombatantDocument.objects.count(), 2)
         expected = [store.canonical_event(event(actor)) for actor in (1, 2, 3)]
+        if actor_ids_by_fight is not None:
+            expected = [row for row in expected if row['sourceID'] in actor_ids_by_fight['Report', 11]]
         if identities_only:
             expected = [{k: row[k] for k in (*store.IDENTITY_KEYS, 'source')} for row in expected]
         self.assertEqual(got[('Report', 11)], expected)
@@ -94,3 +96,9 @@ class CombatantRetirementRaceTests(TransactionTestCase):
 
     def test_light_read_during_retirement_before_legacy_projection(self):
         self.read_during_retirement(before_payload=True, identities_only=True)
+
+    def test_actor_read_during_retirement_before_legacy_keys(self):
+        self.read_during_retirement(before_payload=False, actor_ids_by_fight={('Report', 11): [1, 3]})
+
+    def test_actor_read_during_retirement_before_legacy_payload(self):
+        self.read_during_retirement(before_payload=True, actor_ids_by_fight={('Report', 11): [1, 3]})

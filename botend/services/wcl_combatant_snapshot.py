@@ -74,9 +74,10 @@ def match_combatant(events, record, class_name, spec_name):
     return matches[0] if len(matches) == 1 else None
 
 
-def _load_facts(records, *, fetched_before=None, identities_only=False):
+def _load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None):
     return wcl_combatant_store.load_facts(
-        records, fetched_before=fetched_before, identities_only=identities_only)
+        records, fetched_before=fetched_before, identities_only=identities_only,
+        actor_ids_by_fight=actor_ids_by_fight)
 
 
 def _fact_read_batches(records, target_limit=100):
