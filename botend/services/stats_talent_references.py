@@ -125,7 +125,7 @@ def pack_metadata_references(detail, *, catalog_cache=None):
                      'spec_name': spec_name, 'rows': references}
 
 
-def unpack_metadata_references(detail, metadata):
+def unpack_metadata_references(detail, metadata, *, catalog_cache=None):
     if (not isinstance(metadata, dict) or set(metadata) != {
             'schema', 'version_id', 'class_name', 'spec_name', 'rows'}
             or metadata['schema'] not in (1, 2) or type(metadata['version_id']) is not int
@@ -141,7 +141,13 @@ def unpack_metadata_references(detail, metadata):
     if len({tuple(row) for row in refs}) != len(refs):
         raise ValueError('天赋资料引用重复')
     # 旧格式只借用其中的业务身份，不再依赖旧主键，也不读取退役行。
-    _, catalog = _catalog(metadata['class_name'], metadata['spec_name'], metadata['version_id'])
+    cache_key = (metadata['class_name'], metadata['spec_name'], metadata['version_id'])
+    if catalog_cache is not None and cache_key in catalog_cache:
+        _, catalog = catalog_cache[cache_key]
+    else:
+        version_id, catalog = _catalog(*cache_key)
+        if catalog_cache is not None:
+            catalog_cache[cache_key] = version_id, catalog
     identities = defaultdict(list)
     for row, data in catalog:
         key = (row.node_id, row.talent_id, row.spell_id)

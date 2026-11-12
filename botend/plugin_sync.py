@@ -125,8 +125,9 @@ def portal_data_task_due_at(task, now=None):
         normalized = SimpleNamespace(last_scan_time=last_scan_time, flag=getattr(task, 'flag', ''))
         flag = flag_data(normalized.flag)
         scope_token = None
-        if (flag.get('state') == 'complete'
-                and str(flag.get('identity', '')).split('@', 1)[0] == local_now.date().isoformat()):
+        if (flag.get('identity') and (flag.get('state') == 'partial' or
+                (flag.get('state') == 'complete' and
+                 str(flag.get('identity', '')).split('@', 1)[0] == local_now.date().isoformat()))):
             from botend.services.rio_statistics_scope import active_scope, ScopeUnavailable
             from django.db import DatabaseError
             try:
@@ -181,11 +182,23 @@ def monitor_task_due_at(task, now=None):
     return due_at if due_at <= claim_time else None
 
 
+def _monitor_task_order(task, due_at, claim_time):
+    """A resumed long task waits from its latest attempt, not an ancient slot."""
+    name = monitor_plugin_name(task)
+    priority = portal_monitor_task_priority(task)
+    if name in LONG_MONITOR_TASKS:
+        last = getattr(task, 'last_scan_time', None)
+        if last is not None and due_at is not None:
+            due_at = max(due_at, _normalized_now(last))
+        # Keep the existing shared-pool tie order. Long-lane selection applies
+        # its own business tie order only after comparing actual waiting time.
+    return due_at is None, due_at or claim_time, priority
+
+
 def monitor_task_sort_key(task, now=None):
-    """Run the task that has been due longest; priority only breaks ties."""
+    """Run the task that has waited longest; priority only breaks ties."""
     claim_time = _normalized_now(now)
-    due_at = monitor_task_due_at(task, now=claim_time)
-    return due_at is None, due_at or claim_time, portal_monitor_task_priority(task)
+    return _monitor_task_order(task, monitor_task_due_at(task, now=claim_time), claim_time)
 
 
 def portal_data_task_is_due(task, now=None):
@@ -229,25 +242,21 @@ def _night_lane_scopes(rows):
             if monitor_plugin_name(row) in LONG_MONITOR_TASKS}
 
 
-def _night_lane_head(tasks):
-    # Resume unfinished old WCL cycles before starting a new day's heavy work.
+def _night_lane_head(tasks, *, order_keys=None):
     if not tasks:
         return None
-    from botend.models import SeasonMeta
-    from botend.services.wcl_collection_cycle import active_cycle
-    season = SeasonMeta.objects.filter(is_active=True).only('id').first()
-    cycle = active_cycle(season.pk, only_fields=('phase',)) if season else None
-    resume_name = None
-    if cycle:
-        resume_name = ('SpecDetailRankingMonitor' if cycle.phase in ('rankings', 'combatants')
-                       else 'SpecDetailAggregationMonitor')
+    if len(tasks) == 1:
+        return tasks[0]
+    if order_keys is None:
+        now = _normalized_now()
+        order_keys = {task.pk: monitor_task_sort_key(task, now=now) for task in tasks}
     return min(tasks, key=lambda task: (
-        monitor_plugin_name(task) != resume_name,
-        NIGHT_LANE_PRIORITY.get(monitor_plugin_name(task), len(NIGHT_LANE_TASKS)), task.pk,
-    ), default=None)
+        order_keys[task.pk][:2],
+        NIGHT_LANE_PRIORITY.get(monitor_plugin_name(task), len(NIGHT_LANE_TASKS)), task.pk))
 
 
-def _night_lane_candidates(rows, due_tasks, active_scopes, *, long_limit, running_count):
+def _night_lane_candidates(rows, due_tasks, active_scopes, *, long_limit, running_count,
+                           order_keys=None):
     """Keep source preparation ordering, otherwise use any free long-task slot."""
     lane_scopes = _night_lane_scopes(rows)
     running = lane_scopes & active_scopes
@@ -259,11 +268,14 @@ def _night_lane_candidates(rows, due_tasks, active_scopes, *, long_limit, runnin
         return []
     pending = [r for r in due_tasks
                if monitor_scope_key(r) in lane_scopes or monitor_plugin_name(r) in barrier]
-    if any(monitor_plugin_name(r) in barrier for r in pending):
-        return [] if running else [_night_lane_head(pending)]
+    preparation = [r for r in pending if monitor_plugin_name(r) in barrier]
+    if preparation:
+        # Preparation is a dependency barrier, not a fairness competitor.
+        return [] if running else [min(preparation, key=lambda task: (
+            NIGHT_LANE_PRIORITY[monitor_plugin_name(task)], task.pk))]
     heads = []
     while pending and len(heads) < long_limit - running_count:
-        head = _night_lane_head(pending)
+        head = _night_lane_head(pending, order_keys=order_keys)
         heads.append(head)
         pending.remove(head)
     return heads
@@ -291,22 +303,27 @@ def _claim_monitor_task(now=None, *, task_id=None, lease_owner=None,
             if eligible:
                 canonical.setdefault(monitor_scope_key(row), row)
         lane_scopes = _night_lane_scopes(rows)
-        due_tasks = [row for row in canonical.values()
-                     if monitor_scope_key(row) not in active_scopes
-                     and (allow_long_tasks or monitor_scope_key(row) not in lane_scopes)
-                     and (manual or monitor_task_due_at(row, now=claim_time) is not None)]
+        due_tasks, order_keys = [], {}
+        for row in canonical.values():
+            if (monitor_scope_key(row) in active_scopes
+                    or (not allow_long_tasks and monitor_scope_key(row) in lane_scopes)):
+                continue
+            due_at = claim_time if manual else monitor_task_due_at(row, now=claim_time)
+            if due_at is not None:
+                due_tasks.append(row)
+                order_keys[row.pk] = _monitor_task_order(row, due_at, claim_time)
         is_night = claim_time.astimezone(PORTAL_DATA_TIMEZONE).hour < 6
         running_count = sum(row.pk in leased_task_ids and monitor_scope_key(row) in lane_scopes
                             for row in rows)
         lane_heads = _night_lane_candidates(rows, due_tasks, active_scopes,
-            long_limit=2 if is_night else 1, running_count=running_count)
+            long_limit=2 if is_night else 1, running_count=running_count, order_keys=order_keys)
         preparation = {'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor'}
         tasks = [row for row in due_tasks
                  if (row in lane_heads or (monitor_scope_key(row) not in lane_scopes
                                           and monitor_plugin_name(row) not in preparation))
                  and (task_names is None or row.name in task_names)]
         if not manual:
-            tasks.sort(key=lambda row: monitor_task_sort_key(row, now=claim_time))
+            tasks.sort(key=lambda row: order_keys[row.pk])
         if not tasks:
             return None
         task = tasks[0]
@@ -327,6 +344,7 @@ def _claim_monitor_task(now=None, *, task_id=None, lease_owner=None,
         if fields:
             task.save(update_fields=fields)
         task._monitor_task_lease_owner = owner
+        task._monitor_task_is_manual = manual
         task._monitor_task_is_long = monitor_scope_key(task) in lane_scopes
         if advance_schedule:
             from botend.services.wcl_collection_cycle import fence_claimed_cycle

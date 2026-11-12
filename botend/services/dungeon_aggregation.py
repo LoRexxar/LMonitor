@@ -8,12 +8,11 @@ from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Q
 from django.db.models.functions import Lower
 
-from botend.models import (SeasonMeta, SpecDungeonRanking, WowItemSnapshot,
-                           WowItemVariantSnapshot, WowTalentNodeMetadata,
-                           WowTalentVersion, WowSpellSnapshot)
+from botend.models import (SpecDungeonRanking, WowItemSnapshot,
+                           WowItemVariantSnapshot, WowTalentNodeMetadata)
 from botend.services import spec_stats_service as stats
 from botend.services import wcl_combatant_snapshot as combatants
 from botend.services.spec_stats_snapshot import content_digest, reusable_projection
@@ -27,8 +26,11 @@ _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at',
 
 def _content_rows(queryset, *, items_by_pk=None):
     """Hash contents, not MAX(timestamp): bulk .update() must invalidate too."""
+    excluded = _NON_CONTENT_FIELDS
+    if queryset.model is WowTalentNodeMetadata:
+        excluded = excluded | {'reference_aliases', 'localization_evidence'}
     fields = [field.attname for field in queryset.model._meta.concrete_fields
-              if field.name not in _NON_CONTENT_FIELDS]
+              if field.name not in excluded]
     if queryset.model is WowItemVariantSnapshot:
         # 存储格式变化不是装备事实变化，不能触发各专精聚合重复重建。
         rows = queryset.order_by('pk')
@@ -45,34 +47,32 @@ def _content_rows(queryset, *, items_by_pk=None):
 
 
 def _variant_dependencies(items, gear_records):
-    """Match the existing display scope before hydrating any variant JSON.
-
-    Aggregate equipment keeps itemLevel but not bonusIDs; its display requests
-    therefore choose the lowest default or the scored exact-level variant.
-    Use the display scorer, and inspect branch JSON *keys*, never the full large
-    metadata column on historical/unselected variants.
-    """
-    from botend.services.wow_item_display import _positive_int, _variant_score
+    """Track the same current variants as ordinary aggregate display."""
+    from botend.services.wow_item_display import (
+        _active_item_catalog_season, _needs_effects_compilation, _positive_int,
+        _select_ordinary_item_variant,
+    )
     if not items:
         return None, []
-    active = SeasonMeta.objects.filter(is_active=True).exclude(gear_batch_key='').annotate(
-        has_gear_catalog=Exists(WowItemVariantSnapshot.objects.filter(
-            season_id=OuterRef('pk'), batch_key=OuterRef('gear_batch_key'))))
-    season = (active.filter(has_gear_catalog=True).order_by('-gear_synced_at', '-id').first()
-              or active.order_by('-id').first())
+    season = _active_item_catalog_season()
     if season is None:
         return None, []
     items_by_pk = {item.pk: item for item in items.values()}
-    # Selection has explicit level/PK tie-breaks; no related ordering is needed.
     variants = WowItemVariantSnapshot.objects.filter(
         season=season, batch_key=season.gear_batch_key, item_id__in=items_by_pk).order_by()
     grouped = {}
-    for row in variants.values('pk', 'item_id', 'item_level', 'variant_type', 'data_branch',
-                               'metadata__data_branch', 'metadata__ptr_preview'):
-        branch = (row['metadata__data_branch'] or ('ptr' if row['metadata__ptr_preview'] else '')
-                  or row['data_branch'])
-        grouped.setdefault(row['item_id'], {}).setdefault(branch, []).append(SimpleNamespace(
-            pk=row['pk'], item_level=row['item_level'], variant_type=row['variant_type'], bonus_ids=[]))
+    # Only selection fields/JSON keys: never hydrate all historical variant JSON.
+    # Presence, not truthiness, matters even for a null difficulty_drop marker.
+    for row in variants.annotate(dedicated=Q(metadata__has_key='difficulty_drop')).values(
+            'pk', 'item_id', 'item_level', 'variant_type', 'data_branch', 'bonus_ids',
+            'metadata__data_branch', 'metadata__ptr_preview', 'dedicated'):
+        metadata = {'data_branch': row['metadata__data_branch'],
+                    'ptr_preview': row['metadata__ptr_preview']}
+        if row['dedicated']:
+            metadata['difficulty_drop'] = None
+        grouped.setdefault(row['item_id'], []).append(SimpleNamespace(
+            pk=row['pk'], item_level=row['item_level'], variant_type=row['variant_type'],
+            bonus_ids=row['bonus_ids'], data_branch=row['data_branch'], metadata=metadata))
     levels = {item_id: {0} for item_id in items}
     for record in gear_records:
         for item in record.get('gear_json') or []:
@@ -83,37 +83,20 @@ def _variant_dependencies(items, gear_records):
                 levels[item_id].add(_positive_int(item.get('itemLevel')))
     selected = set()
     for item_id, item in items.items():
-        branches = grouped.get(item.pk, {})
-        branch = next(iter(branches)) if len(branches) == 1 else 'retail'
-        candidates = branches.get(branch, [])
+        candidates = grouped.get(item.pk, [])
+        if _needs_effects_compilation(item):
+            # The reader compiles across *all* current item variants, including
+            # other branches and dedicated drops, before selecting display facts.
+            selected.update(row.pk for row in candidates)
+            continue
         for level in levels[item_id]:
-            if level:
-                variant = max((row for row in candidates if row.item_level == level),
-                              key=lambda row: _variant_score(row, level, ()), default=None)
-            else:
-                variant = min(candidates, key=lambda row: (row.item_level, row.pk), default=None)
+            # _compute_gear_popularity retains itemLevel but drops bonusIDs.
+            variant, _branch = _select_ordinary_item_variant(
+                candidates, item_level=level, allow_default_variant=True, default_order='lowest')
             if variant is not None:
                 selected.add(variant.pk)
     return [season.pk, season.gear_batch_key], _content_rows(
         variants.filter(pk__in=selected), items_by_pk=items_by_pk)
-
-
-@lru_cache(maxsize=24)
-def _reference_table(attribute, file_key):
-    """Share only immutable file tables, never a resolver's mutable DB cache.
-
-    Spell text/effect/misc indexes already have bounded file-identity caches in
-    spell_text. These three remaining loaders are instance-local there. Delegate
-    parsing to them too, but don't reread their entire CSV for every spec/hit.
-    """
-    from botend.wow.spell_text import SpellTextResolver
-    resolver = SpellTextResolver(dump_dir=Path(file_key[0]).parent)
-    if attribute == '_max_stacks_cache':
-        resolver._max_stacks_value(0)
-    else:
-        getattr(resolver, {'_duration_cache': '_load_duration_table',
-                           '_radius_cache': '_load_radius_table'}[attribute])()
-    return getattr(resolver, attribute)
 
 
 @lru_cache(maxsize=16)
@@ -135,12 +118,23 @@ def _structural_dump_digest(file_key, entry_ids=(), tree_ids=()):
                 continue
             if relevant:
                 selected.append(row)
+    # Unique consumer keys make physical CSV order immaterial. Duplicates keep
+    # their original order: entry maps are last-wins, decoder nodes first-wins.
+    identity = 'TraitNodeEntryID' if path.name == 'TraitNodeXTraitNodeEntry.csv' else 'ID'
+    keys = [row.get(identity) for row in selected]
+    try:
+        numeric_keys = [int(key) for key in keys]
+    except (TypeError, ValueError):
+        numeric_keys = None
+    if (numeric_keys is not None and all(key > 0 for key in numeric_keys)
+            and len(set(numeric_keys)) == len(numeric_keys)):
+        selected = [row for _, row in sorted(zip(numeric_keys, selected), key=lambda pair: pair[0])]
     return content_digest(selected)
 
 
 
 @protect_sources
-def _resolved_talent_dependencies(nodes, version, supplements):
+def _resolved_talent_dependencies(nodes, version, supplements, *, display_reader=None):
     """Fingerprint the authority's output, not a second token dependency graph.
 
     Resolve this class's rows in the actual statistics version, once per row.
@@ -155,17 +149,12 @@ def _resolved_talent_dependencies(nodes, version, supplements):
     if version is None:
         return {}
     provider = TalentMetadataProvider(talent_version=version)
+    if display_reader is not None:
+        provider._display_reader = display_reader
     provider._name_supplement_cache[version.pk] = supplements
     rows = [row for row in nodes if row['talent_version_id'] == version.pk]
     if not rows:
         return {}
-    for locale in ('enUS', 'zhCN'):
-        resolver = provider._spell_resolver(locale)
-        for attribute, filename in (('_duration_cache', 'SpellDuration.csv'),
-                                    ('_radius_cache', 'SpellRadius.csv'),
-                                    ('_max_stacks_cache', 'SpellAuraOptions.csv')):
-            setattr(resolver, attribute, _reference_table(
-                attribute, _file_cache_key(resolver._dump_file(filename))))
     resolved = []
     # Match the provider's other readers: batch central display data before
     # serializing nodes, rather than issuing one lookup per talent.
@@ -245,30 +234,36 @@ def _metadata_dependencies(records, facts, class_name, spec_name, *, context=Non
     ).order_by('pk').values('talent_version_id', 'reference_id', 'name_kind', 'name', 'name_zh', 'icon'))
     # Raw WCL references can differ by scope. Resolve only identical complete
     # supplement inputs once; never share a scope's reference set with another.
+    # One actual reader per invocation/batch: node contexts and raw fallbacks
+    # must use the same captured central rows, not independently reload them.
+    from botend.services.wow_spell_display import SpellDisplayReader
+    reader_key = ('spell-reader', getattr(version, 'branch', 'retail'))
+    if reader_key not in context:
+        context[reader_key] = SpellDisplayReader(reader_key[1])
+    reader = context[reader_key]
+    reader.preload(reference_ids)
     resolved_key = ('resolved-talents', base_key, content_digest(supplements))
     if resolved_key not in context:
         context[resolved_key] = _resolved_talent_dependencies(nodes, version, [
-            row for row in supplements if version and row['talent_version_id'] == version.pk])
+            row for row in supplements if version and row['talent_version_id'] == version.pk],
+            display_reader=reader)
     # 当前版本解析器将所有使用场景固定到正式服；同一依赖检查无需重复查询四次。
     resolved_versions = {usage: getattr(version, 'pk', None)
                          for usage in (*TalentVersionResolver.DEFAULT_FLAG_BY_USAGE, 'retail')}
     # 单本拆分后，相同引用集合仍只查询一次；上下文仅存活于本轮发布。
     spell_key = ('spell-rows', tuple(sorted(reference_ids)))
     if spell_key not in context:
-        spell_rows = _content_rows(WowSpellSnapshot.objects.filter(spell_id__in=reference_ids))
-        for row in spell_rows:
-            default = (row.get('display_data') or {}).get('default')
-            if isinstance(default, dict) and default:
-                # SpellDisplayReader ignores the raw icon when compiled display
-                # exists. Hash its effective default instead: backfilling a
-                # shadowed storage field must not invalidate identical output.
-                # Keep contexts, resolved nodes/choices and all other facts.
-                row['icon'] = default.get('icon') or ''
-        context[spell_key] = spell_rows
+        # The same reader owns branch/locale fallback and compiled/default
+        # precedence. Contextual node reads are already captured above in
+        # resolved_talents; raw WCL fallback calls get() without a node context.
+        context[spell_key] = [(sid, reader.get(sid)) for sid in sorted(reference_ids)]
     grants_key = ('talent-grants', getattr(version, 'pk', None), class_name)
     if grants_key not in context:
         context[grants_key] = effective_grants(version, class_name)
     return {
+        # Earlier dependency contracts omitted some actually consumed variants.
+        # A matching legacy digest cannot certify those historical results.
+        'metadata_contract': 'v2-complete-items-effective-spells',
         'items': item_rows,
         'enchant_catalog': sorted(catalog.items()),
         'variants': variants,

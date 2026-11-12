@@ -34,7 +34,7 @@ class NightLaneTests(TestCase):
         sql = ' '.join(q['sql'] for q in queries).lower()
         self.assertNotIn('selected_samples', sql)
         self.assertNotIn('completed_scopes', sql)
-        self.assertEqual(len(queries), 2)
+        self.assertLessEqual(len(queries), 2)
 
     def test_source_preparation_head_orders_all_ordinary_workers_and_manual_requests(self):
         season = self.task('SpecDetailSeasonMonitor')

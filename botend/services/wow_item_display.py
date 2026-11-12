@@ -733,6 +733,56 @@ def _difficulty_variant(candidates, context, item_id):
     return min(matching, key=lambda row: row.pk)
 
 
+def _active_item_catalog_season():
+    """One active season/batch policy for display and dependency readers."""
+    active = SeasonMeta.objects.filter(is_active=True).exclude(gear_batch_key='').annotate(
+        has_gear_catalog=Exists(WowItemVariantSnapshot.objects.filter(
+            season_id=OuterRef('pk'), batch_key=OuterRef('gear_batch_key'),
+        )),
+    )
+    return (
+        active.filter(has_gear_catalog=True).order_by('-gear_synced_at', '-id').first()
+        or active.order_by('-id').first()
+    )
+
+
+def _needs_effects_compilation(snapshot):
+    return not isinstance(snapshot.effects, dict) or snapshot.effects.get('schema') != 1
+
+
+def _select_ordinary_item_variant(variants, *, item_level=0, bonus_ids=(),
+                                  allow_default_variant=False, default_order='highest',
+                                  require_complete=False, context=None, infer_branch=True):
+    """Select display facts without hydration; dependency proxies use this too.
+
+    Difficulty-only facts must not affect either branch inference or selection.
+    Inputs are normalized by the caller; complete-effect filtering requires real
+    variants, while ordinary aggregation only needs the lightweight fields.
+    """
+    from botend.services.wow_data_branch import variant_branch
+    context = context or {}
+    visible = [row for row in variants if not (
+        isinstance(row.metadata, dict) and 'difficulty_drop' in row.metadata)]
+    data_branch = context.get('data_branch') or ('ptr' if context.get('is_ptr') else 'retail')
+    if infer_branch and not context.get('data_branch') and type(context.get('is_ptr')) is not bool:
+        branches = {variant_branch(row) for row in visible}
+        if len(branches) == 1:
+            data_branch = next(iter(branches))
+    candidates = [row for row in visible if variant_branch(row) == data_branch]
+    if require_complete and any(row.effects_data for row in candidates):
+        candidates = [row for row in candidates if row.effects_data]
+    if item_level:
+        candidates = [row for row in candidates if _positive_int(row.item_level) == item_level]
+    elif not bonus_ids and not allow_default_variant:
+        candidates = []
+    if default_order == 'lowest' and not item_level and not bonus_ids:
+        variant = min(candidates, key=lambda row: (_positive_int(row.item_level), int(row.pk or 0)),
+                      default=None)
+    else:
+        variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
+    return variant, data_branch
+
+
 def load_item_tooltip_metadata(requests):
     """按输入顺序批量匹配活动目录的具体装备变体。"""
     requests = list(requests or [])
@@ -750,15 +800,7 @@ def load_item_tooltip_metadata(requests):
     snapshots = {
         int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)
     }
-    active = SeasonMeta.objects.filter(is_active=True).exclude(gear_batch_key='').annotate(
-        has_gear_catalog=Exists(WowItemVariantSnapshot.objects.filter(
-            season_id=OuterRef('pk'), batch_key=OuterRef('gear_batch_key'),
-        )),
-    )
-    season = (
-        active.filter(has_gear_catalog=True).order_by('-gear_synced_at', '-id').first()
-        or active.order_by('-id').first()
-    )
+    season = _active_item_catalog_season()
     variants_by_item = {}
     if season and snapshots:
         snapshots_by_pk = {row.pk: row for row in snapshots.values()}
@@ -775,10 +817,9 @@ def load_item_tooltip_metadata(requests):
     from botend.services.wow_item_effects import compile_effects
     for item_id, snapshot in snapshots.items():
         # 兼容尚未回填的目录，只在本次已批量加载的资料中解析，不写库。
-        if not isinstance(snapshot.effects, dict) or snapshot.effects.get('schema') != 1:
+        if _needs_effects_compilation(snapshot):
             snapshot.effects = compile_effects(variants_by_item.get(item_id, []))[0]
     from botend.services.wow_item_identity import has_identity_store, resolve_display_identity
-    from botend.services.wow_data_branch import variant_branch
     for request, (
         item_id, item_level, bonus_ids, primary_stat,
         allow_default_variant, game_build, default_order, require_complete,
@@ -791,19 +832,6 @@ def load_item_tooltip_metadata(requests):
         snapshot = snapshots.get(item_id)
         identity = context.get('item_identity')
         strict_difficulty = any(key in context for key in DIFFICULTY_CONTEXT_FIELDS)
-        visible_variants = variants_by_item.get(item_id, [])
-        if not strict_difficulty:
-            # A dedicated Journal fact must be invisible to ordinary branch
-            # inference as well as to final variant selection.
-            visible_variants = [row for row in visible_variants if not (
-                isinstance(row.metadata, dict) and 'difficulty_drop' in row.metadata)]
-        data_branch = context.get('data_branch') or ('ptr' if context.get('is_ptr') else 'retail')
-        # Legacy readers may infer a unique branch; strict Journal coordinates never may.
-        if not strict_difficulty and not context.get('data_branch') and type(context.get('is_ptr')) is not bool and snapshot:
-            branches = {variant_branch(row) for row in visible_variants}
-            if len(branches) == 1:
-                data_branch = next(iter(branches))
-        candidates = [row for row in visible_variants if variant_branch(row) == data_branch]
         if strict_difficulty:
             data_branch = context.get('data_branch')
             candidates = [row for row in variants_by_item.get(item_id, [])
@@ -835,21 +863,11 @@ def load_item_tooltip_metadata(requests):
                 projected['display_description'] = projected['tooltip']
             result.append(projected)
             continue
-        if require_complete and any(row.effects_data for row in candidates):
-            candidates = [row for row in candidates if row.effects_data]
-        if item_level:
-            exact = [row for row in candidates if _positive_int(row.item_level) == item_level]
-            candidates = exact
-        elif not bonus_ids and not allow_default_variant:
-            candidates = []
-        if default_order == 'lowest' and not item_level and not bonus_ids:
-            variant = min(
-                candidates,
-                key=lambda row: (_positive_int(row.item_level), int(row.pk or 0)),
-                default=None,
-            )
-        else:
-            variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
+        variant, data_branch = _select_ordinary_item_variant(
+            variants_by_item.get(item_id, []), item_level=item_level, bonus_ids=bonus_ids,
+            allow_default_variant=allow_default_variant, default_order=default_order,
+            require_complete=require_complete, context=context, infer_branch=snapshot is not None,
+        )
         snapshot = snapshots.get(item_id) or getattr(variant, 'item', None)
         game_build = str(getattr(variant, 'game_build', '') or '')
         result.append(item_display_metadata(

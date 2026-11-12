@@ -8,6 +8,7 @@ from decimal import Decimal
 import hashlib
 import logging
 import os
+import re
 from pathlib import Path
 
 from django.conf import settings
@@ -31,6 +32,15 @@ def byte_limit():
     return max(1024, int(getattr(settings, 'SPEC_AGGREGATION_WORK_MAX_BYTES', MAX_WORK_BYTES)))
 PREFIX = b'{"digest":"'
 SEPARATOR = b'","data":'
+HEADER_BYTES = 4096
+_FINGERPRINT_MISMATCH = object()
+# Only the known scalar prefix is recognized. Unknown order/long/old headers
+# fall through to the existing complete reader, never a guessed cache hit.
+_JSON_STRING = rb'"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*"'
+_WORK_HEADER = re.compile(
+    rb'\{\s*"schema"\s*:\s*([0-9]+)\s*,\s*"season_id"\s*:\s*([0-9]+)'
+    rb'\s*,\s*"scope"\s*:\s*(' + _JSON_STRING + rb')'
+    rb'\s*,\s*"fingerprint"\s*:\s*(' + _JSON_STRING + rb')\s*,\s*"payload"\s*:')
 
 
 def cache_root():
@@ -86,15 +96,74 @@ def _normalized(value):
     return value
 
 
-def _read_file(path):
-    """有界解压；直接校验正文视图，不额外复制大块字节。"""
+def _header_fingerprint(raw, season_id, scope):
+    """Unauthenticated hint: a match must still pass full body validation."""
+    if raw.startswith(NEW_PREFIX):
+        start = len(NEW_PREFIX)
+    elif raw.startswith(PREFIX):
+        start = len(PREFIX) + 64 + len(SEPARATOR)
+        if raw[len(PREFIX) + 64:start] != SEPARATOR:
+            return None
+    else:
+        return None
+    match = _WORK_HEADER.match(raw, start)
+    if match is None:
+        return None
     try:
-        if path.stat().st_size > byte_limit():
+        schema, season, stored_scope, fingerprint = json.loads(b'[' + b','.join(match.groups()) + b']')
+        if schema == SCHEMA and season == int(season_id) and stored_scope == scope:
+            return fingerprint
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def work_fingerprint_hint(season_id, scope):
+    """Only prioritize request-local inputs; never evidence of a cache hit.
+
+    Request at most HEADER_BYTES from gzip (which may prefetch internally);
+    no sidecar or index.
+    An unrecognized existing gzip header does not consult a possibly stale
+    plain predecessor. False hints only cost a safe recomputation later.
+    """
+    try:
+        path = work_path(season_id, scope)
+    except OSError:
+        return None
+    limit = byte_limit()
+    for candidate in (path, path.with_suffix('')):
+        try:
+            if candidate.stat().st_size > limit:
+                return None
+            opener = gzip.open if candidate.name.endswith('.gz') else open
+            with opener(candidate, 'rb') as stream:
+                raw = stream.read(min(HEADER_BYTES, limit + 1))
+            return _header_fingerprint(raw, season_id, scope) if len(raw) <= limit else None
+        except FileNotFoundError:
+            continue
+        except (OSError, EOFError, ValueError, zlib.error):
+            return None
+    return None
+
+
+def _read_file(path, *, expected=None):
+    """有界解压；头部只作快速否定，完整正文仍以视图核验摘要。"""
+    try:
+        limit = byte_limit()
+        if path.stat().st_size > limit:
             return None
         opener = gzip.open if path.name.endswith('.gz') else open
         with opener(path, 'rb') as stream:
-            raw = stream.read(byte_limit() + 1)
-        if len(raw) > byte_limit():
+            raw = b''
+            if expected is not None:
+                raw = stream.read(min(HEADER_BYTES, limit + 1))
+                hint = _header_fingerprint(raw, expected[0], expected[1])
+                if hint is not None and hint != expected[2]:
+                    return _FINGERPRINT_MISMATCH
+            # Continue the SAME descriptor: atomic replacement cannot splice
+            # a header from one generation onto another generation's body.
+            raw += stream.read(limit + 1 - len(raw))
+        if len(raw) > limit:
             return None
         if raw.startswith(NEW_PREFIX):
             end = len(raw) - len(NEW_SUFFIX) - 64 - 2
@@ -127,14 +196,19 @@ def _valid(data, season_id, scope):
 def load_work(season_id, scope, fingerprint):
     """新缓存不回查旧大表；旧表兼容导入由显式开关控制。"""
     from .stats_storage_codec import unpack_detail
+    import_legacy = getattr(settings, 'SPEC_AGGREGATION_IMPORT_LEGACY_DATABASE', False)
+    # Explicit DB migration retains the original corruption/fallback semantics.
+    expected = None if import_legacy else (season_id, scope, fingerprint)
     try:
         path = work_path(season_id, scope)
-        data = _read_file(path)
+        data = _read_file(path, expected=expected)
         if data is None:
-            data = _read_file(path.with_suffix(''))
+            data = _read_file(path.with_suffix(''), expected=expected)
     except OSError:
         logger.warning('读取聚合中间缓存失败：赛季=%s 范围=%s', season_id, scope, exc_info=True)
         data = None
+    if data is _FINGERPRINT_MISMATCH:
+        return None
     if _valid(data, season_id, scope):
         if data['fingerprint'] != fingerprint:
             return None
@@ -143,7 +217,7 @@ def load_work(season_id, scope, fingerprint):
             return unpack_detail(payload) if isinstance(payload, dict) else payload
         except (ValueError, KeyError, TypeError):
             return None
-    if not getattr(settings, 'SPEC_AGGREGATION_IMPORT_LEGACY_DATABASE', False):
+    if not import_legacy:
         return None
     payload = _load_database(season_id, scope, fingerprint)
     if payload is not None:

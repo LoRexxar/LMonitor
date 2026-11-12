@@ -139,12 +139,13 @@ class ParallelNightTests(TestCase):
         self.assertEqual(MonitorTaskLease.objects.filter(expires_at__gt=now).count(), 3)
 
     def test_daytime_single_long_head_is_claimed_by_an_unfiltered_worker(self):
-        self.task('SpecDetailPlayerMonitor')
+        player = self.task('SpecDetailPlayerMonitor')
         observation = self.task('RioStatisticsMonitor')
         observation.last_scan_time = self.now
         observation.save(update_fields=['last_scan_time'])
         now = self.now.replace(hour=6)
-        self.assertEqual(claim_next_monitor_task(now=now).pk, observation.pk)
+        # Player has waited since midnight; RIO already attempted at 01:00.
+        self.assertEqual(claim_next_monitor_task(now=now).pk, player.pk)
         self.assertIsNone(claim_next_monitor_task(now=now))
 
     def test_crossing_six_drains_existing_long_tasks_before_claiming_another(self):

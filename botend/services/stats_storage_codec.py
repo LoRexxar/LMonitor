@@ -250,7 +250,7 @@ def pack_detail(detail, *, catalog_cache=None):
                                'recipe': recipe, 'metadata': metadata, 'players': players}}
 
 
-def unpack_detail(detail):
+def unpack_detail(detail, *, catalog_cache=None):
     meta = detail.get(MARKER)
     if not isinstance(meta, dict) or meta.get('schema') != 4:
         return _unpack_local(detail)
@@ -272,7 +272,7 @@ def unpack_detail(detail):
     if meta['players']:
         result = unpack_players(result, meta['players'])
     if meta['metadata'] is not None:
-        result = unpack_metadata_references(result, meta['metadata'])
+        result = unpack_metadata_references(result, meta['metadata'], catalog_cache=catalog_cache)
     if meta['recipe']:
         result = unpack_render_recipe(result)
     return result

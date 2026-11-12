@@ -104,13 +104,16 @@ class RaidIdempotencyTests(SimpleTestCase):
 
 class RaidORMIdempotencyTests(TestCase):
     def test_real_rankings_aggregation_publication_reuses_then_changes(self):
+        from botend.tests.aggregation_cache_helpers import isolate_work_cache
+        isolate_work_cache(self)
         season = SeasonMeta.objects.create(season_key='raid-idempotency', season_name='Test',
             mplus_zone_id=1, raid_zone_id=1,
             raid_encounters=[{'id': 1, 'name': 'One'}], raid_zones=[])
         for difficulty in (4, 5):
             SpecRaidRanking.objects.create(season_id=season.id, boss_id=1, boss_name='One',
                 difficulty=difficulty, class_name='Warrior', spec_name='Arms', character_name='Test',
-                realm='Realm', region='eu', dps=100, kill_time=100000)
+                realm='Realm', region='eu', dps=100, kill_time=100000,
+                report_code='FixtureReport', fight_id=difficulty)
         with tempfile.TemporaryDirectory() as root, patch('requests.sessions.Session.request',
                 side_effect=AssertionError('no network during local regression')):
             directory = Path(root) / str(season.pk) / 'Warrior/Arms'

@@ -344,7 +344,8 @@ class RateLimited(Exception):
 
 
 class Collector:
-    def __init__(self, *, max_requests=DAILY_REQUEST_BUDGET, transport=None, force=False):
+    def __init__(self, *, max_requests=DAILY_REQUEST_BUDGET, transport=None, force=False,
+                 expected_scope_token=None):
         self.max_requests = max(1, min(int(max_requests), MAX_REQUEST_BUDGET))
         self.requests = 0
         self.session = requests.Session() if transport is None else None
@@ -352,6 +353,7 @@ class Collector:
         self.force = force
         self.stopped = False
         self.scope = None
+        self.expected_scope_token = expected_scope_token
         self._view_keys = set()
         self.request_seconds = 0.0
 
@@ -433,6 +435,8 @@ class Collector:
     def metadata(self):
         self.scope = active_scope()
         scope = self.scope
+        if self.expected_scope_token is not None and scope['token'] != self.expected_scope_token:
+            raise ScopeUnavailable('领取后数据库赛季版本发生变化，拒绝跨范围恢复。')
         previous = catalog()
         stamp = _stamp(previous.get('updated_at'))
         if ((previous.get('scope') or {}).get('token') == scope['token'] and stamp and 'affixes' in previous
@@ -754,7 +758,7 @@ class Collector:
 
 
 
-def run_nightly_collection():
+def run_nightly_collection(*, scope_token=None):
     """由夜间长任务队列调用；本服务不再启动独立高频线程。"""
-    with Collector(max_requests=DAILY_REQUEST_BUDGET) as collector:
+    with Collector(max_requests=DAILY_REQUEST_BUDGET, expected_scope_token=scope_token) as collector:
         return collector.run(maintain=True)

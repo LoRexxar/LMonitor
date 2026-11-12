@@ -45,6 +45,9 @@ class AggregationDependencyBatchTests(TestCase):
                        for difficulty in (5, 4) for boss, name in [(1, 'One'), (2, 'Two')]]
 
     def test_variant_dependencies_bind_loaded_items_without_join_or_rehydration(self):
+        # Legacy compilation reads every variant; this path tests a compiled item.
+        self.item.effects = {'schema': 1, 'effects': []}
+        self.item.save(update_fields=['effects'])
         records = [{'gear_json': [{'id': 123, 'itemLevel': 200}]}]
         # The existing generic path remains the content oracle (including effects decoding).
         selected = WowItemVariantSnapshot.objects.filter(item=self.item).order_by('item_level', 'pk')

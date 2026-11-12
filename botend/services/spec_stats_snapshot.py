@@ -226,7 +226,6 @@ def _publish_projection_locked(path, payload, write_json):
         try:
             reusable = (isinstance(old, dict) and meta.get('payload_hash') == payload_hash
                         and meta.get('detail_hashes') == detail_hashes
-                        and meta.get('index_hash') == content_digest({k: v for k, v in old.items() if k != '_snapshot'})
                         and _validated_details(path, old, details) is not None)
         except (TypeError, ValueError):
             reusable = False
@@ -264,36 +263,52 @@ def reusable_projection(path, fingerprint, required_keys):
     meta = index.get('_snapshot', {}) if isinstance(index, dict) else {}
     if meta.get('input_fingerprint') != fingerprint:
         return None
-    try:
-        index_hash = content_digest({k: v for k, v in index.items() if k != '_snapshot'})
-    except (ValueError, TypeError):
-        return None
-    if meta.get('index_hash') != index_hash:
-        return None
     return _validated_details(path, index, required_keys)
 
 
 def _validated_details(path, index, required_keys):
-    """Validate bodies against one captured, already scope-validated index."""
+    """Reuse only fully decodable bodies from one checksum-validated index."""
     meta = index.get('_snapshot', {}) if isinstance(index, dict) else {}
-    if (meta.get('details') != list(required_keys)
+    required_keys = list(required_keys)
+    if (meta.get('details') != required_keys or not meta.get('index_hash')
             or not isinstance(meta.get('detail_hashes'), dict)):
         return None
-    for key in required_keys:
-        if not isinstance(key, str) or not re.fullmatch(r'(dungeon-(all|\d+)|raid-[45]-\d+)', key):
-            return None
-        envelope = _load(path.parent / 'stats-details' / meta['generation'] / f'{key}.json')
-        if (not isinstance(envelope, dict) or envelope.get('schema') != SCHEMA
-                or envelope.get('generation') != meta['generation']
-                or envelope.get('scope') != meta['scope'] or envelope.get('key') != key
-                or not isinstance(envelope.get('data'), dict)):
-            return None
-        try:
-            if content_digest(envelope['data']) != meta['detail_hashes'].get(key):
+    try:
+        _check_talent_structure(meta)
+        catalog_cache = {}  # This validation call only; never retain mutable DB facts.
+        for key in required_keys:
+            # Validate and decode the same loaded body; discard each decoded
+            # detail immediately rather than hydrating the whole publication.
+            if _decoded_detail(path, meta, key, catalog_cache=catalog_cache) is None:
                 return None
-        except (TypeError, ValueError):
-            return None
+    except (ValueError, KeyError, TypeError):
+        return None
     return index
+
+
+def _check_talent_structure(meta):
+    from .stats_talent_references import StaleTalentReferences
+    from .stats_talent_dependencies import structure_token
+    token = meta.get('talent_structure_token')
+    if token and token != structure_token(meta['scope'][1]):
+        raise StaleTalentReferences('统计天赋结构已变化')
+
+
+def _decoded_detail(path, meta, key, *, catalog_cache=None):
+    """One read/parse, envelope and content checks, then the real storage codec."""
+    if (not isinstance(key, str) or not re.fullmatch(r'(dungeon-(all|\d+)|raid-[45]-\d+)', key)
+            or key not in meta['details']):
+        return None
+    envelope = _load(path.parent / 'stats-details' / meta['generation'] / f'{key}.json')
+    if (not isinstance(envelope, dict) or envelope.get('schema') != SCHEMA
+            or envelope.get('generation') != meta['generation']
+            or envelope.get('scope') != meta['scope'] or envelope.get('key') != key
+            or not isinstance(envelope.get('data'), dict)):
+        return None
+    if ('detail_hashes' in meta
+            and content_digest(envelope['data']) != meta['detail_hashes'].get(key)):
+        raise ValueError('统计详情摘要不一致')
+    return unpack_detail(envelope['data'], catalog_cache=catalog_cache)
 
 
 def _valid_index_containers(payload, module):
@@ -336,26 +351,26 @@ def read_projection(path, detail_key=None):
             or not isinstance(meta.get('details'), list)
             or not _valid_index_containers(payload, path.stem)):
         return None
+    # Pre-checksum sharded publications remain readable last-good data, but
+    # cannot be reused. Once either digest field exists, require the pair.
+    if 'index_hash' in meta or 'detail_hashes' in meta:
+        try:
+            if (not isinstance(meta.get('detail_hashes'), dict)
+                    or meta.get('index_hash') != content_digest({
+                        key: value for key, value in payload.items() if key != '_snapshot'})):
+                return None
+        except (ValueError, TypeError):
+            return None
     if detail_key is None:
         return payload
     from .stats_talent_references import StaleTalentReferences
-    from .stats_talent_dependencies import structure_token
-    token = meta.get('talent_structure_token')
-    if token and token != structure_token(meta['scope'][1]):
+    try:
+        _check_talent_structure(meta)
+        detail = _decoded_detail(path, meta, detail_key)
+    except StaleTalentReferences:
         return {'_stats_refresh_required': True}
-    detail = None
-    if (isinstance(detail_key, str) and re.fullmatch(r'(dungeon-(all|\d+)|raid-[45]-\d+)', detail_key)
-            and detail_key in meta['details']):
-        envelope = _load(path.parent / 'stats-details' / meta['generation'] / f'{detail_key}.json')
-        if (isinstance(envelope, dict) and envelope.get('schema') == SCHEMA
-                and envelope.get('generation') == meta['generation'] and envelope.get('scope') == meta['scope']
-                and envelope.get('key') == detail_key and isinstance(envelope.get('data'), dict)):
-            try:
-                detail = unpack_detail(envelope['data'])
-            except StaleTalentReferences:
-                return {'_stats_refresh_required': True}
-            except (ValueError, KeyError, TypeError):
-                return None
+    except (ValueError, KeyError, TypeError):
+        return None
     if path.stem == 'dungeon':
         if detail_key == 'dungeon-all':
             payload['summary'] = detail

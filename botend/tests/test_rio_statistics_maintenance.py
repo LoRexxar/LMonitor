@@ -269,7 +269,13 @@ class RioStorageMaintenanceTests(SimpleTestCase):
 
 class RioNightResumeIntegrationTests(TestCase):
     def setUp(self):
-        from botend.models import MonitorTask
+        from botend.models import MonitorTask, SeasonMeta
+        from botend.services.rio_statistics_scope import active_scope
+        SeasonMeta.objects.all().delete()
+        SeasonMeta.objects.create(season_key='mn-s2', season_name='午夜第二赛季',
+            rio_season='season-mn-2', game_build='12.1.5.70000', is_active=True,
+            mplus_zone_id=1, raid_zone_id=2)
+        self.identity = '2026-11-05@' + active_scope()['token']
         MonitorTask.objects.update(is_active=False)
         self.now = datetime(2026, 11, 5, 1, tzinfo=ZoneInfo('Asia/Shanghai'))
         self.task = MonitorTask.objects.create(name='RioStatisticsMonitor', type=980, target='', is_active=True,
@@ -286,11 +292,11 @@ class RioNightResumeIntegrationTests(TestCase):
     def test_partial_waits_for_retry_then_complete_is_not_repeated(self):
         from botend.plugin_sync import claim_next_monitor_task, complete_monitor_task_lease
         first = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now, lease_owner='one')
-        flag = json.dumps({'identity': '2026-11-05@test', 'state': 'partial', 'retry_at': (self.now + timedelta(minutes=32)).isoformat()})
+        flag = json.dumps({'identity': self.identity, 'state': 'partial', 'retry_at': (self.now + timedelta(minutes=32)).isoformat()})
         self.assertTrue(complete_monitor_task_lease(first.pk, 'one', now=self.now + timedelta(minutes=2), task_updates={'flag': flag}))
         self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(minutes=31), lease_owner='two'))
         second = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(minutes=33), lease_owner='two')
-        flag = json.dumps({'identity': '2026-11-05@test', 'state': 'complete'})
+        flag = json.dumps({'identity': self.identity, 'state': 'complete'})
         complete_monitor_task_lease(second.pk, 'two', now=self.now + timedelta(minutes=34), task_updates={'flag': flag})
         self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(hours=2), lease_owner='three'))
 
@@ -307,12 +313,11 @@ class RioNightResumeIntegrationTests(TestCase):
         start = self.now.replace(hour=5, minute=50)
         retry = start.replace(hour=6, minute=25)
         first = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=start, lease_owner='night')
-        flag = json.dumps({'identity': '2026-11-05@test', 'state': 'partial', 'retry_at': retry.isoformat()})
+        flag = json.dumps({'identity': self.identity, 'state': 'partial', 'retry_at': retry.isoformat()})
         self.assertTrue(complete_monitor_task_lease(first.pk, 'night', now=start + timedelta(minutes=2), task_updates={'flag': flag}))
         self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=retry - timedelta(seconds=1)))
         resumed = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=retry, lease_owner='day')
         self.assertEqual(resumed.pk, self.task.pk)
-        flag = json.dumps({'identity': '2026-11-05@test', 'state': 'complete'})
+        flag = json.dumps({'identity': self.identity, 'state': 'complete'})
         self.assertTrue(complete_monitor_task_lease(resumed.pk, 'day', now=retry + timedelta(minutes=2), task_updates={'flag': flag}))
-        with patch('botend.services.rio_statistics_scope.active_scope', return_value={'token': 'test'}):
-            self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now.replace(hour=12)))
+        self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now.replace(hour=12)))

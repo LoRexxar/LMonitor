@@ -5,7 +5,7 @@ from botend.models import SpecRaidRanking
 from botend.services import spec_stats_service as stats
 from botend.services import wcl_combatant_snapshot as combatants
 from botend.services.dungeon_aggregation import _metadata_dependencies
-from botend.services.spec_aggregation_cache import load_work, save_work
+from botend.services.spec_aggregation_cache import load_work, save_work, work_fingerprint_hint
 from botend.services.spec_stats_snapshot import content_digest
 
 ALGORITHM_VERSION = 'raid-scope-v6-sample-facts'
@@ -98,8 +98,13 @@ def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, diffi
     rows, facts = _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff)
     fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name, _context)
     if _prepared_inputs is not None:
-        _prepared_inputs.remember((season_id, boss_id, boss_name, class_name, spec_name, difficulty),
-                                  selected_ids, source_cutoff, rows, facts, fingerprint)
+        scope = f'raid:{class_name}:{spec_name}:{difficulty}:{boss_id}'
+        # Expected hits need no inputs. Reserve the same bounded buffer for
+        # likely misses, including unknown headers. Hints are NOT hit evidence:
+        # raid_stats always validates the cache, or safely rereads on overflow.
+        if work_fingerprint_hint(season_id, scope) != fingerprint:
+            _prepared_inputs.remember((season_id, boss_id, boss_name, class_name, spec_name, difficulty),
+                                      selected_ids, source_cutoff, rows, facts, fingerprint)
     return fingerprint
 
 

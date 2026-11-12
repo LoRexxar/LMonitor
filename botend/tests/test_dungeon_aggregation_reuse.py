@@ -371,7 +371,6 @@ class DungeonAggregationReuseTests(TestCase):
         for query in spell_queries:
             self.assertNotIn('88888', query)
             self.assertNotIn('88889', query)
-        self.assertEqual(aggregation._reference_table.cache_info().maxsize, 24)
         self.assertEqual(aggregation._structural_dump_digest.cache_info().maxsize, 16)
         for cache in (spell_text._cached_dump_spell_text, spell_text._cached_misc_index,
                       spell_text._cached_dump_effect_index):
@@ -649,7 +648,9 @@ class DungeonAggregationReuseTests(TestCase):
         self.season.gear_batch_key = 'current'
         self.season.is_active = True
         self.season.save()
-        item = WowItemSnapshot.objects.create(item_id=123, name='Head', name_zh='头盔')
+        # Only precompiled central effects permit selected-variant-only dependencies.
+        item = WowItemSnapshot.objects.create(item_id=123, name='Head', name_zh='头盔',
+                                              effects={'schema': 1, 'effects': []})
         def variant(key, **extra):
             values = dict(item=item, season=self.season, batch_key='current', variant_key=key,
                           variant_type='drop_equipment', item_level=300, data_branch='retail',
