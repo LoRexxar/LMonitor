@@ -77,9 +77,10 @@ def _talent_spell_id(entry):
     return None
 
 
-def _talent_entry(entries, runtime_spell_id):
+def _talent_entry(entries, runtime_spell_id, definition_spells=None):
     if runtime_spell_id:
-        entries = [entry for entry in entries if runtime_spell_id == _talent_spell_id(entry) or (
+        entries = [entry for entry in entries if runtime_spell_id == _talent_spell_id(entry)
+                   or (definition_spells or {}).get(entry.node_id) == runtime_spell_id or (
             entry.spell_id == runtime_spell_id and entry.spell_id != entry.node_id
         )]
     # Even a shared display spell does not prove which Entry override to use.
@@ -119,6 +120,15 @@ def display_symbols(class_name, spec_name, talent_version=None, *, branch='retai
         key: _talent_entry(entries_by_trait[row.trait_id], row.spell_id)
         for key, row in symbols.items() if row.symbol_kind == 'talent'
     }
+    unresolved = {key: row for key, row in symbols.items()
+                  if row.symbol_kind == 'talent' and row.spell_id and traits[key] is None}
+    if unresolved:
+        from .talent_entry_source import definition_spell_ids
+        source_spells = definition_spell_ids(talent_version, {
+            entry.node_id for row in unresolved.values() for entry in entries_by_trait[row.trait_id]
+        })
+        for key, row in unresolved.items():
+            traits[key] = _talent_entry(entries_by_trait[row.trait_id], row.spell_id, source_spells)
     reader = SpellDisplayReader(talent_version.branch if talent_version else branch)
     reader.preload({r.spell_id for r in symbols.values() if r.symbol_kind != 'talent' and r.spell_id} | {
         _talent_spell_id(trait) for trait in traits.values() if trait

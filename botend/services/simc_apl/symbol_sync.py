@@ -37,6 +37,7 @@ class BuildResult:
     completeness: str = 'observed/partial'
     unbound: int = 0
     invalid: int = 0
+    identity_diagnostics: Tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,7 @@ def load_runtime_manifest(path, simc_revision, wow_build):
         _manifest_error('symbols must be an array')
     valid_kinds = {choice[0] for choice in SimcAplSymbol.SYMBOL_KIND_CHOICES}
     facts = {}
+    identity_diagnostics = {}
     for index, symbol in enumerate(symbols):
         prefix = f'symbols[{index}]'
         if not isinstance(symbol, dict):
@@ -149,11 +151,27 @@ def load_runtime_manifest(path, simc_revision, wow_build):
                 (scope == 'class' and (not class_name or spec)) or
                 (scope in {'spec', 'hero_tree'} and (not class_name or not spec))):
             _manifest_error(f'{prefix} scope does not match class/spec')
+        hero_tree = _string_or_none(symbol.get('hero_tree'), f'{prefix}.hero_tree')
+        if scope == 'hero_tree' and not hero_tree:
+            _manifest_error(f'{prefix}.hero_tree is required for hero_tree scope')
+        if scope != 'hero_tree' and hero_tree:
+            _manifest_error(f'{prefix}.hero_tree is only valid for hero_tree scope')
         # Runtime diagnostics for unresolved identities are evidence that the
         # token must remain English, not malformed catalog facts.  Drop only
         # those unresolved talent diagnostics; a talent with an ID is imported
         # normally, and an ID-less talent without a diagnostic is invalid.
         if kind == 'talent' and trait_id is None and isinstance(reason, str) and reason.strip():
+            diagnostic = {
+                'class_name': class_name, 'spec': spec, 'hero_tree': hero_tree,
+                'symbol_kind': kind, 'token': token, 'identity_reason': reason.strip(),
+                'identity_candidates': sorted(set(candidates)),
+                'spell_id': spell_id,
+                'identity_source': _string_or_none(symbol.get('source'), f'{prefix}.source') or 'simc_manifest',
+            }
+            identity = _identity(diagnostic)
+            if identity in identity_diagnostics and identity_diagnostics[identity] != diagnostic:
+                _manifest_error(f'{prefix} conflicts with a duplicate unresolved identity')
+            identity_diagnostics[identity] = diagnostic
             continue
         if kind == 'talent' and trait_id is None:
             _manifest_error(f'{prefix} talent requires trait_id')
@@ -163,11 +181,6 @@ def load_runtime_manifest(path, simc_revision, wow_build):
             _manifest_error(f'{prefix} contains a control option')
         # Retain hero-tree identity from the manifest. A hero-scoped symbol
         # must never be flattened into ordinary spec scope.
-        hero_tree = _string_or_none(symbol.get('hero_tree'), f'{prefix}.hero_tree')
-        if scope == 'hero_tree' and not hero_tree:
-            _manifest_error(f'{prefix}.hero_tree is required for hero_tree scope')
-        if scope != 'hero_tree' and hero_tree:
-            _manifest_error(f'{prefix}.hero_tree is only valid for hero_tree scope')
         fact = {
             'class_name': class_name, 'spec': spec, 'hero_tree': hero_tree,
             'token': token, 'symbol_kind': kind, 'spell_id': spell_id,
@@ -186,7 +199,7 @@ def load_runtime_manifest(path, simc_revision, wow_build):
     ordered = tuple(facts[key] for key in sorted(facts))
     return BuildResult(ordered, completeness=f'runtime/{status}', unbound=sum(
         fact['symbol_kind'] == SimcAplSymbol.KIND_ACTION and fact.get('spell_id') is None
-        for fact in ordered))
+        for fact in ordered), identity_diagnostics=tuple(identity_diagnostics[key] for key in sorted(identity_diagnostics)))
 
 
 def _canonical_scope(apl):
@@ -326,7 +339,8 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
         # Only reviewed, exact-revision typed source bindings may fill that gap.
         from .reviewed_source_bindings import enrich_reviewed_source_bindings
         enriched = enrich_reviewed_source_bindings(facts.values(), simc_revision, wow_build,
-                                                   observed_typed=observed_typed)
+                                                   observed_typed=observed_typed,
+                                                   identity_diagnostics=runtime.identity_diagnostics)
         facts = {_identity(fact): fact for fact in enriched}
     ordered = tuple(facts[key] for key in sorted(facts))
     return BuildResult(ordered, completeness=completeness, unbound=sum(

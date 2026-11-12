@@ -103,6 +103,87 @@ class ReviewedSourceBindingTests(TestCase):
         self.assertEqual(scope.spell_id, 1303480)
         self.assertFalse(SimcAplSymbolScope.objects.filter(symbol__token='gory_fur_maul').exists())
 
+    def test_source_proven_missing_talent_uses_real_traitnode_not_spell_or_entry(self):
+        from botend.models import SimcApl
+        SimcApl.objects.create(name='Destruction', class_name='warlock', spec='warlock_destruction',
+                              source='simc_upstream', is_system=True, is_active=True,
+                              sync_version=REVISION,
+                              content='actions=/conflagrate,if=talent.wither.enabled')
+        self.path.write_text(json.dumps(runtime_payload()))
+        sync_symbols(REVISION, BUILD, manifest_path=self.path)
+        row = SimcAplSymbolScope.objects.get(class_key='warlock', spec_key='destruction',
+                                             symbol__token='wither', symbol__symbol_kind='talent')
+        self.assertEqual((row.trait_id, row.spell_id), (94840, 445465))
+        self.assertNotEqual(row.trait_id, 117437)
+
+    def test_dropped_ambiguous_talent_diagnostic_cannot_be_resurrected_from_seed(self):
+        from botend.models import SimcApl
+        SimcApl.objects.create(name='Destruction', class_name='warlock', spec='warlock_destruction',
+                              source='simc_upstream', is_system=True, is_active=True,
+                              sync_version=REVISION,
+                              content='actions=/conflagrate,if=talent.wither.enabled')
+        payload = runtime_payload()
+        payload['symbols'].append({'class': 'warlock', 'spec': 'destruction', 'scope': 'spec',
+            'kind': 'talent', 'token': 'wither', 'trait_id': None, 'spell_id': None,
+            'candidates': [445465, 445468], 'reason': 'ambiguous_expression_identity',
+            'source': 'runtime_expression_resolver', 'aliases': [], 'options': []})
+        self.path.write_text(json.dumps(payload))
+        with self.assertRaisesRegex(ValueError, 'reviewed source binding conflicts'):
+            sync_symbols(REVISION, BUILD, manifest_path=self.path)
+
+    def test_reviewed_foreground_background_collision_resolves_factory_action_only(self):
+        payload = runtime_payload()
+        payload['symbols'].append({'class':'monk','spec':'windwalker','scope':'spec',
+            'kind':'action','token':'touch_of_karma','spell_id':None,'trait_id':None,
+            'candidates':[122470,124280],'reason':'ambiguous_spell_identity',
+            'source':'runtime_action','aliases':[],'options':[]})
+        self.path.write_text(json.dumps(payload))
+        sync_symbols(REVISION, BUILD, manifest_path=self.path)
+        row=SimcAplSymbolScope.objects.get(class_key='monk',spec_key='windwalker',
+                                          symbol__token='touch_of_karma',symbol__symbol_kind='action')
+        self.assertEqual(row.spell_id,122470)
+        self.assertEqual(row.identity_candidates,[122470])
+        self.assertEqual(row.identity_source,'reviewed_simc_source')
+
+    def test_parent_child_proof_does_not_admit_unknown_candidate_or_replace_positive_identity(self):
+        for patch in ({'candidates':[122470,124280,125174]}, {'spell_id':124280},
+                      {'reason':'ambiguous_expression_identity'}, {'source':'runtime_expression_resolver'}):
+            with self.subTest(patch=patch):
+                payload=runtime_payload()
+                row={'class':'monk','spec':'windwalker','scope':'spec','kind':'action',
+                    'token':'touch_of_karma','spell_id':None,'trait_id':None,
+                    'candidates':[122470,124280],'reason':'ambiguous_spell_identity',
+                    'source':'runtime_action','aliases':[],'options':[]}
+                row.update(patch);payload['symbols'].append(row)
+                self.path.write_text(json.dumps(payload))
+                with self.assertRaisesRegex(ValueError,'reviewed source binding conflicts'):
+                    sync_symbols(REVISION,BUILD,manifest_path=self.path)
+
+    def test_duplicate_unresolved_talent_diagnostics_reject_both_orders(self):
+        from botend.services.simc_apl.symbol_sync import load_runtime_manifest
+        ambiguous={'class':'warlock','spec':'destruction','scope':'spec','kind':'talent',
+            'token':'wither','trait_id':None,'spell_id':None,'candidates':[445465,445468],
+            'reason':'ambiguous_expression_identity','source':'runtime_expression_resolver',
+            'aliases':[],'options':[]}
+        unbound=dict(ambiguous,candidates=[],reason='talent_not_found')
+        for rows in ([ambiguous,unbound],[unbound,ambiguous]):
+            with self.subTest(rows=rows):
+                payload=runtime_payload();payload['symbols'].extend(rows)
+                self.path.write_text(json.dumps(payload))
+                with self.assertRaisesRegex(ValueError,'duplicate unresolved identity'):
+                    load_runtime_manifest(self.path,REVISION,BUILD)
+
+    def test_valid_native_talent_cannot_hide_an_ambiguous_diagnostic(self):
+        payload=runtime_payload()
+        ambiguous={'class':'warlock','spec':'destruction','scope':'spec','kind':'talent',
+            'token':'wither','trait_id':None,'spell_id':None,'candidates':[445465,445468],
+            'reason':'ambiguous_expression_identity','source':'runtime_expression_resolver',
+            'aliases':[],'options':[]}
+        native=dict(ambiguous,trait_id=94840,spell_id=445465,candidates=[445465],reason=None)
+        payload['symbols'].extend([ambiguous,native]);self.path.write_text(json.dumps(payload))
+        with self.assertRaisesRegex(ValueError,'reviewed source binding conflicts'):
+            sync_symbols(REVISION,BUILD,manifest_path=self.path)
+
     def test_verified_nonempty_runtime_identity_keeps_native_provenance(self):
         payload = runtime_payload()
         payload['symbols'][0]['spell_id'] = 1225826
