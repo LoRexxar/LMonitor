@@ -186,6 +186,79 @@ class DungeonAggregationReuseTests(TestCase):
             writer.writeheader()
             writer.writerows(rows)
 
+    def test_redundant_raw_icon_backfill_reuses_unchanged_publication(self):
+        node = self.talent_text('测试说明')
+        WowTalentNodeMetadata.objects.filter(pk=node.pk).update(icon='spell_existing_icon')
+        spell = self.spell(770, icon='')
+        first = self.aggregate(refresh_talents=True)
+        before = self.detail(1)
+        spell.refresh_from_db()
+        self.assertEqual(spell.display_data['default']['icon'], 'spell_existing_icon')
+        WowSpellSnapshot.objects.filter(pk=spell.pk).update(icon='spell_existing_icon')
+        with patch.object(stats.SpecStatsService, '_compute_dungeon_records',
+                          wraps=stats.SpecStatsService._compute_dungeon_records) as compute:
+            second = self.aggregate()
+        compute.assert_not_called()
+        self.assertTrue(second['reused'])
+        self.assertEqual(first['generation'], second['generation'])
+        self.assertEqual(before, self.detail(1))
+
+    def test_effective_icon_change_still_invalidates_statistics(self):
+        self.talent_text('测试说明')
+        spell = self.spell(770, icon='')
+        first = self.aggregate(refresh_talents=True)
+        before = self.detail(1)
+        WowSpellSnapshot.objects.filter(pk=spell.pk).update(icon='spell_new_icon')
+        self.refresh_talent_display()
+        with patch.object(stats.SpecStatsService, '_compute_dungeon_records',
+                          wraps=stats.SpecStatsService._compute_dungeon_records) as compute:
+            second = self.aggregate()
+        self.assertGreater(compute.call_count, 0)
+        self.assertFalse(second['reused'])
+        self.assertNotEqual(first['generation'], second['generation'])
+        after = self.detail(1)
+        self.assertEqual(after['sample_size'], before['sample_size'])
+        self.assertEqual(after['dps'], before['dps'])
+        nodes = after['talent_popularity_tree']['render_model']['nodes']
+        self.assertEqual(next(node for node in nodes if node['spell_id'] == 770)['icon'],
+                         'spell_new_icon')
+        self.assertTrue(self.aggregate()['reused'])
+
+    def test_uncompiled_icon_change_still_invalidates_statistics(self):
+        self.talent_text('测试说明')
+        spell = self.spell(770, icon='old_icon')
+        self.aggregate()
+        WowSpellSnapshot.objects.filter(pk=spell.pk).update(icon='new_icon')
+        with patch.object(stats.SpecStatsService, '_compute_dungeon_records',
+                          wraps=stats.SpecStatsService._compute_dungeon_records) as compute:
+            result = self.aggregate()
+        self.assertGreater(compute.call_count, 0)
+        self.assertFalse(result['reused'])
+        nodes = self.detail(1)['talent_popularity_tree']['render_model']['nodes']
+        self.assertEqual(next(node for node in nodes if node['spell_id'] == 770)['icon'], 'new_icon')
+
+    def test_raid_redundant_icon_backfill_reuses_computation(self):
+        from botend.models import SpecRaidRanking
+        from botend.services.raid_aggregation import raid_stats
+        node = self.talent_text('测试说明')
+        WowTalentNodeMetadata.objects.filter(pk=node.pk).update(icon='existing_icon')
+        spell = self.spell(770)
+        self.refresh_talent_display()
+        SpecRaidRanking.objects.create(season_id=self.season.pk, boss_id=1, difficulty=5,
+            class_name='Warrior', spec_name='Arms', character_name='A', realm='Realm',
+            region='eu', dps=100, report_code='R1', fight_id=1)
+        args = (self.season.pk, 1, 'One', 'Warrior', 'Arms', 5)
+        before, fingerprint, hit = raid_stats(*args)
+        self.assertFalse(hit)
+        WowSpellSnapshot.objects.filter(pk=spell.pk).update(icon='existing_icon')
+        with patch.object(stats.SpecStatsService, '_compute_raid_records',
+                          wraps=stats.SpecStatsService._compute_raid_records) as compute:
+            after, actual, hit = raid_stats(*args)
+        compute.assert_not_called()
+        self.assertTrue(hit)
+        self.assertEqual(fingerprint, actual)
+        self.assertEqual(before, after)
+
     def test_exact_build_dump_name_edit_invalidates_publication(self):
         self.talent_text('触发$@spellname5394。')
         self.dump('SpellName_zhCN.csv', [{'ID': 5394, 'Name_lang': '旧名称'}])

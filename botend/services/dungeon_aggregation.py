@@ -255,7 +255,16 @@ def _metadata_dependencies(records, facts, class_name, spec_name, *, context=Non
     # 单本拆分后，相同引用集合仍只查询一次；上下文仅存活于本轮发布。
     spell_key = ('spell-rows', tuple(sorted(reference_ids)))
     if spell_key not in context:
-        context[spell_key] = _content_rows(WowSpellSnapshot.objects.filter(spell_id__in=reference_ids))
+        spell_rows = _content_rows(WowSpellSnapshot.objects.filter(spell_id__in=reference_ids))
+        for row in spell_rows:
+            default = (row.get('display_data') or {}).get('default')
+            if isinstance(default, dict) and default:
+                # SpellDisplayReader ignores the raw icon when compiled display
+                # exists. Hash its effective default instead: backfilling a
+                # shadowed storage field must not invalidate identical output.
+                # Keep contexts, resolved nodes/choices and all other facts.
+                row['icon'] = default.get('icon') or ''
+        context[spell_key] = spell_rows
     grants_key = ('talent-grants', getattr(version, 'pk', None), class_name)
     if grants_key not in context:
         context[grants_key] = effective_grants(version, class_name)
