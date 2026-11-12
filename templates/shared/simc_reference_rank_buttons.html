@@ -2,6 +2,6 @@
 {% if route_name == 'simc_reference_rankings' %}
 <a class="simc-ranking-button" href="{% url 'simc_reference_rankings_entry' %}?settings={{ settings_id }}&amp;scenario={{ scenario_id }}" aria-label="查看同配置与场景的排行榜">排行榜 <strong>{{ ranking.overall_rank }}</strong> / {{ ranking.overall_total }}</a>
 {% else %}
-<a class="simc-ranking-button" href="{% url route_name config_id signature 'overall' %}" aria-label="查看{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %}全职业榜单">全职业 <strong>{{ ranking.overall_rank }}</strong> / {{ ranking.overall_total }}</a>
-<a class="simc-ranking-button" href="{% url route_name config_id signature 'spec' %}" aria-label="查看{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %}本专精榜单">本专精 <strong>{{ ranking.spec_rank }}</strong> / {{ ranking.spec_total }}</a>
+<a class="simc-ranking-button simc-ranking-overall" href="{% url route_name config_id signature 'overall' %}" aria-label="查看{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %}全职业榜单"><span class="simc-ranking-label">全职业</span> <strong>{{ ranking.overall_rank }}</strong> <span class="simc-ranking-total">/ {{ ranking.overall_total }}</span></a>
+<a class="simc-ranking-button simc-ranking-spec" href="{% url route_name config_id signature 'spec' %}" aria-label="查看{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %}本专精榜单"><span class="simc-ranking-label">本专精</span> <strong>{{ ranking.spec_rank }}</strong> <span class="simc-ranking-total">/ {{ ranking.spec_total }}</span></a>
 {% endif %}

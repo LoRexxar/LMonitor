@@ -741,7 +741,6 @@
     const targets = simulationNumber(simulationDetail?.desired_targets);
     const maxTime = simulationNumber(simulationDetail?.max_time);
     const varyCombatLength = simulationNumber(simulationDetail?.vary_combat_length);
-    const iterations = simulationNumber(simulationDetail?.iterations);
     const targetError = simulationNumber(simulationDetail?.target_error);
     appendProfileFactSection(body, "战斗场景", [
       ["战斗类型", fightStyle],
@@ -749,7 +748,6 @@
       ["模拟时长", Number.isFinite(maxTime) ? `${numberFormat.format(maxTime)} 秒` : null],
       ["时长浮动", Number.isFinite(varyCombatLength) ? `${numberFormat.format(varyCombatLength * 100)}%` : null],
       ["敌人类型", simulationDetail?.enemy_type],
-      ["迭代次数", Number.isFinite(iterations) ? numberFormat.format(iterations) : null],
       ["目标误差", Number.isFinite(targetError) ? `${numberFormat.format(targetError * 100)}%` : null],
     ], "simc-benchmark-simulation-facts");
     const classRaidBuffs = Array.isArray(simulationDetail?.class_raid_buffs)

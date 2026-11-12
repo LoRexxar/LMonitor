@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from django.db.models import Case, Exists, F, IntegerField, OuterRef, Value, When
 
+from botend.services.simc_scenario_display import scenario_label
 from botend.models import SimcReferencePublication, SimcReferenceRankingEntry
 from botend.services.simc_reference_ranking_index import comparison_key
 from botend.services.simc_reference_simulations import active_scenarios, scenario_simulation_params
@@ -219,7 +220,7 @@ def admin_ranking_page_context(settings_id=None, scenario_id=None):
                 use_ptr=selected.use_ptr, targets=params['desired_targets'], duration=params['max_time'],
                 iterations=params['iterations'], scenario_id=scene.pk, scenario_name=scene.name,
                 settings_id=selected.pk, module_rankings_url=url(selected, scene))
-    base['scene_options'] = [dict(label=item.name, scenario_id=item.pk,
+    base['scene_options'] = [dict(label=scenario_label(item.name, item.simulation_params.get('desired_targets'), item.simulation_params.get('max_time')), scenario_id=item.pk,
         selected=item.pk == scene.pk, url=url(selected, item)) for item in scenes]
     return base
 
@@ -243,7 +244,7 @@ def ranking_page_context(config, signature, scope, *, admin=False):
         for key, label in (('overall', '全职业'), ('spec', '当前专精'))
     ]
     board['scene_options'] = [
-        {'label': f"{scene.name} · {scene.simulation_params['desired_targets']} 目标 · {scene.simulation_params['max_time']} 秒 · {scene.simulation_params['iterations']} 次迭代",
+        {'label': scenario_label(scene.name, scene.simulation_params['desired_targets'], scene.simulation_params['max_time']),
          'scenario_id': scene.pk, 'selected': scene.pk == board['scenario_id'],
          'url': reverse(route, args=[config.pk, board['scene_signatures'][scene.pk], scope])
                 if scene.pk in board['scene_signatures'] else None}

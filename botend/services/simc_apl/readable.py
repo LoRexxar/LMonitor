@@ -13,6 +13,8 @@ from botend.services.simc_apl.translation import CONTROL_ACTIONS
 from botend.services.simc_apl.parser import parse
 from botend.services.simc_apl.narrative import action_guide, list_title
 from botend.services.simc_apl.hero_filter import filter_options, reachable_groups, scenario_title
+from botend.services.simc_apl.routing import annotate_routes
+from botend.services.simc_apl.hierarchy import label_groups, build_hierarchy
 from botend.services.wow_spell_display import SpellDisplayReader, plain_text
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
@@ -222,6 +224,7 @@ def readable_apl(source, symbols, *, hero_id=None):
                 **action_guide(action.name, options, symbols),
                 'name': action.name, 'label': CONTROL_LABELS.get(action.name, action.name),
                 'reference': None if action.name in CONTROL_ACTIONS else symbols.get(('action', action.name)), 'fields': fields,
+                **({'_routing_options': options} if target else {}),
                 'target': target.value if target else None,
                 'behavior': ('子列表没有执行技能时，继续检查下一项。' if action.name == 'call_action_list' else
                              '转入子列表，停止继续检查当前列表。' if action.name == 'run_action_list' else ''),
@@ -230,6 +233,7 @@ def readable_apl(source, symbols, *, hero_id=None):
     if hero_id:
         original_targets = {target for group in groups.values() for target in group['original_targets']}
         groups = reachable_groups(groups, original_targets)
+    label_groups(groups, symbols)
     for index, group in enumerate(groups.values()):
         group['anchor'] = f'apl-list-{index}'
     for group in groups.values():
@@ -240,12 +244,7 @@ def readable_apl(source, symbols, *, hero_id=None):
                 target = groups.get(row['target'])
                 row['target_anchor'] = target['anchor'] if target else ''
                 row['target_label'] = target['label'] if target else row['target']
-                if target:
-                    target['entries'].append({
-                        'parent': group['label'], 'anchor': group['anchor'],
-                        'rule_anchor': row['anchor'],
-                        'condition': row['condition_guide'], 'text': row['condition_text'],
-                        'line': row['line'],
-                    })
-    return {'groups': list(groups.values()), 'unsupported': unsupported,
+    annotate_routes(groups, symbols)
+    hierarchy = build_hierarchy(groups)
+    return {'groups': list(groups.values()), 'hierarchy': hierarchy, 'unsupported': unsupported,
             'count': sum(len(g['rows']) for g in groups.values())}

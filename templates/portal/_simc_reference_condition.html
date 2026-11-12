@@ -1,0 +1,1 @@
+{% for segment in segments %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% elif segment.raw %}<code class="reference-condition-raw">{{ segment.raw }}</code>{% else %}{{ segment.text }}{% endif %}{% endfor %}

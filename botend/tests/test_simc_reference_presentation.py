@@ -260,7 +260,7 @@ class ReferencePresentationTests(TestCase):
         self.assertNotContains(response, 'reference-talent-node')
         self.assertContains(response, 'data-apl-tabs')
         self.assertContains(response, 'reference-rule-line')
-        self.assertContains(response, '进入本组的分流规则')
+        self.assertContains(response, '什么时候进入本组')
 
     def test_compound_spec_identity_and_aura_description(self):
         WowTalentNodeMetadata.objects.create(

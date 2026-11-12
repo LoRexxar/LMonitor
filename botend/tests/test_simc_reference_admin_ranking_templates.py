@@ -26,11 +26,11 @@ class AdminRankingTemplateTests(SimpleTestCase):
         html = render_to_string('shared/simc_reference_ranking_panel.html', self.board(True))
         for forbidden in ('当前专精', '当前配置', '旧当前装备', '定位', '排名范围',
                           'ranking-current', 'is-current', 'data-ranking-current', 'aria-current="true"',
-                          '/legacy-spec/', '1 目标', '当前专精榜单'):
+                          '/legacy-spec/', '当前专精榜单', '次迭代'):
             self.assertNotIn(forbidden, html)
         for expected in ('aria-label="模拟配置"', '正式服', 'PTR', 'aria-label="模拟场景"',
                          '?settings=3&amp;scenario=4', '公开装备', '单体长战斗',
-                         '1 个有效组合', 'aria-label="完整排名表"'):
+                         '单体长战斗 · 1 目标 · 300 秒', '1 个有效组合', 'aria-label="完整排名表"'):
             self.assertIn(expected, html)
 
     def test_admin_single_setting_is_label_not_empty_control(self):
@@ -44,7 +44,7 @@ class AdminRankingTemplateTests(SimpleTestCase):
         html = render_to_string('shared/simc_reference_ranking_panel.html', self.board(False))
         for expected in ('排名范围', '/legacy-spec/', '当前配置', '旧当前装备',
                          'data-ranking-locate', 'data-ranking-current', 'aria-current="true"',
-                         '1 目标 · 当前专精榜单'):
+                         '1 目标 · 300 秒 · 当前专精榜单'):
             self.assertIn(expected, html)
         self.assertNotIn('aria-label="模拟配置"', html)
 

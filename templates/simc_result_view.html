@@ -101,7 +101,6 @@
                 <div class="panel-body py-2 small">
                     <span class="me-3"><strong>角色：</strong><span id="char-name">-</span> / <span id="char-class">-</span> / <span id="char-spec">-</span></span>
                     <span class="me-3"><strong>等级：</strong><span id="char-level">-</span></span>
-                    <span class="me-3"><strong>迭代：</strong><span id="iterations">-</span></span>
                     <span class="me-3"><strong>时长：</strong><span id="fight-length">-</span></span>
                     <span class="me-3"><strong>风格：</strong><span id="fight-style">-</span></span>
                 </div>
@@ -389,7 +388,6 @@
             byId('char-class').textContent = data.character.class || '-';
             byId('char-spec').textContent = data.character.spec || '-';
             byId('char-level').textContent = data.character.level || '-';
-            byId('iterations').textContent = data.simulation.iterations || '-';
             byId('fight-length').textContent = data.simulation.fightLength || '-';
             byId('fight-style').textContent = translateText(data.simulation.fightStyle || '-') || '-';
             byId('m-dps').textContent = data.character.dps ? data.character.dps.toLocaleString() : '-';

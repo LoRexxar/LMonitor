@@ -458,7 +458,6 @@
       ['角色', character.name],
       ['职业 / 专精', role],
       ['种族 / 等级', raceLevel],
-      ['迭代次数', simulation.iterations],
       ['战斗时长', simulation.fight_length],
       ['战斗模型', simulation.fight_style],
       ['报告时间', simulation.timestamp],
