@@ -1,4 +1,4 @@
-"""Scheduler routing regression: slow sources must not consume ordinary slots."""
+"""All MonitorTask plugins share one three-worker polling pool."""
 from contextlib import ExitStack
 from datetime import datetime, timedelta
 from threading import Event, Lock, current_thread
@@ -32,14 +32,15 @@ class MonitorWorkerIsolationTests(TestCase):
             owner='interrupted', phase='aggregating', collected_at=self.now-timedelta(hours=1))
         claimed_sources = [claim_next_monitor_task(now=self.now, lease_owner=f'source-{i}')
                            for i in range(2)]
-        self.assertEqual({task.pk for task in claimed_sources}, {wago.pk, peak.pk})
+        self.assertEqual({task.pk for task in claimed_sources}, {peak.pk, news.pk})
         first = claim_next_monitor_task(now=self.now, lease_owner='normal-1')
         self.assertEqual(first.pk, agg.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now, lease_owner="quota-full"))
-        owner = next(task._monitor_task_lease_owner for task in claimed_sources if task.pk == wago.pk)
-        release_monitor_task_lease(wago.pk, owner)
+        # A released lease alone is not business completion: model its real retry gap.
+        WclCollectionCycle.objects.filter(pk=cycle.pk).update(next_retry_at=self.now+timedelta(minutes=5))
+        release_monitor_task_lease(agg.pk, first._monitor_task_lease_owner)
         second = claim_next_monitor_task(now=self.now, lease_owner='normal-2')
-        self.assertEqual(second.pk, news.pk)
+        self.assertEqual(second.pk, wago.pk)
         cycle.refresh_from_db()
         self.assertEqual(WclCollectionCycle.objects.count(), 1)
         self.assertEqual(cycle.phase, 'aggregating')
@@ -52,27 +53,21 @@ class MonitorWorkerIsolationTests(TestCase):
         self.assertEqual(MonitorTaskLease.objects.count(), 3)
 
     @override_settings(MONITOR_TASK_AUTO_SYNC_PLUGINS=False)
-    def test_backend_only_starts_existing_long_workers(self):
-        # 隔离插件注册表；本测试仅验证工作者启动，不加载无关的Linux插件。
-        from types import ModuleType
-        registry = ModuleType("LMonitor.config")
-        registry.Monitor_Type_BaseObject_List = []
-        with patch.dict("sys.modules", {"LMonitor.config": registry}):
-            from botend.views import LMonitorCore, LMonitorCoreBackend
-        started, release, lock = Event(), Event(), Lock()
+    def test_backend_starts_exactly_three_identical_polling_workers(self):
+        from botend.backend_lifecycle import BackendLifecycle
+        from botend.views import LMonitorCore, LMonitorCoreBackend
+        life = BackendLifecycle(retire_after=0)
+        release, lock = Event(), Lock()
         calls = []
 
-        def blocked_scan(core, *, task_names=None):
+        def blocked_scan(core):
             with lock:
-                calls.append((task_names, current_thread()))
-                if len(calls) == 2:
-                    started.set()
+                calls.append(current_thread())
+                if len(calls) == 3:
+                    life.request_retirement()
+                    release.set()
             release.wait(5)
 
-        backend = LMonitorCoreBackend.__new__(LMonitorCoreBackend)
-        backend.lifecycle = Mock(retiring=True)
-        backend._workers = []
-        backend.threadpool = Mock()
         maintenance = (
             ('gear_catalog_snapshot', 'start_catalog_snapshot_worker'),
             ('journal_loot_snapshot', 'start_journal_loot_snapshot_worker'),
@@ -84,17 +79,13 @@ class MonitorWorkerIsolationTests(TestCase):
         try:
             with ExitStack() as stack:
                 stack.enter_context(patch.object(LMonitorCore, 'scan', blocked_scan))
+                stack.enter_context(patch.object(life, 'wait', side_effect=lambda seconds: life.retiring))
                 for module, function in maintenance:
-                    stack.enter_context(patch('botend.services.'+module+'.'+function, return_value=None))
-                backend._run()
-                self.assertTrue(started.wait(2), 'existing long workers must start independently')
-                self.assertCountEqual([names for names, _ in calls], [
-                    {'WowDataVersionMonitor'}, {'RioStatisticsMonitor'}])
-                self.assertEqual(len({thread.ident for _, thread in calls}), 2)
-                self.assertTrue(all(thread.is_alive() for _, thread in calls))
-                backend.threadpool.new.assert_not_called()
+                    stack.enter_context(patch('botend.services.'+module+'.'+function, return_value=Mock(is_alive=Mock(return_value=False))))
+                backend = LMonitorCoreBackend(lifecycle=life)
+                self.assertEqual(backend.threadpool.max_thread_num, 3)
+                self.assertEqual(len(calls), 3)
+                self.assertEqual(len({thread.ident for thread in calls}), 3)
+                self.assertTrue(all(not thread.is_alive() for thread in calls))
         finally:
             release.set()
-            for thread in backend._workers:
-                if thread is not None:
-                    thread.join(3)

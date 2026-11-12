@@ -12,6 +12,9 @@ from botend.controller.plugins.portal.SpecDetailAggregationMonitor import (
     SpecDetailAggregationMonitor, publish_stats,
 )
 from botend.plugin_sync import claim_monitor_task, release_monitor_task_lease
+from botend.services.monitor_task_execution import (
+    MonitorTaskAdmissionBusy, monitor_task_execution,
+)
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, active_cycle, begin_aggregation, defer_cycle, finish_publication,
     frozen_season,
@@ -48,6 +51,15 @@ class Command(BaseCommand):
         if has_cycle and (options.get('class_name') or options.get('spec_name') or options.get('dungeon_only')):
             metadata_checked_at = WclCollectionCycle.objects.filter(season=season, phase='published').order_by(
                 '-slot').values_list('last_attempt_at', flat=True).first()
+        if not has_cycle:
+            try:
+                with monitor_task_execution('SpecDetailAggregationMonitor'):
+                    return self._aggregate(season, has_cycle, metadata_checked_at, options)
+            except MonitorTaskAdmissionBusy as exc:
+                raise CommandError(str(exc)) from exc
+        return self._aggregate(season, has_cycle, metadata_checked_at, options)
+
+    def _aggregate(self, season, has_cycle, metadata_checked_at, options):
         task = cycle = None
         if has_cycle:
             configured = MonitorTask.objects.filter(name='SpecDetailAggregationMonitor').first()

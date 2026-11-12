@@ -2,7 +2,6 @@ from datetime import timedelta
 import json
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-from threading import Thread
 
 from django.conf import settings as django_settings
 from django.db import transaction
@@ -26,15 +25,22 @@ def _monitor_task_lease_ttl(lease_seconds=None):
     return ttl_seconds
 
 
-# Only long and short tasks. Daily timing does not make a task long.
+# Resource class, execution cadence and source dependencies are independent.
+# News/full-text translation and fast ranking slices intentionally remain short.
+MONITOR_WORKER_COUNT = 3
 LONG_MONITOR_TASKS = (
+    'WowDataVersionMonitor', 'MythicDungeonToolsMonitor', 'RioStatisticsMonitor',
+    'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
+    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor', 'WagoSkillDiffMonitor',
+    'AliyunAvdScan', 'OscsScan', 'QaxScan', 'RaidBurstAggregationMonitor',
+)
+NIGHT_LANE_TASKS = LONG_MONITOR_TASKS  # Compatibility for existing callers/tests.
+DAILY_MONITOR_TASKS = (
     'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor',
     'RioStatisticsMonitor', 'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
-    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor',
+    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor', 'WowDailyReportMonitor',
 )
-NIGHT_LANE_TASKS = LONG_MONITOR_TASKS  # Compatibility name for existing long-task rules.
-DAILY_MONITOR_TASKS = (*LONG_MONITOR_TASKS, 'WowDailyReportMonitor')
-NIGHT_LANE_PRIORITY = {name: index for index, name in enumerate(NIGHT_LANE_TASKS)}
+NIGHT_LANE_PRIORITY = {name: index for index, name in enumerate(DAILY_MONITOR_TASKS)}
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
     # Wowhead 在北美日常重置后会先返回无身份信息的 Active 占位行，
@@ -46,21 +52,6 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
 }
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
-
-# Existing long workers retain their shared quota and DB scope/lease mutex.
-ISOLATED_MONITOR_WORKERS = {
-    'WowDataVersionMonitor': 'wow-data-update-worker',
-    'RioStatisticsMonitor': 'rio-statistics-worker',
-}
-ISOLATED_MONITOR_TASKS = frozenset(ISOLATED_MONITOR_WORKERS)
-
-
-def start_isolated_monitor_worker(worker, *, task_name='WowDataVersionMonitor'):
-    """单线程串行领取一种长任务，跨进程重复执行由原任务租约拦截。"""
-    thread = Thread(target=worker, kwargs={'task_names': frozenset({task_name})},
-                    name=ISOLATED_MONITOR_WORKERS[task_name], daemon=True)
-    thread.start()
-    return thread
 
 PORTAL_MONITOR_TASK_PRIORITY = {
     # 同时到期时优先短周期榜单，普通池统一限制并发。
@@ -209,22 +200,33 @@ def monitor_scope_key(task):
     return task.type, task.target, task.env_limit
 
 
-def _locked_monitor_tasks_and_scopes(claim_time):
+def _locked_monitor_tasks_and_scopes(now=None):
     # Every claimant locks the small configuration table in the same order.
     # Include disabled rows: their in-flight leases still protect the scope.
     rows = list(MonitorTask.objects.select_for_update().order_by('id'))
-    leases = dict(MonitorTaskLease.objects.select_for_update().filter(
-        task_id__in=[r.pk for r in rows], expires_at__gt=claim_time,
-    ).values_list('task_id', 'is_manual'))
-    active_scopes = {monitor_scope_key(row) for row in rows if row.pk in leases}
-    automatic_scopes = {monitor_scope_key(row) for row in rows
-                        if row.pk in leases and not leases[row.pk]}
-    return rows, active_scopes, automatic_scopes
+    leases = list(MonitorTaskLease.objects.select_for_update().filter(
+        task_id__in=[r.pk for r in rows],
+    ).values('task_id', 'expires_at'))
+    # Both lock acquisitions can wait. Evaluate time/capacity only afterwards;
+    # otherwise a 06:00 transition or a long wait can admit stale/expired work.
+    claim_time = _normalized_now(now)
+    leased_task_ids = {lease['task_id'] for lease in leases if lease['expires_at'] > claim_time}
+    active_scopes = {monitor_scope_key(row) for row in rows if row.pk in leased_task_ids}
+    return rows, active_scopes, leased_task_ids, claim_time
+
+
+def monitor_plugin_name(task):
+    """Dispatch type is authoritative; labels may differ on legacy aliases."""
+    from LMonitor.config import Monitor_Type_BaseObject_List
+    task_type = getattr(task, 'type', None)
+    if isinstance(task_type, int) and 0 <= task_type < len(Monitor_Type_BaseObject_List):
+        return Monitor_Type_BaseObject_List[task_type].__name__
+    return getattr(task, 'name', '')
 
 
 def _night_lane_scopes(rows):
-    # Labels can differ on legacy duplicates; protect the exact execution scope.
-    return {monitor_scope_key(row) for row in rows if row.name in NIGHT_LANE_TASKS}
+    return {monitor_scope_key(row) for row in rows
+            if monitor_plugin_name(row) in LONG_MONITOR_TASKS}
 
 
 def _night_lane_head(tasks):
@@ -240,136 +242,127 @@ def _night_lane_head(tasks):
         resume_name = ('SpecDetailRankingMonitor' if cycle.phase in ('rankings', 'combatants')
                        else 'SpecDetailAggregationMonitor')
     return min(tasks, key=lambda task: (
-        task.name != resume_name,
-        NIGHT_LANE_PRIORITY.get(task.name, len(NIGHT_LANE_TASKS)), task.pk,
+        monitor_plugin_name(task) != resume_name,
+        NIGHT_LANE_PRIORITY.get(monitor_plugin_name(task), len(NIGHT_LANE_TASKS)), task.pk,
     ), default=None)
 
 
-def _night_lane_candidates(rows, due_tasks, automatic_scopes, *, long_limit):
-    """版本准备为屏障；两条链在凌晨并行，白天共用一个长任务位。"""
+def _night_lane_candidates(rows, due_tasks, active_scopes, *, long_limit, running_count):
+    """Keep source preparation ordering, otherwise use any free long-task slot."""
     lane_scopes = _night_lane_scopes(rows)
-    running = lane_scopes & automatic_scopes
-    if len(running) >= long_limit:
+    running = lane_scopes & active_scopes
+    if running_count >= long_limit:
         return []
     barrier = {'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor'}
-    barrier_scopes = {monitor_scope_key(r) for r in rows if r.name in barrier}
-    if running & barrier_scopes:
+    barrier_scopes = {monitor_scope_key(r) for r in rows if monitor_plugin_name(r) in barrier}
+    if active_scopes & barrier_scopes:
         return []
-    pending = [r for r in due_tasks if monitor_scope_key(r) in lane_scopes]
-    if any(r.name in barrier for r in pending):
+    pending = [r for r in due_tasks
+               if monitor_scope_key(r) in lane_scopes or monitor_plugin_name(r) in barrier]
+    if any(monitor_plugin_name(r) in barrier for r in pending):
         return [] if running else [_night_lane_head(pending)]
-    observation = {monitor_scope_key(r) for r in rows if r.name == 'RioStatisticsMonitor'}
     heads = []
-    for scopes in (observation, lane_scopes - observation):
-        if not running & scopes:
-            head = _night_lane_head([r for r in pending if monitor_scope_key(r) in scopes])
-            if head:
-                heads.append(head)
-    # 白天唯一任务位的候选也必须在工作者分流前决定，避免专用线程绕过顺序。
-    return [_night_lane_head(heads)] if len(heads) > long_limit - len(running) else heads
+    while pending and len(heads) < long_limit - running_count:
+        head = _night_lane_head(pending)
+        heads.append(head)
+        pending.remove(head)
+    return heads
 
 
-def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, task_names=None,
-                            allow_long_tasks=True):
-    """原子领取当前工作队列中到期最久的任务；普通队列排除独立任务。"""
-    claim_time = now or timezone.now()
+def _claim_monitor_task(now=None, *, task_id=None, lease_owner=None,
+                        lease_seconds=None, task_names=None, allow_long_tasks=True,
+                        advance_schedule=True):
+    """One atomic admission path for automatic and explicitly requested work.
+
+    An explicit request bypasses the schedule/enable switch, not execution
+    capacity or same-scope ownership. Every live lease occupies a shared slot.
+    """
     owner = str(lease_owner or uuid4().hex)
     ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
-    expires_at = claim_time + timedelta(seconds=ttl_seconds)
-
+    manual = task_id is not None
     with transaction.atomic():
-        # Lock the parent task rows in a stable order.  All claimers use this
-        # parent-row mutex, so creating or replacing the separate lease row is
-        # serialized without exposing lease fields to long-lived plugin models.
-        rows, active_scopes, automatic_scopes = _locked_monitor_tasks_and_scopes(claim_time)
+        # Lock all parent rows in the same order across every claimant/process.
+        rows, active_scopes, leased_task_ids, claim_time = _locked_monitor_tasks_and_scopes(now)
+        if len(leased_task_ids) >= MONITOR_WORKER_COUNT:
+            return None
         canonical = {}
         for row in rows:
-            if row.is_active and is_task_runnable(row):
+            eligible = row.pk == task_id if manual else row.is_active and is_task_runnable(row)
+            if eligible:
                 canonical.setdefault(monitor_scope_key(row), row)
         lane_scopes = _night_lane_scopes(rows)
         due_tasks = [row for row in canonical.values()
                      if monitor_scope_key(row) not in active_scopes
                      and (allow_long_tasks or monitor_scope_key(row) not in lane_scopes)
-                     and monitor_task_due_at(row, now=claim_time) is not None]
-        is_night = _normalized_now(claim_time).astimezone(PORTAL_DATA_TIMEZONE).hour < 6
-        lane_heads = _night_lane_candidates(rows, due_tasks, automatic_scopes,
-                                           long_limit=2 if is_night else 1)
-        short_running = automatic_scopes - lane_scopes
-        # Choose the global lane head BEFORE applying worker-specific routing.
-        runnable_tasks = [row for row in due_tasks
-                          if ((monitor_scope_key(row) not in lane_scopes and len(short_running) < 2)
-                              or row in lane_heads)
-                          and (row.name in task_names if task_names is not None
-                               else row.name not in ISOLATED_MONITOR_TASKS)]
-        tasks = [
-            task
-            for task in runnable_tasks
-            if monitor_scope_key(task) not in active_scopes
-            and monitor_task_due_at(task, now=claim_time) is not None
-        ]
-        tasks.sort(key=lambda task: monitor_task_sort_key(task, now=claim_time))
-        if tasks:
-            task = tasks[0]
-            MonitorTaskLease.objects.update_or_create(
-                task_id=task.id,
-                defaults={
-                    'owner': owner,
-                    'is_manual': False,
-                    'claimed_at': claim_time,
-                    'expires_at': expires_at,
-                },
-            )
+                     and (manual or monitor_task_due_at(row, now=claim_time) is not None)]
+        is_night = claim_time.astimezone(PORTAL_DATA_TIMEZONE).hour < 6
+        running_count = sum(row.pk in leased_task_ids and monitor_scope_key(row) in lane_scopes
+                            for row in rows)
+        lane_heads = _night_lane_candidates(rows, due_tasks, active_scopes,
+            long_limit=2 if is_night else 1, running_count=running_count)
+        preparation = {'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor'}
+        tasks = [row for row in due_tasks
+                 if (row in lane_heads or (monitor_scope_key(row) not in lane_scopes
+                                          and monitor_plugin_name(row) not in preparation))
+                 and (task_names is None or row.name in task_names)]
+        if not manual:
+            tasks.sort(key=lambda row: monitor_task_sort_key(row, now=claim_time))
+        if not tasks:
+            return None
+        task = tasks[0]
+        MonitorTaskLease.objects.update_or_create(
+            task_id=task.id,
+            defaults={'owner': owner, 'is_manual': manual,
+                      'claimed_at': claim_time,
+                      'expires_at': claim_time + timedelta(seconds=ttl_seconds)},
+        )
+        fields = []
+        if advance_schedule:
             task.last_scan_time = claim_time
-            fields = ['last_scan_time']
-            if task.name == 'SpecDetailPlayerMonitor':
-                task.flag = json.dumps({'kind': 'player_daily', 'day': claim_time.astimezone(PORTAL_DATA_TIMEZONE).date().isoformat(), 'state': 'claimed'})
-                fields.append('flag')
+            fields.append('last_scan_time')
+        if not manual and task.name == 'SpecDetailPlayerMonitor':
+            task.flag = json.dumps({'kind': 'player_daily',
+                'day': claim_time.astimezone(PORTAL_DATA_TIMEZONE).date().isoformat(), 'state': 'claimed'})
+            fields.append('flag')
+        if fields:
             task.save(update_fields=fields)
-            task._monitor_task_lease_owner = owner
-            task._monitor_task_is_long = monitor_scope_key(task) in lane_scopes
+        task._monitor_task_lease_owner = owner
+        task._monitor_task_is_long = monitor_scope_key(task) in lane_scopes
+        if advance_schedule:
             from botend.services.wcl_collection_cycle import fence_claimed_cycle
             fence_claimed_cycle(task, claim_time=claim_time)
-            return task
-    return None
-
-
-def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=None):
-    """手动执行绕过到期、开关和跨任务夜间串行，保留同 scope 租约互斥。"""
-    claim_time = now or timezone.now()
-    owner = str(lease_owner or uuid4().hex)
-    ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
-    with transaction.atomic():
-        rows, active_scopes, automatic_scopes = _locked_monitor_tasks_and_scopes(claim_time)
-        task = next((row for row in rows if row.pk == task_id), None)
-        if task is None:
-            return None
-        if monitor_scope_key(task) in active_scopes:
-            return None
-        MonitorTaskLease.objects.update_or_create(task_id=task_id, defaults={
-            'owner': owner, 'claimed_at': claim_time, 'is_manual': True,
-            'expires_at': claim_time + timedelta(seconds=ttl_seconds),
-        })
-        task.last_scan_time = claim_time
-        task.save(update_fields=['last_scan_time'])
-        task._monitor_task_lease_owner = owner
-        from botend.services.wcl_collection_cycle import fence_claimed_cycle
-        fence_claimed_cycle(task, claim_time=claim_time)
         return task
+
+
+def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None,
+                            task_names=None, allow_long_tasks=True):
+    """Poll every plugin through the shared three-slot queue; no source workers."""
+    return _claim_monitor_task(now, lease_owner=lease_owner, lease_seconds=lease_seconds,
+        task_names=task_names, allow_long_tasks=allow_long_tasks)
+
+
+def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=None,
+                       advance_schedule=True):
+    """Explicit execution uses the same resource limits and scope mutex."""
+    return _claim_monitor_task(now, task_id=task_id, lease_owner=lease_owner,
+                               lease_seconds=lease_seconds, advance_schedule=advance_schedule)
 
 
 def renew_monitor_task_lease(task_id, lease_owner, now=None, *, lease_seconds=None):
     """Extend a lease while holding the same parent-row mutex used by claimers."""
-    renewed_at = now or timezone.now()
     ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
     with transaction.atomic():
         task_exists = MonitorTask.objects.select_for_update().filter(pk=task_id).exists()
         if not task_exists:
             return False
-        return MonitorTaskLease.objects.select_for_update().filter(
-            task_id=task_id,
-            owner=str(lease_owner),
-            expires_at__gt=renewed_at,
-        ).update(expires_at=renewed_at + timedelta(seconds=ttl_seconds)) == 1
+        lease = MonitorTaskLease.objects.select_for_update().filter(
+            task_id=task_id, owner=str(lease_owner),
+        ).first()
+        renewed_at = _normalized_now(now)
+        if lease is None or lease.expires_at <= renewed_at:
+            return False
+        return MonitorTaskLease.objects.filter(pk=lease.pk, owner=str(lease_owner)).update(
+            expires_at=renewed_at + timedelta(seconds=ttl_seconds)) == 1
 
 
 def release_monitor_task_lease(task_id, lease_owner):
@@ -387,7 +380,6 @@ def release_monitor_task_lease(task_id, lease_owner):
 
 def complete_monitor_task_lease(task_id, lease_owner, *, now=None, task_updates=None):
     """Atomically commit allowed task state and release a still-valid owned lease."""
-    completed_at = now or timezone.now()
     updates = dict(task_updates or {})
     unsupported_fields = set(updates) - {'flag'}
     if unsupported_fields:
@@ -404,9 +396,9 @@ def complete_monitor_task_lease(task_id, lease_owner, *, now=None, task_updates=
         lease = MonitorTaskLease.objects.select_for_update().filter(
             task_id=task_id,
             owner=str(lease_owner),
-            expires_at__gt=completed_at,
         ).first()
-        if lease is None:
+        completed_at = _normalized_now(now)
+        if lease is None or lease.expires_at <= completed_at:
             return False
         if updates:
             MonitorTask.objects.filter(pk=task_id).update(**updates)

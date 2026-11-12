@@ -36,7 +36,7 @@ class NightLaneTests(TestCase):
         self.assertNotIn('completed_scopes', sql)
         self.assertEqual(len(queries), 2)
 
-    def test_global_head_cannot_be_skipped_by_separate_workers(self):
+    def test_source_preparation_head_orders_all_ordinary_workers_and_manual_requests(self):
         season = self.task('SpecDetailSeasonMonitor')
         data = self.task('WowDataVersionMonitor')
         player = self.task('SpecDetailPlayerMonitor')
@@ -45,16 +45,13 @@ class NightLaneTests(TestCase):
         self.assertEqual(first.pk, season.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now, task_names=[data.name]))
         manual = claim_monitor_task(player.pk, now=self.now, lease_owner='external-owner')
-        self.assertEqual(manual.pk, player.pk)
-        self.assertEqual(MonitorTaskLease.objects.get(task=player).owner, 'external-owner')
-        self.assertTrue(release_monitor_task_lease(player.pk, 'external-owner'))
-        MonitorTask.objects.filter(pk=player.pk).update(last_scan_time=self.now-timedelta(days=1))
+        self.assertIsNone(manual, 'manual cannot bypass running Season preparation')
         self.assertTrue(release_monitor_task_lease(first.pk, 'normal'))
-        self.assertIsNone(claim_next_monitor_task(now=self.now))
-        second = claim_next_monitor_task(now=self.now, task_names=[data.name], lease_owner='isolated')
+        second = claim_next_monitor_task(now=self.now, lease_owner='ordinary-2')
         self.assertEqual(second.pk, data.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now))
-        self.assertTrue(release_monitor_task_lease(second.pk, 'isolated'))
+        self.assertIsNone(claim_monitor_task(player.pk, now=self.now))
+        self.assertTrue(release_monitor_task_lease(second.pk, 'ordinary-2'))
         self.assertEqual(claim_next_monitor_task(now=self.now).pk, player.pk)
 
     def test_disabled_old_alias_lease_protects_lane_across_midnight(self):
@@ -67,7 +64,7 @@ class NightLaneTests(TestCase):
         MonitorTaskLease.objects.create(task=alias, owner='old',
             claimed_at=self.now-timedelta(hours=2), expires_at=self.now+timedelta(hours=9))
         self.assertIsNone(claim_next_monitor_task(now=self.now))
-        self.assertIsNotNone(claim_monitor_task(player.pk, now=self.now))
+        self.assertIsNone(claim_monitor_task(player.pk, now=self.now))
         self.assertEqual(MonitorTaskLease.objects.get(task=alias).owner, 'old')
 
     def test_old_claimer_insert_uses_database_default(self):
@@ -86,7 +83,7 @@ class NightLaneTests(TestCase):
         self.assertFalse(lease.is_manual)
         self.assertEqual(lease.owner, 'legacy-owner')
 
-    def test_manual_bypasses_switch_due_and_cross_scope_lane(self):
+    def test_manual_bypasses_switch_and_due_but_not_scope_or_total_capacity(self):
         first = self.task('MaxrollClassGuideMonitor')
         second = self.task('WowDailyReportMonitor')
         MonitorTask.objects.filter(pk=first.pk).update(is_active=False, last_scan_time=self.now)
@@ -95,19 +92,22 @@ class NightLaneTests(TestCase):
         self.assertIsNone(claim_monitor_task(first.pk, now=self.now))
         fast = self.task('PortalPeakSpecRankMonitor')
         self.assertEqual(claim_next_monitor_task(now=self.now, task_names={fast.name}).pk, fast.pk)
+        overflow = self.task('PortalPostMonitor')
+        self.assertIsNone(claim_monitor_task(overflow.pk, now=self.now))
+        self.assertIsNone(claim_next_monitor_task(now=self.now))
+        self.assertEqual(MonitorTaskLease.objects.count(), 3)
         self.assertFalse(release_monitor_task_lease(first.pk, 'wrong'))
 
-    def test_manual_head_does_not_block_auto_and_auto_stays_serial(self):
+    def test_manual_preparation_blocks_heavy_work_and_expiry_preserves_owner_fences(self):
         season = self.task('SpecDetailSeasonMonitor')
         data = self.task('WowDataVersionMonitor')
         player = self.task('SpecDetailPlayerMonitor')
         manual = claim_monitor_task(season.pk, now=self.now, lease_owner='external:token', lease_seconds=60)
         self.assertTrue(MonitorTaskLease.objects.get(task=season).is_manual)
-        # Even if the manually occupied head is due, another automatic scope runs.
+        # Running preparation protects consumers even when manually claimed.
         MonitorTask.objects.filter(pk=season.pk).update(last_scan_time=self.now-timedelta(days=1))
         auto = claim_next_monitor_task(now=self.now, task_names=[data.name], lease_owner='auto')
-        self.assertEqual(auto.pk, data.pk)
-        self.assertFalse(MonitorTaskLease.objects.get(task=data).is_manual)
+        self.assertIsNone(auto)
         self.assertIsNone(claim_next_monitor_task(now=self.now, task_names=[player.name]))
         self.assertIsNone(claim_monitor_task(data.pk, now=self.now))
         alias = self.task('manual alias')
@@ -116,15 +116,20 @@ class NightLaneTests(TestCase):
         from botend.plugin_sync import renew_monitor_task_lease
         self.assertFalse(renew_monitor_task_lease(season.pk, 'wrong', now=self.now))
         self.assertTrue(renew_monitor_task_lease(season.pk, 'external:token', now=self.now, lease_seconds=60))
-        replacement = claim_next_monitor_task(now=self.now+timedelta(seconds=61), lease_owner='replacement', lease_seconds=60)
-        # Auto data still owns the lane; expiry of manual never evicts that lease.
-        self.assertIsNone(replacement)
+        # Expired preparation is replaceable; stale owners cannot release/save it.
         manual2 = claim_monitor_task(season.pk, now=self.now+timedelta(seconds=61), lease_owner='new')
         self.assertIsNotNone(manual2)
         self.assertFalse(release_monitor_task_lease(season.pk, 'external:token'))
         from botend.models import MonitorTaskLeaseLost
         with self.assertRaises(MonitorTaskLeaseLost):
             manual.save(update_fields=['flag'])
+        self.assertEqual(MonitorTaskLease.objects.get(task=season).owner, 'new')
+        self.assertTrue(release_monitor_task_lease(season.pk, 'new'))
+        MonitorTask.objects.filter(pk=alias.pk).update(is_active=False)
+        auto = claim_next_monitor_task(now=self.now+timedelta(seconds=61), lease_owner='auto')
+        self.assertEqual(auto.pk, data.pk)
+        self.assertFalse(MonitorTaskLease.objects.get(task=data).is_manual)
+        self.assertIsNone(claim_monitor_task(season.pk, now=self.now+timedelta(seconds=61)))
         self.assertEqual(MonitorTaskLease.objects.get(task=data).owner, 'auto')
 
     def test_midnight_defaults_and_long_cycle_retry(self):
@@ -175,7 +180,8 @@ class NightLaneTests(TestCase):
             release_monitor_task_lease(data.pk, 'data')
             MonitorTaskLease.objects.create(task=season, owner='other-env',
                 claimed_at=self.now, expires_at=self.now+timedelta(hours=1))
-            self.assertIsNotNone(claim_monitor_task(data.pk, now=self.now))
+            self.assertIsNone(claim_monitor_task(data.pk, now=self.now))
+            self.assertEqual(MonitorTaskLease.objects.get(task=season).owner, 'other-env')
 
 
 from concurrent.futures import ThreadPoolExecutor
@@ -187,13 +193,15 @@ from django.test import TransactionTestCase
 
 @skipUnless(connection.vendor == 'mysql', 'Requires real MySQL row locks; SQLite is not concurrency evidence')
 class NightLaneConcurrentClaimsTests(TransactionTestCase):
-    def test_independent_connections_manual_bypasses_automatic_lane(self):
+    def test_independent_connections_manual_cannot_bypass_running_preparation(self):
         MonitorTask.objects.all().delete()
         now = datetime(2026, 10, 21, 0, 1, tzinfo=ZoneInfo('Asia/Shanghai'))
         values = dict(target='', is_active=True, last_scan_time=now-timedelta(days=1))
         season = MonitorTask.objects.create(name='SpecDetailSeasonMonitor', type=901, **values)
         data = MonitorTask.objects.create(name='WowDataVersionMonitor', type=902, **values)
         player = MonitorTask.objects.create(name='SpecDetailPlayerMonitor', type=903, **values)
+        MonitorTaskLease.objects.create(task=season, owner='preparation',
+            claimed_at=now, expires_at=now+timedelta(hours=9))
         barrier = Barrier(3)
 
         def claim(kind):
@@ -204,20 +212,22 @@ class NightLaneConcurrentClaimsTests(TransactionTestCase):
                     task = claim_monitor_task(player.pk, now=now, lease_owner=kind)
                 else:
                     task = claim_next_monitor_task(now=now, lease_owner=kind,
-                        task_names=[data.name] if kind == 'isolated' else None)
+                        task_names=[data.name] if kind == 'filtered' else None)
                 return task.pk if task else None
             finally:
                 connections.close_all()
 
         with ThreadPoolExecutor(max_workers=3) as pool:
-            results = list(pool.map(claim, ('normal', 'isolated', 'manual')))
-        self.assertEqual(results, [season.pk, None, player.pk])
-        self.assertIsNone(results[1])  # isolated worker never bypasses global head
-        self.assertEqual(MonitorTaskLease.objects.count(), 2)
+            results = list(pool.map(claim, ('normal', 'filtered', 'manual')))
+        self.assertEqual(results, [None, None, None])
+        self.assertEqual(MonitorTaskLease.objects.count(), 1)
         self.assertIsNone(claim_next_monitor_task(now=now, task_names=[data.name]))
         self.assertIsNone(claim_monitor_task(season.pk, now=now))
         fast = MonitorTask.objects.create(name='PortalPeakSpecRankMonitor', type=904, **values)
         # Ordinary short polling also continues at midnight while long work runs.
-        self.assertEqual(claim_next_monitor_task(now=now, task_names={fast.name}).pk, fast.pk)
+        short = claim_next_monitor_task(now=now, lease_owner='short', lease_seconds=9*3600)
+        self.assertEqual(short.pk, fast.pk)
+        self.assertTrue(release_monitor_task_lease(short.pk, 'short'))
+        MonitorTask.objects.filter(pk=fast.pk).update(last_scan_time=now-timedelta(days=1))
         self.assertEqual(claim_next_monitor_task(now=now.replace(hour=6), task_names={fast.name}).pk, fast.pk)
-        self.assertEqual(MonitorTaskLease.objects.count(), 3)
+        self.assertEqual(MonitorTaskLease.objects.count(), 2)

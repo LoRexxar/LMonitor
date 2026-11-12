@@ -10,10 +10,8 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-ISOLATED_LABELS = (
-    'isolated-WowDataVersionMonitor',
-    'isolated-RioStatisticsMonitor',
-)
+ORDINARY_LABELS = ('ordinary-0', 'ordinary-1', 'ordinary-2')
+MAINTENANCE_LABELS = ('gear', 'loot', 'news', 'guides', 'journal', 'gc')
 
 class BackendRetirementAdmissionTests(unittest.TestCase):
     def test_short_work_continues_while_long_task_finishes_then_gate_closes(self):
@@ -125,16 +123,35 @@ if mode.startswith('scheduler'):
     settings.MONITOR_TASK_MAX_RUNTIME_SECONDS = 5
     settings.MONITOR_RETIRE_CLEANUP_SECONDS = .2
     settings.SNAPSHOT_CACHE_GC_WORKER_ENABLED = True
+    labels = {}
+    claim_lock = threading.Lock()
+    claim_started = threading.Event()
+    retirement_received = threading.Event()
+    original_wait = BackendLifecycle.wait
+    original_request = BackendLifecycle.request_retirement
+    def bounded_wait(self, seconds):
+        # Accelerate startup only; maintenance must not poll twice while long
+        # tasks still hold retirement open.
+        return original_wait(self, min(seconds, .03)
+                             if threading.current_thread() is threading.main_thread() else seconds)
+    def request_retirement(self, signum=None, frame=None):
+        original_request(self, signum, frame)
+        if signum == signal.SIGUSR1:
+            record('retirement-requested')
+            retirement_received.set()
     def claim(*, lease_owner, task_names=None, allow_long_tasks=True):
-        name = next(iter(task_names)) if task_names else 'ordinary'
-        is_long = name in views.NIGHT_LANE_TASKS
-        if is_long and not allow_long_tasks:
+        assert task_names is None, 'all ordinary workers must poll the same queue'
+        if not allow_long_tasks:
             return None
-        label = 'isolated-' + name if task_names else 'ordinary'
+        with claim_lock:
+            label = 'ordinary-' + str(len(labels))
+            labels[lease_owner] = label
         record('claim-' + label)
+        claim_started.set()
         if mode == 'scheduler-claim':
-            time.sleep(.5)  # Retirement while the claim is in progress.
-        return SimpleNamespace(name=name, pk=label, _monitor_task_is_long=is_long)
+            # Parent signals only after all three real workers entered claim.
+            assert retirement_received.wait(4), 'missing retirement handshake'
+        return SimpleNamespace(name='SpecDetailPlayerMonitor', pk=label, _monitor_task_is_long=True)
     def execute(self, task, owner):
         record('started-' + task.pk)
         time.sleep(1.6)
@@ -146,6 +163,8 @@ if mode.startswith('scheduler'):
             record('finished-' + label)
         return call
     with ExitStack() as stack:
+        stack.enter_context(patch.object(BackendLifecycle, 'wait', bounded_wait))
+        stack.enter_context(patch.object(BackendLifecycle, 'request_retirement', request_retirement))
         stack.enter_context(patch.object(views, 'filter_runnable_tasks', return_value=Mock(count=lambda: 2)))
         stack.enter_context(patch.object(views, 'claim_next_monitor_task', side_effect=claim))
         stack.enter_context(patch.object(views.LMonitorCore, '_execute_claimed_task', execute))
@@ -159,23 +178,18 @@ if mode.startswith('scheduler'):
         ]:
             stack.enter_context(patch('botend.services.' + module + '.' + fn, side_effect=refresh(label)))
         if mode == 'scheduler-claim':
-            from botend.services import gear_catalog_snapshot
-            original_start = gear_catalog_snapshot.start_catalog_snapshot_worker
-            def wait_for_retirement(*, lifecycle):
-                # Deterministic handshake: do not race main-thread startup
-                # against the parent's poll interval before SIGUSR1 arrives.
-                until = time.monotonic() + 4
-                while not lifecycle.retiring and time.monotonic() < until:
-                    time.sleep(.01)
-                return original_start(lifecycle=lifecycle)
-            stack.enter_context(patch.object(gear_catalog_snapshot, 'start_catalog_snapshot_worker', side_effect=wait_for_retirement))
             stack.enter_context(patch.object(views, '_release_monitor_task_lease_safely',
                                             side_effect=lambda pk, owner: record('released-' + pk)))
         if mode == 'scheduler-error':
-            def fail_start(*args, **kwargs):
-                time.sleep(.1)  # Allow the real isolated scan thread to enter.
+            original_new = views.ThreadPool.new
+            def fail_start(self, *args, **kwargs):
+                if not self.alive_thread_list:
+                    result = original_new(self, *args, **kwargs)
+                    assert claim_started.wait(4), 'ordinary worker never entered claim'
+                    return result
+                record('startup-error')
                 raise RuntimeError('injected scheduler startup failure')
-            stack.enter_context(patch('botend.services.gear_catalog_snapshot.start_catalog_snapshot_worker', side_effect=fail_start))
+            stack.enter_context(patch.object(views.ThreadPool, 'new', fail_start))
         record('boot')
         Command().handle()
         record('drained')
@@ -329,15 +343,15 @@ class BackendRetirementProcessTests(unittest.TestCase):
         self.assertEqual([e['event'] for e in self.events()],
                          ['boot', 'started', 'retiring', 'finished', 'drained'])
 
-    def test_actual_command_drains_ordinary_isolated_and_all_maintenance_workers(self):
+    def test_actual_command_drains_three_ordinary_and_all_maintenance_workers(self):
         proc = self.launch('scheduler')
         events = self.wait_for(lambda es: len([e for e in es if e['event'] == 'boot']) >= 2, timeout=20)
         first_pid = events[0]['pid']
         first = [e['event'] for e in events if e['pid'] == first_pid]
-        self.assertEqual(first.count('claim-ordinary'), 1)
-        for label in ISOLATED_LABELS:
+        for label in ORDINARY_LABELS:
             self.assertEqual(first.count('claim-' + label), 1)
-        for label in ['ordinary', *ISOLATED_LABELS, 'gear', 'loot', 'news', 'guides', 'journal', 'gc']:
+        self.assertEqual(sum(event.startswith('claim-') for event in first), 3)
+        for label in [*ORDINARY_LABELS, *MAINTENANCE_LABELS]:
             self.assertEqual(first.count('started-' + label), 1, first)
             self.assertEqual(first.count('finished-' + label), 1, first)
             self.assertLess(first.index('finished-' + label), first.index('drained'))
@@ -347,11 +361,13 @@ class BackendRetirementProcessTests(unittest.TestCase):
         proc = self.launch('scheduler-error', supervisor=False)
         self.assertEqual(proc.wait(timeout=15), 1)
         events = [e['event'] for e in self.events()]
-        self.assertCountEqual(events, ['boot'] + [prefix + label
-            for label in ISOLATED_LABELS for prefix in ('claim-', 'started-', 'finished-')])
-        for label in ISOLATED_LABELS:
-            self.assertLess(events.index('claim-' + label), events.index('started-' + label))
+        self.assertCountEqual(events, ['boot', 'startup-error', 'claim-ordinary-0'] + [prefix + label
+            for label in ['ordinary-0', *MAINTENANCE_LABELS] for prefix in ('started-', 'finished-')])
+        self.assertLess(events.index('claim-ordinary-0'), events.index('startup-error'))
+        self.assertLess(events.index('claim-ordinary-0'), events.index('started-ordinary-0'))
+        for label in ['ordinary-0', *MAINTENANCE_LABELS]:
             self.assertLess(events.index('started-' + label), events.index('finished-' + label))
+            self.assertLess(events.index('startup-error'), events.index('finished-' + label))
         self.output.flush()
         self.output.seek(0)
         self.assertIn('injected scheduler startup failure', self.output.read())
@@ -367,16 +383,20 @@ class BackendRetirementProcessTests(unittest.TestCase):
     def test_claim_in_progress_is_drained_without_a_second_claim(self):
         proc = self.launch('scheduler-claim', supervisor=False)
         self.wait_for(lambda es: all(any(e['event'] == 'claim-' + label for e in es)
-                                    for label in ISOLATED_LABELS))
+                                    for label in ORDINARY_LABELS))
         proc.send_signal(signal.SIGUSR1)
         self.assertEqual(proc.wait(timeout=5), 0)
         events = [e['event'] for e in self.events()]
-        self.assertNotIn('claim-ordinary', events)
-        for label in ISOLATED_LABELS:
+        self.assertEqual(sum(event.startswith('claim-') for event in events), 3)
+        self.assertEqual(events.count('retirement-requested'), 1)
+        for label in ORDINARY_LABELS:
             self.assertEqual(events.count('claim-' + label), 1)
             self.assertEqual(events.count('started-' + label), 1)
             self.assertEqual(events.count('finished-' + label), 1)
+            self.assertLess(events.index('claim-' + label), events.index('retirement-requested'))
+            self.assertLess(events.index('retirement-requested'), events.index('started-' + label))
             self.assertLess(events.index('finished-' + label), events.index('drained'))
+            self.assertNotIn('released-' + label, events, 'an in-flight claim must execute, not be discarded')
 
     def test_an_expired_worker_cannot_kill_another_still_legal_worker(self):
         proc = self.launch('mixed-deadlines', supervisor=False)

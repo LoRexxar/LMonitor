@@ -21,25 +21,6 @@ logger = logging.getLogger(__name__)
 ACTIVE = ('queued', 'preparing', 'submitted')
 
 
-class ReferenceAgentIncompatible(ValueError):
-    """当前 Agent 无法执行指定版本，可由其他执行者领取。"""
-
-
-def execution_backend_metadata(task, *, agent=None):
-    """仅为专用任务核对执行版本；不改变普通任务的后端选择规则。"""
-    request = (task.mode_params or {}).get('request_manifest') or {}
-    expected = request.get('reference_backend') if isinstance(request, dict) else None
-    if expected is None:
-        return {}
-    backend = SimcBackendBinary.objects.filter(pk=task.backend_id).first()
-    if (not isinstance(expected, list) or len(expected) != 3 or not backend
-            or expected != [backend.pk, backend.current_version, backend.game_build]):
-        raise ValueError('公开配置模拟的后端版本已变化，请重新生成')
-    if agent is not None and (agent.capabilities or {}).get('binary_revision') != expected[1]:
-        raise ReferenceAgentIncompatible('当前 Agent 的实测二进制版本不匹配公开配置模拟')
-    return {'backend_version': expected[1], 'reference_backend': expected}
-
-
 def catalog(*, public_only=True):
     """与资料页使用同一份公开目录，保留缺失默认 APL 的组合供管理员检查。"""
     from botend.services.simc_reference import reference_catalog
@@ -91,8 +72,6 @@ def validate_settings(config):
         raise ValueError('全局模拟维护已停用')
     if not config.backend_id or not config.backend.is_active:
         raise ValueError('请先选择可用的模拟后端')
-    if not config.backend.current_version:
-        raise ValueError('模拟后端尚未记录构建版本')
     template = config.template
     if not template or not template.is_active or not template.is_selectable or template.owner_user_id:
         raise ValueError('请先选择可用的共享模板')
@@ -193,9 +172,27 @@ def snapshot(config, profile, talent, apl, scenario, *, published_resources=None
             'apl': [apl.pk, tasks._compute_content_hash(tasks._build_apl_payload(apl))],
             'template': [config.template_id, tasks._compute_content_hash(tasks._build_template_payload(config.template))],
         },
-        'backend': [config.backend_id, config.backend.current_version, config.backend.game_build],
+        'backend': [config.backend_id],
         'simulation_params': scenario_simulation_params(scenario),
     }
+
+
+def normalized_snapshot(frozen):
+    """Compare legacy inputs without rewriting their frozen snapshot or signature."""
+    value = deepcopy(frozen)
+    if isinstance(value.get('backend'), list):
+        value['backend'] = value['backend'][:1]
+    return value
+
+
+def matching_simulations(config, frozen):
+    """Match complete frozen inputs in SQL, independent of historical signature format."""
+    return SimcReferenceSimulation.objects.filter(
+        config=config, snapshot__spec=frozen['spec'], snapshot__use_ptr=frozen['use_ptr'],
+        snapshot__resources=frozen['resources'],
+        snapshot__simulation_params=frozen['simulation_params'],
+        snapshot__backend__0=frozen['backend'][0],
+    )
 
 
 def enqueue_configs(config_ids, user_id, *, force=False, combination=None):
@@ -227,7 +224,7 @@ def enqueue_configs(config_ids, user_id, *, force=False, combination=None):
                 for scene, frozen in snapshots:
                     signature = tasks._compute_content_hash(frozen)
                     states = ACTIVE if force else (*ACTIVE, 'completed')
-                    if SimcReferenceSimulation.objects.filter(config=config, signature=signature, status__in=states).exists():
+                    if matching_simulations(config, frozen).filter(status__in=states).exists():
                         result['skipped'] += 1
                         continue
                     SimcReferenceSimulation.objects.create(
@@ -261,19 +258,24 @@ def maintain_simulations(batch_size=5):
             _fail(row.pk, '模拟任务失败或已停用，请查看任务记录后重新生成')
         elif task.current_status == 2:
             runs = list(task.simulation_runs.values(
-                'status', 'result_summary__dps', 'result_summary__valid', 'resource_manifest__backend_version',
+                'status', 'result_summary__dps', 'result_summary__valid',
             )[:2])
             dps = runs[0]['result_summary__dps'] if len(runs) == 1 else None
-            version = runs[0]['resource_manifest__backend_version'] if runs else None
             valid = bool(runs and runs[0]['status'] == 'completed' and runs[0]['result_summary__valid'] is not False)
             if not valid or not isinstance(dps, (int, float)) or isinstance(dps, bool) or not math.isfinite(dps) or dps <= 0:
                 _fail(row.pk, '任务未产生唯一、有效的 DPS 结果')
-            elif version != row.snapshot['backend'][1]:
-                _fail(row.pk, '实际执行后端版本与登记版本不一致，请重新生成')
             else:
-                SimcReferenceSimulation.objects.filter(pk=row.pk, status='submitted').update(
-                    status='completed', dps=dps, updated_at=now, error='',
-                )
+                # Publication and its lightweight ranking pointer commit together.
+                # Match dispatch's lock order; no HTTP reader rebuilds this index.
+                from botend.services.simc_reference_ranking_index import sync_result
+                with transaction.atomic():
+                    config = SimcReferenceSimulationConfig.objects.select_for_update().get(pk=row.config_id)
+                    SimcReferenceSimulationSettings.objects.select_for_update().get(pk=config.settings_id)
+                    published = SimcReferenceSimulation.objects.filter(pk=row.pk, status='submitted').update(
+                        status='completed', dps=dps, updated_at=now, error='',
+                    )
+                    if published:
+                        sync_result(row.pk)
     ids = list(SimcReferenceSimulation.objects.filter(status='queued').order_by('pk').values_list('pk', flat=True)[:batch_size])
     for row_id in ids:
         claim = timezone.now()
@@ -285,7 +287,7 @@ def maintain_simulations(batch_size=5):
             scene = (SimcReferenceSimulationScenario.objects.filter(pk=row.scenario_id).first()
                      if row.scenario_id else scenario_for_snapshot(config, row.snapshot))
             current = snapshot(config, row.profile, row.talent, row.apl, scene)
-            if current != row.snapshot:
+            if current != normalized_snapshot(row.snapshot):
                 raise ValueError('配置已更新，请重新生成当前组合')
             kwargs = dict(user_id=row.requested_by_id, profile_id=row.profile_id, talent_string_id=row.talent_id,
                           apl_id=row.apl_id, template_id=config.template_id, backend_id=config.backend_id, is_admin=True)
@@ -298,18 +300,17 @@ def maintain_simulations(batch_size=5):
                 config = SimcReferenceSimulationConfig.objects.select_for_update().get(pk=locked.config_id)
                 config.settings = SimcReferenceSimulationSettings.objects.select_for_update().select_related('backend', 'template').get(pk=config.settings_id)
                 scene = SimcReferenceSimulationScenario.objects.select_for_update().filter(pk=scene.pk).first()
-                if snapshot(config, row.profile, row.talent, row.apl, scene) != row.snapshot:
+                if snapshot(config, row.profile, row.talent, row.apl, scene) != normalized_snapshot(row.snapshot):
                     raise ValueError('全局模拟条件已更新，请重新生成当前组合')
                 task = tasks.create_task_from_prepared(
                     prepared=prepared, **kwargs, name=f'公开配置 · {config.spec_key} · {row.pk}',
                     mode='normal', simulation_params=row.snapshot['simulation_params'],
-                    mode_params={'request_manifest': {'reference_backend': row.snapshot['backend']}},
                     is_benchmark_task=True, benchmark_queue_priority=20,
                 )
                 actual = {kind: [getattr(task, f'{kind}_version').resource_id,
                                  getattr(task, f'{kind}_version').content_hash]
                           for kind in ('profile', 'talent', 'apl', 'template')}
-                if actual != row.snapshot['resources'] or prepared.validation_identity[0] != row.snapshot['backend'][1]:
+                if actual != row.snapshot['resources']:
                     raise ValueError('任务创建期间资源版本发生变化，请重新生成')
                 locked.task, locked.status, locked.scenario = task, 'submitted', scene
                 locked.save(update_fields=['task', 'status', 'scenario', 'updated_at'])
@@ -331,18 +332,17 @@ def public_results(spec_key, profile, talent, apl):
         snapshots = [(scene, snapshot(config, profile, talent, apl, scene)) for scene in active_scenarios(config)]
     except ValueError:
         return []
-    signatures = [(scene, tasks._compute_content_hash(value), value) for scene, value in snapshots]
-    found = {}
-    for scene, signature, value in signatures:
-        row = SimcReferenceSimulation.objects.filter(
-            config=config, signature=signature, status='completed', dps__gt=0,
-        ).order_by('-pk').values('dps').first()
+    found = []
+    for scene, value in snapshots:
+        row = matching_simulations(config, value).filter(
+            status='completed', dps__gt=0,
+        ).order_by('-pk').values('dps', 'signature').first()
         if row and math.isfinite(row['dps']):
-            found[signature] = row['dps']
+            found.append((scene, value, row))
     from botend.services.simc_reference_rankings import current_rankings
     rankings = current_rankings(config) if found else {}
-    return [dict(value['simulation_params'], dps=found[key], ranking=rankings.get((config.pk, key)),
-                 config_id=config.pk, signature=key, scenario_id=scene.pk, scenario_name=scene.name,
+    return [dict(value['simulation_params'], dps=row['dps'], ranking=rankings.get((config.pk, row['signature'])),
+                 config_id=config.pk, signature=row['signature'], scenario_id=scene.pk, scenario_name=scene.name,
                  name=scene.name, targets=value['simulation_params']['desired_targets'],
                  duration=value['simulation_params']['max_time'])
-            for scene, key, value in signatures if key in found]
+            for scene, value, row in found]

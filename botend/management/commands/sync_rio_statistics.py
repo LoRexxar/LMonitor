@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
+from botend.services.monitor_task_execution import (
+    MonitorTaskAdmissionBusy, monitor_task_execution,
+)
 from botend.services.rio_statistics import (Collector, MODULES, REGIONS, LEVELS, PERIODS,
                                           DEFAULT_LEVELS, DAILY_REQUEST_BUDGET, MAX_REQUEST_BUDGET)
 
@@ -35,10 +38,13 @@ class Command(BaseCommand):
                 queries = json.loads(path.read_text(encoding='utf-8'))
                 if not isinstance(queries, list):
                     raise ValueError('筛选清单必须是数组')
-            with Collector(max_requests=options['max_requests'], force=options['force']) as collector:
-                result = collector.run(season=options['season'], regions=options['regions'], modules=options['modules'],
-                    dungeons=options['dungeons'], levels=options['levels'], periods=options['periods'],
-                    queries=queries, only_queries=options['only_queries'])
+            with monitor_task_execution('RioStatisticsMonitor'):
+                with Collector(max_requests=options['max_requests'], force=options['force']) as collector:
+                    result = collector.run(season=options['season'], regions=options['regions'], modules=options['modules'],
+                        dungeons=options['dungeons'], levels=options['levels'], periods=options['periods'],
+                        queries=queries, only_queries=options['only_queries'])
+        except MonitorTaskAdmissionBusy as exc:
+            raise CommandError(str(exc)) from exc
         except Exception as exc:
             raise CommandError(f'采集未完成：{type(exc).__name__}') from exc
         self.stdout.write(json.dumps(result, ensure_ascii=False))

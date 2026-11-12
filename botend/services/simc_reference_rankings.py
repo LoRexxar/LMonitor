@@ -1,84 +1,88 @@
-"""当前公开组合的双维度排名；同条件、同版本，单体与多目标分别比较。"""
+"""当前公开组合的双维度排名；同路由、同条件，单体与多目标分别比较。"""
 
 import math
 from collections import defaultdict
+from types import SimpleNamespace
 
-from django.db.models import CharField, Max, Value
+from django.db.models import Case, Exists, F, IntegerField, OuterRef, Value, When
 
-from botend.models import SimcReferencePublication, SimcReferenceSimulation
-from botend.services.simc_reference_simulations import snapshot, validate_config, active_scenarios, scenario_for_snapshot, scenario_simulation_params
-from botend.services.simc_task_service import _compute_content_hash
 from botend.services.simc_scenario_display import scenario_label
+from botend.models import SimcReferencePublication, SimcReferenceRankingEntry
+from botend.services.simc_reference_ranking_index import comparison_key
+from botend.services.simc_reference_simulations import active_scenarios, scenario_simulation_params
+
+
+def _read_queryset():
+    """Read only index identities, names and the result's authoritative facts.
+
+    Currentness is maintained by writers. No frozen input, resource payload,
+    binary version or player/tooltip resolution belongs on this path.
+    """
+    publication = SimcReferencePublication.objects.filter(
+        is_published=True, spec_key=OuterRef('spec_key'),
+        profiles=OuterRef('profile_id'), talents=OuterRef('talent_id'), apls=OuterRef('apl_id'),
+    )
+    return SimcReferenceRankingEntry.objects.filter(
+        Exists(publication), is_current=True,
+        config__settings__is_enabled=True,
+        config__settings__use_ptr=F('config__use_ptr'),
+        config__settings__backend__is_active=True,
+        config__settings__template__is_active=True,
+        config__settings__template__is_selectable=True,
+        config__settings__template__owner_user_id__isnull=True,
+        config__settings__template__spec__in=('default', 'all', '*'),
+        scenario__is_enabled=True, scenario__settings_id=F('config__settings_id'),
+        profile__is_active=True, profile__user_id__isnull=True,
+        profile__use_ptr=F('config__use_ptr'),
+        talent__is_active=True, talent__is_selectable=True,
+        talent__owner_user_id__isnull=True, talent__is_system=True,
+        apl__is_active=True, apl__is_selectable=True,
+        apl__owner_user_id__isnull=True, apl__is_system=True,
+        result__status='completed', result__dps__gt=0,
+    ).select_related('config', 'scenario', 'profile', 'talent', 'apl', 'result').only(
+        'id', 'comparison_key', 'config_id', 'scenario_id', 'profile_id', 'talent_id', 'apl_id', 'result_id',
+        'config__id', 'config__spec_key', 'config__use_ptr', 'config__settings_id',
+        'scenario__id', 'scenario__settings_id', 'scenario__name', 'scenario__simulation_params',
+        'profile__id', 'profile__name', 'talent__id', 'talent__name', 'apl__id', 'apl__name',
+        'result__id', 'result__signature', 'result__dps',
+    )
+
+
+def _project(entry, params):
+    return SimpleNamespace(
+        pk=entry.result_id, signature=entry.result.signature, dps=entry.result.dps,
+        config_id=entry.config_id, config=entry.config,
+        profile_id=entry.profile_id, profile=entry.profile,
+        talent_id=entry.talent_id, talent=entry.talent,
+        apl_id=entry.apl_id, apl=entry.apl,
+        current_scenario=entry.scenario, snapshot={'simulation_params': params},
+    )
 
 
 def _current_cohorts(config):
-    """返回按可比条件分组的当前有效结果，覆盖所有专精和分页。
-
-    模板按实际正文匹配，不按专精标签或模板 ID 匹配。每份签名只取最新成功
-    结果；重跑期间保留原有效结果。分母为组合数，并列采用 1、1、3 名次。
-    """
+    """Current indexed results, separated by every comparable scene parameter."""
     if not config.backend_id or not config.template_id or not config.is_enabled:
         return []
-    # 先在数据库缩小到可比较的执行环境，避免载入无关版本的历史记录。
-    candidates = SimcReferenceSimulation.objects.filter(
-        status='completed', dps__gt=0, config__settings__is_enabled=True,
-        config__use_ptr=config.use_ptr,
-        config__settings__backend__current_version=config.backend.current_version,
-        config__settings__backend__game_build=config.backend.game_build,
-        config__settings__template__content=config.template.content,
-    )
-    latest_ids = candidates.order_by().values('config_id', 'signature').annotate(latest=Max('pk')).values('latest')
-    rows = SimcReferenceSimulation.objects.filter(pk__in=latest_ids).select_related(
-        'config__settings__backend', 'config__settings__template', 'profile', 'talent', 'apl',
-    )
-    published = {}
-    publications = SimcReferencePublication.objects.filter(is_published=True)
-    # UNION keeps each M2M projection independent (no Cartesian products) while
-    # leaving room for the shared scenario query within the existing SQL budget.
-    projections = [publications.order_by().annotate(
-        resource_kind=Value(kind, output_field=CharField()),
-    ).values_list('spec_key', f'{kind}__pk', 'resource_kind')
-        for kind in ('profiles', 'talents', 'apls')]
-    for spec, resource_id, kind in projections[0].union(*projections[1:], all=True):
-        published.setdefault(spec, {}).setdefault(kind, set()).add(resource_id)
-
-    # All specs in this environment share Settings; resolve the complete scene
-    # list once rather than one database lookup per historical result.
-    scenes_by_params = {}
+    scenes = {}
     for scene in active_scenarios(config):
         try:
-            identity = _compute_content_hash(scenario_simulation_params(scene))
+            params = scenario_simulation_params(scene)
+            key = comparison_key(config, params)
         except ValueError:
             continue
-        scenes_by_params.setdefault(identity, []).append(scene)
-    current_signatures, cohorts = {}, defaultdict(list)
-    for row in rows:
-        if not math.isfinite(row.dps):
-            continue
-        params = (row.snapshot or {}).get('simulation_params', {})
-        matches = scenes_by_params.get(_compute_content_hash(params), [])
-        if len(matches) != 1 or matches[0].settings_id != row.config.settings_id:
-            continue
-        scenario = matches[0]
-        row.current_scenario = scenario
-        key = (row.config_id, row.profile_id, row.talent_id, row.apl_id, scenario.pk)
-        if key not in current_signatures:
-            try:
-                frozen = snapshot(row.config, row.profile, row.talent, row.apl, scenario,
-                                  published_resources=published.get(row.config.spec_key, {}))
-                current_signatures[key] = _compute_content_hash(frozen)
-            except ValueError:
-                current_signatures[key] = None
-        if current_signatures[key] != row.signature:
-            continue
-        # 所有战斗参数均进入比较组，避免今后增加场景参数时混榜。
-        cohort = _compute_content_hash({
-            'params': params, 'use_ptr': row.config.use_ptr,
-            'backend': [row.config.backend.current_version, row.config.backend.game_build],
-            'template': row.config.template.content,
-        })
-        cohorts[cohort].append(row)
-
+        scenes.setdefault(key, []).append(params)
+    # Ambiguous identical scenarios were never valid snapshot matches.
+    keys = [key for key, matches in scenes.items() if len(matches) == 1]
+    if not keys:
+        return []
+    cohorts = defaultdict(list)
+    entries = _read_queryset().filter(
+        comparison_key__in=keys, config__use_ptr=config.use_ptr,
+        config__settings__backend_id=config.backend_id,
+    )
+    for entry in entries:
+        if math.isfinite(entry.result.dps):
+            cohorts[entry.comparison_key].append(_project(entry, scenes[entry.comparison_key][0]))
     return cohorts.values()
 
 
@@ -102,46 +106,56 @@ def current_rankings(config):
     return rankings
 
 
-def leaderboard(config, signature, scope):
-    """按当前组合定位比较组，不允许借榜单读取历史或未公开资料。"""
+def _ranked_entries(rows, anchor_pk=None):
+    """One formatter for public contextual rankings and admin condition groups."""
     from botend.constants.wow import CLASS_CN, SPEC_CN, CLASS_SPEC_MAP
     from botend.services.simc_player_config import canonical_simc_profile_key
-    from botend.services.simc_reference_details import resource_links
     from django.urls import reverse
     from urllib.parse import urlencode
-
-    if scope not in ('overall', 'spec'):
-        return None
     labels = {
         canonical_simc_profile_key('beast_mastery' if spec == 'BeastMastery' else spec.lower(), cls):
             f'{CLASS_CN[cls]} · {SPEC_CN[spec]}'
         for cls, specs in CLASS_SPEC_MAP.items() for spec in specs
     }
+    entries, previous, rank = [], None, 0
+    for index, row in enumerate(sorted(rows, key=lambda item: (-item.dps, item.pk)), 1):
+        if row.dps != previous:
+            rank = index
+        previous = row.dps
+        detail_url = reverse('portal_simc_reference') + '?' + urlencode({
+            'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
+            'scenario': row.current_scenario.pk,
+        })
+        entries.append({
+            'rank': rank, 'spec': labels.get(row.config.spec_key, row.config.spec_key),
+            'profile': row.profile.name, 'talent': row.talent.name, 'apl': row.apl.name,
+            'dps': row.dps, 'is_current': row.pk == anchor_pk,
+            'detail_url': detail_url,
+            'resource_links': {kind: detail_url + '#' + section for kind, section in (
+                ('profile', 'reference-equipment'), ('talent', 'reference-talents'), ('apl', 'reference-apl'),
+            )},
+            'preview_links': {
+                kind: reverse('simc_reference_resource_preview', kwargs={
+                    'spec_key': row.config.spec_key, 'kind': kind, 'resource_id': resource.pk,
+                }) + '?' + urlencode({'config': row.config_id, 'profile': row.profile_id,
+                                     'talent': row.talent_id, 'apl': row.apl_id})
+                for kind, resource in (('profile', row.profile), ('talent', row.talent), ('apl', row.apl))
+            },
+        })
+    return entries
+
+
+def leaderboard(config, signature, scope):
+    """按当前组合定位比较组，不允许借榜单读取历史或未公开资料。"""
+    if scope not in ('overall', 'spec'):
+        return None
     cohorts = list(_current_cohorts(config))
     for candidates in cohorts:
         anchor = next((row for row in candidates if row.config_id == config.pk and row.signature == signature), None)
         if anchor is None:
             continue
         rows = candidates if scope == 'overall' else [row for row in candidates if row.config.spec_key == config.spec_key]
-        entries, previous, rank = [], None, 0
-        for index, row in enumerate(sorted(rows, key=lambda item: (-item.dps, item.pk)), 1):
-            if row.dps != previous:
-                rank = index
-            previous = row.dps
-            detail_url = reverse('portal_simc_reference') + '?' + urlencode({
-                'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
-                'scenario': row.current_scenario.pk,
-            })
-            entries.append({
-                'rank': rank, 'spec': labels.get(row.config.spec_key, row.config.spec_key),
-                'profile': row.profile.name, 'talent': row.talent.name, 'apl': row.apl.name,
-                'dps': row.dps, 'is_current': row.pk == anchor.pk,
-                'detail_url': detail_url,
-                'resource_links': {kind: detail_url + '#' + section for kind, section in (
-                    ('profile', 'reference-equipment'), ('talent', 'reference-talents'), ('apl', 'reference-apl'),
-                )},
-                'preview_links': resource_links(row.config, {'profile': row.profile, 'talent': row.talent, 'apl': row.apl}),
-            })
+        entries = _ranked_entries(rows, anchor.pk)
         scene_signatures = {
             row.current_scenario.pk: row.signature
             for cohort in cohorts for row in cohort
@@ -158,6 +172,59 @@ def leaderboard(config, signature, scope):
     return None
 
 
+def admin_ranking_page_context(settings_id=None, scenario_id=None):
+    """A complete settings/scenario leaderboard, independent of any result/spec."""
+    from urllib.parse import urlencode
+    from django.urls import reverse
+    from botend.models import SimcReferenceSimulationSettings
+
+    available = list(SimcReferenceSimulationSettings.objects.filter(
+        is_enabled=True, backend__is_active=True, template__is_active=True,
+        template__is_selectable=True, template__owner_user_id__isnull=True,
+        template__spec__in=('default', 'all', '*'),
+    ).select_related('template').only(
+        'id', 'use_ptr', 'backend_id', 'template_id', 'template__id', 'template__content',
+    ).order_by('use_ptr', 'pk'))
+    root = reverse('simc_reference_rankings_entry')
+    base = {'entries': [], 'current': None, 'scope_options': [], 'settings_options': [],
+            'scene_options': [], 'empty_ranking': True, 'admin_ranking': True,
+            'module_section': 'rankings', 'module_reference_url': reverse('simc_reference_results'),
+            'module_rankings_url': root, 'return_url': reverse('simc_reference_results'),
+            'return_label': '返回模拟结果管理', 'scope_label': '全部方案'}
+    if not available:
+        return None if settings_id is not None or scenario_id is not None else base
+    selected = next((item for item in available if item.pk == settings_id), None) if settings_id is not None else available[0]
+    if selected is None:
+        return None
+    def url(setting, scene=None):
+        params = {'settings': setting.pk}
+        if scene is not None:
+            params['scenario'] = scene.pk
+        return root + '?' + urlencode(params)
+    base['settings_options'] = [dict(label='PTR' if item.use_ptr else '正式服',
+        selected=item.pk == selected.pk, url=url(item)) for item in available]
+    scenes = list(selected.scenarios.filter(is_enabled=True).order_by('display_order', 'pk'))
+    scene = next((item for item in scenes if item.pk == scenario_id), None) if scenario_id is not None else (scenes[0] if scenes else None)
+    if scene is None:
+        return None if scenario_id is not None else base
+    try:
+        params = scenario_simulation_params(scene)
+    except ValueError:
+        return None
+    routing = SimpleNamespace(use_ptr=selected.use_ptr, backend_id=selected.backend_id, template=selected.template)
+    key = comparison_key(routing, params)
+    rows = [_project(entry, params) for entry in _read_queryset().filter(
+        config__settings_id=selected.pk, scenario_id=scene.pk, comparison_key=key,
+    ) if math.isfinite(entry.result.dps)]
+    base.update(entries=_ranked_entries(rows), empty_ranking=not rows,
+                use_ptr=selected.use_ptr, targets=params['desired_targets'], duration=params['max_time'],
+                iterations=params['iterations'], scenario_id=scene.pk, scenario_name=scene.name,
+                settings_id=selected.pk, module_rankings_url=url(selected, scene))
+    base['scene_options'] = [dict(label=scenario_label(item.name, item.simulation_params.get('desired_targets'), item.simulation_params.get('max_time')), scenario_id=item.pk,
+        selected=item.pk == scene.pk, url=url(selected, item)) for item in scenes]
+    return base
+
+
 def ranking_page_context(config, signature, scope, *, admin=False):
     """独立榜单的范围、场景切换和返回配置链接。"""
     from urllib.parse import urlencode
@@ -165,6 +232,9 @@ def ranking_page_context(config, signature, scope, *, admin=False):
 
     if len(signature) != 64 or any(c not in '0123456789abcdef' for c in signature):
         return None
+    if admin:
+        scene_id = _read_queryset().filter(config_id=config.pk, result__signature=signature).values_list('scenario_id', flat=True).first()
+        return admin_ranking_page_context(config.settings_id, scene_id)
     board = leaderboard(config, signature, scope)
     if board is None:
         return None
@@ -192,28 +262,18 @@ def ranking_page_context(config, signature, scope, *, admin=False):
 
 
 def ranking_entry(preferred_config_id=None):
-    """独立入口优先使用指定配置，再选择有当前公开结果的比较组。"""
-    from botend.models import SimcReferenceSimulationConfig
-    configs = list(SimcReferenceSimulationConfig.objects.filter(
-        settings__is_enabled=True,
-        spec_key__in=SimcReferencePublication.objects.filter(is_published=True).values('spec_key'),
-        pk__in=SimcReferenceSimulation.objects.filter(status='completed', dps__gt=0).values('config_id'),
-    ).select_related('settings__backend', 'settings__template').order_by('use_ptr', 'spec_key', 'pk'))
-    configs.sort(key=lambda config: str(config.pk) != str(preferred_config_id))
-    checked = set()
-    for config in configs:
-        try:
-            validate_config(config)
-        except ValueError:
-            continue
-        condition = _compute_content_hash([config.use_ptr, config.backend.current_version, config.backend.game_build,
-                                           config.template.content, [scene.simulation_params for scene in active_scenarios(config)]])
-        if condition in checked:
-            continue
-        checked.add(condition)
-        rows = [row for cohort in _current_cohorts(config) for row in cohort]
-        if rows:
-            row = min(rows, key=lambda row: (row.config_id != config.pk,
-                      row.snapshot['simulation_params']['desired_targets'] != 1, row.config.spec_key, row.profile.name, row.talent.name, row.pk))
-            return row.config_id, row.signature, 'overall'
+    """Choose a public indexed default directly; never rebuild the leaderboard."""
+    try:
+        preferred = int(preferred_config_id)
+    except (TypeError, ValueError, OverflowError):
+        preferred = None
+    entries = _read_queryset().annotate(
+        preferred_order=Case(When(config_id=preferred, then=Value(0)), default=Value(1), output_field=IntegerField()),
+        single_order=Case(When(scenario__simulation_params__desired_targets=1, then=Value(0)),
+                          default=Value(1), output_field=IntegerField()),
+    ).order_by('preferred_order', 'config__use_ptr', 'config__spec_key', 'config_id',
+               'single_order', 'profile__name', 'talent__name', 'result_id')
+    entry = entries.first()
+    if entry is not None and math.isfinite(entry.result.dps):
+        return entry.config_id, entry.result.signature, 'overall'
     return None

@@ -2,6 +2,7 @@
 import json
 import os
 from collections import Counter
+from contextlib import nullcontext
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
@@ -9,6 +10,7 @@ from django.core.management.base import BaseCommand, CommandError
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.models import SeasonMeta
 from botend.services.player_raiderio_activity import ActivityCollector, top20_candidates
+from botend.services.monitor_task_execution import MonitorTaskAdmissionBusy, monitor_task_execution
 
 
 class Command(BaseCommand):
@@ -53,19 +55,25 @@ class Command(BaseCommand):
                 temporary.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
                 os.replace(temporary, path)
 
-        checkpoint()
-        collector = ActivityCollector()
-        for candidate in candidates:
-            result = {'player_ids': candidate['player_ids']}
-            if not candidate['identity']:
-                result['status'] = 'unresolved'
-            elif options['apply']:
-                result.update(collector.refresh(candidate['player'], season, force=options['force']))
-                result.pop('profile_payload', None)
-            else:
-                result['status'] = 'dry_run'
-            report['results'].append(result)
-            checkpoint()
-        report['complete'] = True
-        checkpoint()
+        admission = monitor_task_execution('PlayerRaiderIOActivityMonitor') if options['apply'] else nullcontext()
+        try:
+            with admission:
+                # Admission must precede even the initial progress-file write.
+                checkpoint()
+                collector = ActivityCollector() if options['apply'] else None
+                for candidate in candidates:
+                    result = {'player_ids': candidate['player_ids']}
+                    if not candidate['identity']:
+                        result['status'] = 'unresolved'
+                    elif options['apply']:
+                        result.update(collector.refresh(candidate['player'], season, force=options['force']))
+                        result.pop('profile_payload', None)
+                    else:
+                        result['status'] = 'dry_run'
+                    report['results'].append(result)
+                    checkpoint()
+                report['complete'] = True
+                checkpoint()
+        except MonitorTaskAdmissionBusy as exc:
+            raise CommandError(str(exc)) from exc
         self.stdout.write(json.dumps(report, indent=2))

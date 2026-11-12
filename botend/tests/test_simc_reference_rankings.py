@@ -9,6 +9,7 @@ from botend.models import SimcApl, SimcProfile, SimcTalentString, SimcReferenceS
 from botend.services import simc_reference_simulations as service
 from botend.services.simc_reference_management import scheme_results
 from botend.services.simc_reference_rankings import current_rankings, leaderboard
+from botend.services.simc_reference_ranking_index import sync_result, refresh_configs
 from botend.tests.simc_reference_test_fixtures import (
     publish_resources, update_scenario_params,
 )
@@ -22,11 +23,14 @@ class ReferenceRankingTests(TestCase):
         config = config or self.config
         scene = config.settings.scenarios.get(simulation_params__desired_targets=targets)
         frozen = service.snapshot(config, profile or self.profile, talent or self.talent, apl or self.apl, scene)
-        return SimcReferenceSimulation.objects.create(
+        row = SimcReferenceSimulation.objects.create(
             requested_by_id=self.user.pk,
             config=config, scenario=scene, profile=profile or self.profile, talent=talent or self.talent, apl=apl or self.apl,
             signature=service.tasks._compute_content_hash(frozen), snapshot=frozen, dps=dps, status=status,
         )
+        # TestCase does not commit writer callbacks; publish the complete fixture.
+        refresh_configs([config.pk])
+        return row
 
     def other_spec(self):
         apl = SimcApl.objects.create(name='火法优先级', spec='mage_fire', class_name='mage', is_system=True,
@@ -60,8 +64,8 @@ class ReferenceRankingTests(TestCase):
         self.assertEqual([r['ranking'] for r in projected], [self.rank(row), self.rank(aoe)])
         self.client.force_login(self.user)
         response = self.client.get(self.url)
-        self.assertContains(response, '<span class="simc-ranking-label">全职业</span> <strong>2</strong> <span class="simc-ranking-total">/ 3</span>')
-        self.assertContains(response, '<span class="simc-ranking-label">本专精</span> <strong>1</strong> <span class="simc-ranking-total">/ 2</span>')
+        self.assertContains(response, '排行榜 <strong>2</strong> / 3')
+        self.assertNotContains(response, '本专精 <strong>')
 
     def test_ties_latest_success_and_pending_rerun(self):
         row = self.result(200)
@@ -83,11 +87,14 @@ class ReferenceRankingTests(TestCase):
         # 编辑输入、撤下公开资料后立即排除，不能继续展示旧排名。
         talent.talent = 'changed'
         talent.save()
+        refresh_configs()
         other['profile'].is_active = False
         other['profile'].save()
+        refresh_configs()
         self.assertEqual(self.rank(row)['overall_total'], 1)
         self.assertIsNone(self.rank(rival))
         self.publication.talents.remove(self.talent)
+        refresh_configs()
         self.assertIsNone(self.rank(row))
 
     def test_distinct_simulation_conditions_are_not_compared(self):
@@ -104,13 +111,14 @@ class ReferenceRankingTests(TestCase):
                 self.assertIsNone(self.rank(row))
                 self.assertEqual(self.rank(current)['overall_total'], 1)
 
-    def test_backend_version_template_and_branch_are_isolated(self):
+    def test_backend_route_template_and_branch_are_isolated(self):
         from botend.models import SimcBackendBinary, SimcContentTemplate
         row = self.result(200)
         other = self.other_spec()
         settings = self.config.settings
-        settings.backend = SimcBackendBinary.objects.create(identifier='ranking-other', name='不同版本', current_version='b' * 40)
+        settings.backend = SimcBackendBinary.objects.create(identifier='ranking-other', name='不同后端路由', current_version='b' * 40)
         settings.save()
+        refresh_configs()
         self.config.refresh_from_db()
         other['config'].refresh_from_db()
         current = self.result(400, **other)
@@ -119,6 +127,7 @@ class ReferenceRankingTests(TestCase):
         settings.backend = self.backend
         settings.template = SimcContentTemplate.objects.create(name='不同条件', spec='all', content='optimal_raid=1')
         settings.save()
+        refresh_configs()
         self.config.refresh_from_db()
         other['config'].refresh_from_db()
         current = self.result(400, **other)
@@ -129,11 +138,14 @@ class ReferenceRankingTests(TestCase):
         ptr = service.initialize_settings(use_ptr=True)
         ptr.backend, ptr.template = self.backend, self.template
         ptr.save()
+        refresh_configs()
         other['config'].use_ptr = True
         other['config'].settings = ptr
         other['config'].save()
+        refresh_configs()
         other['profile'].use_ptr = True
         other['profile'].save()
+        refresh_configs()
         self.result(600, **other)
         self.assertEqual(self.rank(anchor)['overall_total'], 1)
 
@@ -185,6 +197,7 @@ class ReferenceRankingTests(TestCase):
     def test_leaderboard_requires_login_and_escapes_names(self):
         self.profile.name = '<script>alert(1)</script>'
         self.profile.save()
+        refresh_configs()
         anchor = self.result(100)
         url = reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall'])
         self.assertEqual(self.client.get(url).status_code, 302)
@@ -199,6 +212,7 @@ class ReferenceRankingTests(TestCase):
         self.assertEqual(response['X-Robots-Tag'], 'noindex, nofollow')
         self.assertEqual(self.client.post(url).status_code, 405)
         self.publication.profiles.clear()
+        refresh_configs()
         self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_full_leaderboard_is_not_limited_to_management_page(self):
@@ -214,6 +228,7 @@ class ReferenceRankingTests(TestCase):
         self.assertTrue(board['entries'][-1]['is_current'])
         self.apl.content = 'changed'
         self.apl.save()
+        refresh_configs()
         self.assertIsNone(leaderboard(self.config, anchor.signature, 'overall'))
 
     def test_standalone_page_switches_scope_and_scene_and_returns_to_configuration(self):
@@ -246,15 +261,18 @@ class ReferenceRankingTests(TestCase):
         portal_url = reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall'])
         self.assertEqual(self.client.get(portal_url).status_code, 200)
         self.client.force_login(self.user)
-        response = self.client.get(url)
+        response = self.client.get(url, follow=True)
         self.assertContains(response, 'dashboard-primary-nav')
         self.assertContains(response, '返回模拟结果管理')
         self.assertContains(response, '5 目标')
         self.assertContains(response, '300 秒')
-        self.assertContains(response, '未模拟')
-        self.assertContains(response, 'aria-disabled="true"')
+        self.assertTrue(all(option['url'] for option in response.context['scene_options']))
+        self.assertNotContains(response, '当前专精')
+        self.assertNotContains(response, '当前配置')
         self.assertIn('no-store', response['Cache-Control'])
-        self.assertContains(self.client.get(self.url), f'href="{url}"')
+        result_page = self.client.get(self.url)
+        self.assertContains(result_page, '查看同配置与场景的排行榜')
+        self.assertContains(result_page, f'?settings={self.config.settings_id}&amp;scenario={anchor.scenario_id}')
         self.assertNotContains(self.client.get(self.url), 'data-ranking-panel')
 
     def test_navigation_exists_without_selected_simulation_and_empty_entry_is_read_only(self):
@@ -286,10 +304,12 @@ class ReferenceRankingTests(TestCase):
         self.assertRedirects(response, reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']))
         self.apl.content = 'changed'
         self.apl.save()
+        refresh_configs()
         response = self.client.get(entry_url, {'config': self.config.pk})
         self.assertRedirects(response, reverse('portal_simc_reference_rankings', args=[other['config'].pk, other_row.signature, 'overall']))
         from botend.models import SimcReferencePublication
         SimcReferencePublication.objects.update(is_published=False)
+        refresh_configs()
         self.assertContains(self.client.get(entry_url), '暂无可展示的模拟结果')
 
     def test_ranking_resource_links_preserve_whole_combination_and_open_correct_section(self):
@@ -309,7 +329,7 @@ class ReferenceRankingTests(TestCase):
                                                      'talent': [str(other['talent'].pk)], 'apl': [str(other['apl'].pk)],
                                                      'scenario': [str(other_row.scenario_id)]})
             self.assertContains(portal, f'href="{escape(row["resource_links"][kind])}"')
-        admin = self.client.get(reverse('simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']))
+        admin = self.client.get(reverse('simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']), follow=True)
         self.assertContains(admin, f'data-wow-item-tooltip-url="{escape(row["preview_links"]["talent"])}"')
         self.assertContains(admin, 'talent_tree_thumbnail.js')
         self.assertContains(admin, '前台配置')

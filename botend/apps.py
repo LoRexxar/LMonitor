@@ -8,6 +8,8 @@ class BotendConfig(AppConfig):
     def ready(self):
         from botend.services.simc_benchmark_result_snapshot import register_snapshot_signals
         register_snapshot_signals()
+        from botend.services.simc_reference_ranking_index import register_signals as register_ranking_signals
+        register_ranking_signals()
         from botend.services.news_snapshot import register_news_signals
         register_news_signals()
         from botend.services.class_guide_snapshot import register_guide_signals

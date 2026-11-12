@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+from botend.management.commands.import_simc_player_templates import Command as PlayerTemplateCommand
 from botend.models import (SimcApl, SimcBackendBinary,
                            SimcContentTemplate, SimcProfile,
                            WowSpellSnapshotState, WowTalentVersion)
@@ -438,6 +439,7 @@ class Command(BaseCommand):
         self.stdout.write(f'二进制版本: {display_version}')
         self.stdout.write(f'路径: {self.simc_binary_path}')
 
+    @transaction.atomic
     def _sync_default_template(self, git_hash=''):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
         template_path = str(cfg.get('simc_template') or 'LMonitor/simc_template.txt')
@@ -465,9 +467,18 @@ class Command(BaseCommand):
                 'sync_version': git_hash or '',
             }
         )
-        SimcContentTemplate.objects.filter(
+        from django.db.models import Q
+        from botend.models import SimcReferenceSimulationConfig
+        retired_templates = SimcContentTemplate.objects.filter(
             source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
-        ).exclude(id=template.id).update(is_active=False, is_selectable=False)
+        ).exclude(id=template.id).filter(Q(is_active=True) | Q(is_selectable=True))
+        ranking_config_ids = list(SimcReferenceSimulationConfig.objects.filter(
+            settings__template_id__in=retired_templates.values('pk'),
+        ).order_by().values_list('pk', flat=True))
+        retired_templates.update(is_active=False, is_selectable=False)
+        if ranking_config_ids:
+            from botend.services.simc_reference_ranking_index import invalidate_configs
+            invalidate_configs(ranking_config_ids)
         action = '创建' if created else '更新'
         self.stdout.write(self.style.SUCCESS(f'{action}默认 SimC 基础模板: spec=default'))
 
@@ -667,6 +678,25 @@ class Command(BaseCommand):
                 for name in os.listdir(profile_dir)
                 if name.endswith('.simc') and os.path.isfile(os.path.join(profile_dir, name))
             ) if os.path.isdir(profile_dir) else []
+            # Keep every primary profile (including hero variants), but measure
+            # base-spec coverage from the files actually passed to SimC, not DB rows.
+            available_specs = set()
+            for profile in profiles:
+                parsed = PlayerTemplateCommand._parse_filename(
+                    os.path.basename(profile), os.path.basename(profile_dir))
+                if parsed:
+                    available_specs.add('_'.join(parsed))
+            fallback_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
+            if profile_dir != fallback_dir and os.path.isdir(fallback_dir):
+                for name in sorted(os.listdir(fallback_dir)):
+                    parsed = PlayerTemplateCommand._parse_filename(name, 'MID1')
+                    fallback = os.path.join(fallback_dir, name)
+                    if not parsed or not os.path.isfile(fallback):
+                        continue
+                    spec = '_'.join(parsed)
+                    if spec not in available_specs:
+                        profiles.append(fallback)
+                        available_specs.add(spec)
             if not profiles:
                 self._fail(
                     'SimC runtime manifest 缺少 actor profile',
@@ -679,7 +709,6 @@ class Command(BaseCommand):
                 is_active=True, sync_version=git_hash,
             ))
             baselines = {row.spec: row for row in baseline_rows}
-            available_specs = set(baselines)
             required_specs = set(SimcApl.objects.filter(
                 source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True,
                 is_active=True, sync_version=git_hash,

@@ -2279,6 +2279,28 @@ class SimcReferenceSimulation(models.Model):
         indexes = [models.Index(fields=['config', 'profile', 'talent'], name='simc_ref_combination_idx')]
 
 
+class SimcReferenceRankingEntry(models.Model):
+    """Disposable current-input index; DPS and frozen evidence remain in result."""
+
+    config = models.ForeignKey(SimcReferenceSimulationConfig, on_delete=models.CASCADE, related_name='ranking_entries')
+    scenario = models.ForeignKey(SimcReferenceSimulationScenario, on_delete=models.CASCADE, related_name='ranking_entries')
+    profile = models.ForeignKey(SimcProfile, on_delete=models.CASCADE)
+    talent = models.ForeignKey(SimcTalentString, on_delete=models.CASCADE)
+    apl = models.ForeignKey(SimcApl, on_delete=models.CASCADE)
+    result = models.ForeignKey(SimcReferenceSimulation, on_delete=models.CASCADE, related_name='ranking_entries')
+    class_key = models.CharField(max_length=50)
+    spec_key = models.CharField(max_length=100)
+    comparison_key = models.CharField(max_length=64, db_index=True)
+    input_signature = models.CharField(max_length=64)
+    is_current = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['config', 'profile', 'talent', 'apl', 'scenario'], name='simc_rank_current_slot_uniq')]
+        indexes = [models.Index(fields=['comparison_key', 'is_current', 'spec_key'], name='simc_rank_cohort_idx')]
+
+
 class SimcBenchmarkPanel(models.Model):
     """A reusable benchmark definition; execution remains owned by SimcTask/SimulationRun."""
 

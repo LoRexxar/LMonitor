@@ -145,36 +145,41 @@ class SimcAgentJobAPITests(TestCase):
         task.save(update_fields=['mode_params'])
         return task
 
-    def test_reference_task_skips_incompatible_agent_without_blocking_normal_work(self):
+    def test_reference_task_uses_normal_queue_despite_different_binary_revision(self):
         reference = self._reference_task()
         normal = self.task(name='普通任务')
         self.agent.capabilities = {'binary_revision': 'b' * 40}
         self.agent.save(update_fields=['capabilities'])
         response = self.claim()
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(SimulationRun.objects.get(pk=response.json()['run_id']).task_id, normal.pk)
+        self.assertEqual(SimulationRun.objects.get(pk=response.json()['run_id']).task_id, reference.pk)
         reference.refresh_from_db()
-        self.assertEqual(reference.current_status, 0)
-        self.assertFalse(reference.simulation_runs.exists())
+        normal.refresh_from_db()
+        self.assertEqual(reference.current_status, 1)
+        self.assertEqual(reference.execution_owner, SimcTask.EXECUTION_OWNER_AGENT)
+        self.assertEqual(normal.current_status, 0)
 
-    def test_reference_task_matching_agent_freezes_backend_version(self):
+    def test_reference_task_does_not_require_or_freeze_binary_revision(self):
         task = self._reference_task()
-        self.agent.capabilities = {'binary_revision': 'a' * 40}
+        self.agent.capabilities = {}
         self.agent.save(update_fields=['capabilities'])
         response = self.claim()
         self.assertEqual(response.status_code, 200, response.content)
         run = task.simulation_runs.get()
-        self.assertEqual(run.resource_manifest['backend_version'], 'a' * 40)
+        self.assertNotIn('backend_version', run.resource_manifest)
+        self.assertNotIn('reference_backend', run.resource_manifest)
 
-    def test_reference_task_changed_backend_fails_instead_of_waiting_forever(self):
+    def test_reference_task_keeps_running_when_local_backend_version_changes(self):
         task = self._reference_task()
+        frozen = dict(task.mode_params)
         self.backend.current_version = 'b' * 40
         self.backend.save(update_fields=['current_version'])
         response = self.claim()
-        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(response.status_code, 200, response.content)
         task.refresh_from_db()
-        self.assertEqual(task.current_status, 3)
-        self.assertIn('后端版本已变化', task.simulation_runs.get().error_detail)
+        self.assertEqual(task.current_status, 1)
+        self.assertEqual(task.simulation_runs.get().status, 'running')
+        self.assertEqual(task.mode_params, frozen)
 
     def test_invalid_only_candidate_finalizes_task_without_worker_retry(self):
         task = self.task(mode='comparison', candidates=[

@@ -9,6 +9,7 @@ from botend.models import (SimcBackendBinary, SimcContentTemplate, SimcReference
 from botend.services import simc_reference_simulations as service
 from botend.services.simc_reference_management import scheme_results
 from botend.services.simc_reference_rankings import ranking_page_context
+from botend.services.simc_reference_ranking_index import refresh_configs
 from botend.tests.simc_reference_test_fixtures import publish_resources
 
 
@@ -65,6 +66,8 @@ class ScenarioUITests(TestCase):
             SimcReferenceSimulation.objects.create(config=config, scenario=scene, profile=profile, talent=talent,
                 apl=apl, requested_by_id=self.user.pk, snapshot=frozen, signature=service.tasks._compute_content_hash(frozen),
                 status='completed', dps=1000 + scene.simulation_params['max_time'])
+        # TestCase 不提交事务，显式生成与生产提交回调一致的排名索引。
+        refresh_configs([config.pk])
         scenes = scheme_results(config, 1).object_list[0]['scenes']
         self.assertEqual([s['duration'] for s in scenes], [40, 300])
         self.assertEqual([s['result'].dps for s in scenes], [1040, 1300])
@@ -82,7 +85,7 @@ class ScenarioUITests(TestCase):
         self.assertEqual([s['label'] for s in board['scene_options']],
                          ['Burst · 20 目标 · 40 秒', 'Sustained · 20 目标 · 300 秒'])
         for route in ('portal_simc_reference_rankings', 'simc_reference_rankings'):
-            result = self.client.get(reverse(route, args=[config.pk, scenes[0]['signature'], 'overall']))
+            result = self.client.get(reverse(route, args=[config.pk, scenes[0]['signature'], 'overall']), follow=True)
             self.assertContains(result, 'Burst · 20 目标 · 40 秒')
             self.assertNotContains(result, '次迭代')
             self.assertNotContains(result, '20 目标 · 20 目标')

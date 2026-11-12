@@ -58,7 +58,7 @@ def presentation_fixture():
         nodes, [{**node, 'points': 1, 'selected': True} for i, node in enumerate(nodes) if i % 3 != 2],
     )
     talent_symbol = SimcAplSymbol.objects.create(token='recklessness', symbol_kind='talent')
-    SimcAplSymbolScope.objects.create(symbol=talent_symbol, class_name='warrior', spec='fury', trait_id=700102, name_zh='鲁莽天赋')
+    SimcAplSymbolScope.objects.create(symbol=talent_symbol, class_name='warrior', spec='fury', trait_id=800102, name_zh='鲁莽天赋')
     apl = SimcApl.objects.create(name='演示 · 技能决策', spec='warrior_fury', class_name='warrior',
         is_system=True, is_selectable=True, source='simc_upstream', content='\n'.join([
             'actions.precombat=snapshot_stats',
@@ -237,7 +237,7 @@ class ReferencePresentationTests(TestCase):
         self.assertEqual(result['render_model']['trees'], [allowed])
         self.assertEqual(result['render_model']['nodes'], allowed['nodes'])
 
-    def test_talent_mapping_uses_entry_id_and_current_branch(self):
+    def test_talent_mapping_uses_trait_node_id_and_current_branch(self):
         rows = display_symbols('warrior', 'fury', self.version)
         self.assertEqual(rows[('talent', 'recklessness')]['spell_id'], 1719)
         self.assertIn('暴击', rows[('talent', 'recklessness')]['description'])
@@ -269,7 +269,7 @@ class ReferencePresentationTests(TestCase):
         )
         symbol = SimcAplSymbol.objects.create(token='demo_talent', symbol_kind='talent')
         SimcAplSymbolScope.objects.create(symbol=symbol, class_name='hunter',
-                                         spec='beast_mastery', trait_id=799001)
+                                         spec='beast_mastery', trait_id=899001)
         self.assertEqual(display_symbols('hunter', 'beast_mastery', self.version)[
             ('talent', 'demo_talent')]['spell_id'], 1719)
         WowSpellSnapshot.objects.filter(spell_id=184362).update(aura_description='增益状态专属说明')

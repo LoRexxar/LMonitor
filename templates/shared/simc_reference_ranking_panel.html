@@ -1,13 +1,20 @@
 {% if not admin_ranking %}{% include 'shared/simc_reference_navigation.html' %}{% endif %}
-<header class="ranking-page-heading simc-page-heading"><div><h1 id="reference-admin-title">模拟排行榜</h1><p>比较同版本、同模拟条件下的公开配置组合。</p></div>{% if return_url %}<a class="ranking-back" href="{{ return_url }}">{{ return_label }}</a>{% endif %}</header>
+<header class="ranking-page-heading simc-page-heading"><div><h1 id="reference-admin-title">模拟排行榜</h1><p>比较相同模拟条件下的公开配置组合。</p></div>{% if return_url %}<a class="ranking-back" href="{{ return_url }}">{{ return_label }}</a>{% endif %}</header>
 <div class="simc-ranking-workspace">
+{% if not empty_ranking or admin_ranking %}
+<div class="ranking-filters">
+    {% if admin_ranking %}
+    <nav aria-label="模拟配置">{% for option in settings_options %}{% if settings_options|length > 1 %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% else %}<span>{{ option.label }}</span>{% endif %}{% endfor %}</nav>
+    {% else %}
+    <nav aria-label="排名范围">{% for option in scope_options %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% endfor %}</nav>
+    {% endif %}
+    <nav aria-label="模拟场景">{% for option in scene_options %}{% if option.url %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% else %}<span aria-disabled="true">{{ option.label }} · 未模拟</span>{% endif %}{% endfor %}</nav>
+</div>
+{% endif %}
 {% if empty_ranking %}
 <section class="ranking-empty"><h2>暂无可展示的模拟结果</h2><p>当前还没有已完成且有效的公开配置模拟结果，稍后可从这里查看榜单。</p><a href="{{ module_reference_url }}">{% if admin_ranking %}前往模拟结果管理{% else %}查看专精模拟资料{% endif %}</a></section>
 {% else %}
-<div class="ranking-filters">
-    <nav aria-label="排名范围">{% for option in scope_options %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% endfor %}</nav>
-    <nav aria-label="模拟场景">{% for option in scene_options %}{% if option.url %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% else %}<span aria-disabled="true">{{ option.label }} · 未模拟</span>{% endif %}{% endfor %}</nav>
-</div>
+{% if not admin_ranking %}
 <section class="ranking-current-config" aria-label="当前配置">
     <div class="ranking-current-heading"><h2>当前配置 <span>{{ current.spec }}</span></h2><a href="#ranking-current" data-ranking-locate>定位榜单中的当前配置</a></div>
     <dl>
@@ -16,6 +23,7 @@
         <div><dt>APL</dt><dd>{% include 'shared/simc_reference_rank_resource.html' with name=current.apl detail_url=current.resource_links.apl preview_url=current.preview_links.apl label='APL' %}</dd></div>
     </dl>
 </section>
+{% endif %}
 <section class="simc-ranking-panel" aria-label="模拟完整榜单">
     {% include 'shared/simc_reference_leaderboard.html' %}
 </section>

@@ -23,10 +23,9 @@ from botend.backend_lifecycle import BackendLifecycle
 from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
-    ISOLATED_MONITOR_WORKERS,
+    MONITOR_WORKER_COUNT,
     NIGHT_LANE_TASKS,
     MONITOR_TASK_LEASE_SECONDS,
-    start_isolated_monitor_worker,
     claim_next_monitor_task,
     complete_monitor_task_lease,
     release_monitor_task_lease,
@@ -187,8 +186,8 @@ class LMonitorCoreBackend:
         self.lifecycle = lifecycle or BackendLifecycle()
         self._workers = []
         self.threadpool = ThreadPool()
-        # 一个人物数据链工作者及两个短任务工作者；数据库租约跨进程限额。
-        self.threadpool.max_thread_num = 3
+        # All MonitorTask execution uses these same three workers.
+        self.threadpool.max_thread_num = MONITOR_WORKER_COUNT
         try:
             self._run()
         finally:
@@ -212,10 +211,7 @@ class LMonitorCoreBackend:
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
-        # 版本/RIO保留原长任务工作者；日报和其他短任务由普通池轮询。
-        for task_name in ISOLATED_MONITOR_WORKERS:
-            self._workers.append(start_isolated_monitor_worker(
-                LMonitorCore(self.lifecycle).scan, task_name=task_name))
+        # No plugin-specific MonitorTask workers; maintenance below is separate.
         from botend.services.gear_catalog_snapshot import start_catalog_snapshot_worker
         self._workers.append(start_catalog_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.journal_loot_snapshot import start_journal_loot_snapshot_worker
@@ -386,7 +382,7 @@ class LMonitorCore:
                 cleanup_errors=cleanup_errors, release_result=release_result,
             )
 
-    def scan(self, *, task_names=None):
+    def scan(self):
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
         while self.lifecycle is None or not self.lifecycle.retiring:
             try:
@@ -397,7 +393,7 @@ class LMonitorCore:
                         return
                     close_old_connections()
                     lease_owner = uuid4().hex
-                    now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names,
+                    now_task = claim_next_monitor_task(lease_owner=lease_owner,
                         allow_long_tasks=permit.allow_long_tasks if permit is not None else True)
                     if permit is not None:
                         permit.classify(is_long=bool(now_task and getattr(now_task, '_monitor_task_is_long',

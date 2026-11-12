@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 from django.test import TestCase
 from botend.models import MonitorTask, MonitorTaskLease
 from botend.plugin_sync import (claim_next_monitor_task, claim_monitor_task,
-    monitor_default_wait_time, monitor_task_due_at, ISOLATED_MONITOR_TASKS,
+    monitor_default_wait_time, monitor_task_due_at,
     release_monitor_task_lease)
 
 
@@ -30,7 +30,6 @@ class MonitorTaskCategoryTests(TestCase):
         self.long_running()
         self.task('WowDataVersionMonitor')
         daily = self.task('WowDailyReportMonitor')
-        self.assertNotIn(daily.name, ISOLATED_MONITOR_TASKS)
         got = claim_next_monitor_task(now=self.now)
         self.assertEqual(got.pk, daily.pk)
         self.assertFalse(got._monitor_task_is_long)
@@ -53,9 +52,11 @@ class MonitorTaskCategoryTests(TestCase):
         other = self.task('ngaMonitor')
         self.auto_running(other)
         short = self.task('PortalMplusRunMonitor')
+        self.assertEqual(claim_next_monitor_task(now=self.now).pk, short.pk)
+        fourth = self.task('PortalPostMonitor')
         self.assertIsNone(claim_next_monitor_task(now=self.now))
         self.assertTrue(release_monitor_task_lease(other.pk, 'automatic'))
-        self.assertEqual(claim_next_monitor_task(now=self.now, task_names={short.name}).pk, short.pk)
+        self.assertEqual(claim_next_monitor_task(now=self.now, task_names={fourth.name}).pk, fourth.pk)
 
     def test_different_daily_scopes_have_no_special_publication_quota(self):
         first = self.task('WowDailyReportMonitor', target='one')
@@ -85,4 +86,28 @@ class MonitorTaskCategoryTests(TestCase):
         daily = self.task('WowDailyReportMonitor')
         got = claim_next_monitor_task(now=self.now, allow_long_tasks=False)
         self.assertEqual(got.pk, daily.pk)
+        self.assertFalse(got._monitor_task_is_long)
+
+
+    def test_real_type_alias_keeps_its_long_class_even_without_canonical_label(self):
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        from botend.plugin_sync import _night_lane_scopes
+        index = next(i for i, cls in enumerate(Monitor_Type_BaseObject_List)
+                     if cls.__name__ == 'WagoSkillDiffMonitor')
+        alias = self.task('legacy display label')
+        alias.type = index
+        alias.save(update_fields=['type'])
+        got = claim_monitor_task(alias.pk, now=self.now, advance_schedule=False)
+        self.assertIsNotNone(got)
+        self.assertTrue(got._monitor_task_is_long)
+
+    def test_resource_class_uses_executed_type_not_a_misleading_long_label(self):
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        index = next(i for i, cls in enumerate(Monitor_Type_BaseObject_List)
+                     if cls.__name__ == 'PortalPeakSpecRankMonitor')
+        task = self.task('WagoSkillDiffMonitor')
+        task.type = index
+        task.save(update_fields=['type'])
+        got = claim_monitor_task(task.pk, now=self.now, advance_schedule=False)
+        self.assertIsNotNone(got)
         self.assertFalse(got._monitor_task_is_long)

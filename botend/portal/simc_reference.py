@@ -46,7 +46,11 @@ class PortalSimcReferenceRankingsView(LoginRequiredMixin, View):
                      'module_reference_url': reverse('portal_simc_reference'),
                      'module_rankings_url': reverse('portal_simc_reference_rankings_entry')}
         else:
-            config = get_object_or_404(SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template'), pk=config_id)
+            config = get_object_or_404(SimcReferenceSimulationConfig.objects.select_related('settings__template').only(
+                'id', 'spec_key', 'use_ptr', 'settings_id', 'settings__id', 'settings__backend_id',
+                'settings__template_id', 'settings__is_enabled', 'settings__template__id',
+                'settings__template__content',
+            ), pk=config_id)
             board = ranking_page_context(config, signature, scope)
             if board is None:
                 raise Http404('当前配置已更新或不再公开，请刷新页面查看排名')

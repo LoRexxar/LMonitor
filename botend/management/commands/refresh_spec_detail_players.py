@@ -7,6 +7,9 @@ from django.utils import timezone
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 from botend.models import PlayerSpecTopPlayer, SeasonMeta
+from botend.services.monitor_task_execution import (
+    MonitorTaskAdmissionBusy, monitor_task_execution,
+)
 from botend.wow.talents.service import TalentBuildCodeService
 
 
@@ -32,8 +35,15 @@ class Command(BaseCommand):
         if not season.rio_season:
             raise CommandError('活跃赛季缺少 rio_season，无法刷新人物榜')
 
-        dummy_task = type('DummyTask', (), {'flag': '', 'save': lambda self: None})()
-        monitor = SpecDetailPlayerMonitor(None, dummy_task)
+        try:
+            with monitor_task_execution('SpecDetailPlayerMonitor') as task:
+                self._refresh(season, class_name, spec_name, task)
+        except MonitorTaskAdmissionBusy as exc:
+            raise CommandError(str(exc)) from exc
+
+    def _refresh(self, season, class_name, spec_name, task):
+        # This explicit spec refresh is not the full daily scan/checkpoint plan.
+        monitor = SpecDetailPlayerMonitor(None, task)
         players = monitor._fetch_top_players(class_name, spec_name, season.rio_season)
 
         if not players:
