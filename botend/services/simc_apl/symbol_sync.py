@@ -213,6 +213,7 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
     )
     facts = {}
     invalid = 0
+    observed_typed = set()
     for token in ENGINE_PSEUDO_ACTIONS:
         fact = {'class_name': None, 'spec': None, 'token': token,
                 'symbol_kind': SimcAplSymbol.KIND_PSEUDO_ACTION,
@@ -234,6 +235,10 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
         invalid += len(errors)
         if errors:
             continue
+        if manifest_path:
+            from .translation import extract_translation_demands
+            observed_typed.update((class_name or '', spec or '', '', d.kind, d.token)
+                                  for d in extract_translation_demands(apl.content) if not d.control)
         for token, _, _ in result.symbols.actions:
             pseudo = token in ENGINE_PSEUDO_ACTIONS
             fact = {'class_name': None if pseudo else class_name,
@@ -317,6 +322,12 @@ def build_symbol_facts(simc_revision, wow_build, apl_queryset=None, bindings=Non
         for fact in runtime.facts:
             facts[_identity(fact)] = fact
         completeness = runtime.completeness
+        # A runtime actor with an unselected talent can have nil spell data.
+        # Only reviewed, exact-revision typed source bindings may fill that gap.
+        from .reviewed_source_bindings import enrich_reviewed_source_bindings
+        enriched = enrich_reviewed_source_bindings(facts.values(), simc_revision, wow_build,
+                                                   observed_typed=observed_typed)
+        facts = {_identity(fact): fact for fact in enriched}
     ordered = tuple(facts[key] for key in sorted(facts))
     return BuildResult(ordered, completeness=completeness, unbound=sum(
         1 for fact in ordered if fact['symbol_kind'] == SimcAplSymbol.KIND_ACTION and
