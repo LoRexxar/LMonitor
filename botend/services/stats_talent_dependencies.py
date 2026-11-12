@@ -35,7 +35,10 @@ def structure_token(class_name, *, version=None, lock=False):
         from .dungeon_aggregation import _structural_dump_digest
         entries = tuple(sorted({row['node_id'] for row in rows if row['node_id']}))
         trees = tuple(sorted({row['db2_tree_id'] for row in rows if row['db2_tree_id']}))
-        dumps = [_structural_dump_digest(_file_cache_key(Path(version.source_dir or '') / name), entries, trees)
+        # Keep published structure tokens compatible; canonical dependency
+        # hashing is an internal calculation-cache optimization, not a tree edit.
+        dumps = [_structural_dump_digest(_file_cache_key(Path(version.source_dir or '') / name),
+                                         entries, trees, preserve_order=True)
                  for name in ('TraitNodeXTraitNodeEntry.csv', 'TraitNode.csv')]
     return content_digest({'version': getattr(version, 'pk', None), 'rows': rows,
                            'dumps': dumps, 'grants': effective_grants(version, class_name)})

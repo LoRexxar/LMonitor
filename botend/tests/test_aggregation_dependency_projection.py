@@ -113,6 +113,21 @@ class EffectiveDependencyTests(TestCase):
         self.assertEqual(before, after)
         self.assertEqual(first, aggregation._structural_dump_digest(_file_cache_key(path), (77, 78), ()))
 
+    def test_public_structure_token_keeps_legacy_csv_representation(self):
+        from botend.services.stats_talent_dependencies import structure_token
+        self.setup_display()
+        self.node.db2_tree_id = 9
+        self.node.save(update_fields=['db2_tree_id'])
+        rows = [{'ID': '2', 'TraitTreeID': '9'}, {'ID': '1', 'TraitTreeID': '9'}]
+        self.dump('TraitNode.csv', rows)
+        legacy = {'TraitNode.csv': content_digest(rows), 'TraitNodeXTraitNodeEntry.csv': None}
+        with patch.object(aggregation, '_structural_dump_digest',
+                          side_effect=lambda key, *a, **kw: legacy[Path(key[0]).name]):
+            expected = structure_token('Warrior', version=self.node.talent_version)
+        # Public reading/fencing must not invalidate an unchanged published tree
+        # merely because calculation-cache dependency hashing became canonical.
+        self.assertEqual(structure_token('Warrior', version=self.node.talent_version), expected)
+
     def test_invalid_consumer_id_keeps_csv_order_without_crashing(self):
         rows = [{'ID': '²', 'TraitTreeID': 9}, {'ID': '1', 'TraitTreeID': 9}]
         name = 'TraitNode.csv'

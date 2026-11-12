@@ -100,7 +100,7 @@ def _variant_dependencies(items, gear_records):
 
 
 @lru_cache(maxsize=16)
-def _structural_dump_digest(file_key, entry_ids=(), tree_ids=()):
+def _structural_dump_digest(file_key, entry_ids=(), tree_ids=(), *, preserve_order=False):
     """Choice ordering and decoder placeholders also consume exact-build CSVs."""
     path = Path(file_key[0])
     if not path.is_file():
@@ -118,6 +118,9 @@ def _structural_dump_digest(file_key, entry_ids=(), tree_ids=()):
                 continue
             if relevant:
                 selected.append(row)
+    if preserve_order:
+        # Public structure tokens retain their persisted representation.
+        return content_digest(selected)
     # Unique consumer keys make physical CSV order immaterial. Duplicates keep
     # their original order: entry maps are last-wins, decoder nodes first-wins.
     identity = 'TraitNodeEntryID' if path.name == 'TraitNodeXTraitNodeEntry.csv' else 'ID'
