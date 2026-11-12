@@ -147,6 +147,7 @@
         return true;
     };
     tabs.forEach((tab, index) => tab.addEventListener('keydown', event => {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
         const offsets = {ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1};
         let next;
         if (event.key in offsets) next = (index + offsets[event.key] + tabs.length) % tabs.length;
@@ -159,14 +160,19 @@
     }));
     document.querySelectorAll('[data-apl-jump]').forEach(link => {
         link.addEventListener('click', event => {
+            if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
             if (!openList(link.hash)) return;
             event.preventDefault();
             if (window.location.hash !== link.hash) history.pushState(null, '', link.hash);
             if (!link.hasAttribute('data-apl-tab')) {
                 const rule = document.getElementById(link.dataset.aplRule);
                 if (rule?.classList.contains('reference-rule')) rule.open = true;
-                tabs.find(tab => tab.hash === link.hash)?.focus();
-                tablist?.scrollIntoView({block: 'start'});
+                const destination = rule || panels.find(panel => panel.id === link.hash.slice(1));
+                if (destination) {
+                    if (!destination.hasAttribute('tabindex')) destination.tabIndex = -1;
+                    destination.focus({preventScroll: true});
+                    destination.scrollIntoView({block: 'start'});
+                }
             }
         });
     });

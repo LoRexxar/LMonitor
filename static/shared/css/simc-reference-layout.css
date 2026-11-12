@@ -70,7 +70,7 @@ html:has(body.simc-reference-page),
 }
 .simc-reference .reference-workspace-heading { padding: var(--simc-panel-padding) var(--simc-panel-padding) 20px; }
 .simc-reference .reference-hero-filter { padding-inline: var(--simc-panel-padding); }
-.simc-reference .reference-sections { padding-inline: var(--simc-panel-padding); }
+.simc-reference .reference-sections { padding-inline: 0; }
 .simc-reference .reference-section { padding: var(--simc-panel-padding); }
 .reference-admin .admin-workspace { padding: var(--simc-panel-padding); gap: var(--simc-section-gap); }
 .reference-admin .result-spec-selector { margin-top: 0; }
@@ -94,7 +94,7 @@ html:has(body.simc-reference-page),
     :is(.simc-reference, .reference-admin) .simc-page-heading h1 { font-size: 22px; }
     :is(.simc-reference, .reference-admin) .simc-page-heading { gap: 8px; }
     .simc-reference .reference-workspace-heading { padding-bottom: 16px; }
-    .simc-reference .reference-sections { gap: 8px; }
+    .simc-reference .reference-sections { gap: 0; }
     .simc-reference .reference-sections a { gap: 5px; }
     .simc-ranking-workspace .ranking-filters { gap: 12px; }
     .simc-ranking-workspace .ranking-filters nav { flex: 1 1 auto; }

@@ -1,4 +1,4 @@
-{% load static %}
+{% load static simc_display %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -11,11 +11,11 @@
     <script src="{% static 'portal/js/portal-theme.js' %}"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}">
-    <link rel="stylesheet" href="{% static 'portal/css/simc-reference.css' %}?v=20261110_rankings">
+    <link rel="stylesheet" href="{% static 'portal/css/simc-reference.css' %}?v=20261112_framed_results">
     <link rel="stylesheet" href="{% static 'portal/css/player-talent-tree.css' %}?v=20261110_shared">
     <script defer src="{% static 'portal/js/player-talent-tree.js' %}?v=20261110_shared"></script>
     <link rel="stylesheet" href="{% static 'shared/css/simc-reference-rankings.css' %}?v=20261110_navigation">
-    <link rel="stylesheet" href="{% static 'shared/css/simc-reference-layout.css' %}?v=20261110_unified">
+    <link rel="stylesheet" href="{% static 'shared/css/simc-reference-layout.css' %}?v=20261112_framed_results">
 </head>
 <body class="portal-bg font-sans simc-reference-page">
 {% include 'portal/_header.html' %}
@@ -57,7 +57,7 @@
     {% endif %}
     <section class="reference-results" aria-labelledby="reference-results-title">
         <div class="reference-results-heading"><h3 id="reference-results-title">模拟结果</h3>{% if simulation_results %}<span>{{ simulation_results|length }} 个场景 · 固定时长站桩 · 无团队增益</span>{% endif %}</div>
-        {% if simulation_results %}<dl>{% for result in simulation_results %}<div><dt>{{ result.scenario_name }}<span> · {{ result.desired_targets }} 目标 · {{ result.max_time }} 秒 · {{ result.iterations }} 次迭代</span></dt><dd>{{ result.dps|floatformat:'2g' }} <small>DPS</small></dd><dd class="reference-ranking">{% if result.ranking %}{% include 'shared/simc_reference_rank_buttons.html' with ranking=result.ranking config_id=result.config_id signature=result.signature targets=result.desired_targets only %}{% else %}<span>暂无排名</span>{% endif %}</dd></div>{% endfor %}</dl>
+        {% if simulation_results %}<dl>{% for result in simulation_results %}<div><dt>{% simc_scenario_label result.scenario_name result.desired_targets result.max_time %}</dt><dd class="reference-dps"><small>DPS</small><strong>{{ result.dps|floatformat:'2g' }}</strong></dd><dd class="reference-ranking">{% if result.ranking %}{% include 'shared/simc_reference_rank_buttons.html' with ranking=result.ranking config_id=result.config_id signature=result.signature targets=result.desired_targets only %}{% else %}<span>暂无排名</span>{% endif %}</dd></div>{% endfor %}</dl>
         <p class="reference-ranking-note">按相同版本与模拟条件下的公开组合排名，数字为名次 / 有效组合数；DPS 相同则并列。点击排名前往独立榜单页。</p>
         {% else %}<p>当前组合暂无已完成的模拟结果。</p>{% endif %}
     </section>
@@ -181,6 +181,6 @@
     <footer class="reference-footer">当前共享模拟资料 · 历史模拟请以该任务保存的输入为准。</footer>
 </main>
 <script src="{% static 'shared/js/wow-item-tooltip.js' %}"></script>
-<script src="{% static 'portal/js/simc-reference.js' %}?v=20261110_shared_talents"></script>
+<script src="{% static 'portal/js/simc-reference.js' %}?v=20261112_framed_results"></script>
 </body>
 </html>

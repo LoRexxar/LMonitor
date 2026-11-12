@@ -1,5 +1,6 @@
-<div class="simc-ranking-heading"><h3 tabindex="-1" data-ranking-title>{{ scenario_name }} · {{ targets }} 目标 · {{ scope_label }}榜单</h3><span>{{ entries|length }} 个有效组合</span></div>
-<p class="simc-ranking-description">{% if use_ptr %}PTR{% else %}正式服{% endif %} · {{ duration }} 秒 · {{ iterations }} 次迭代 · DPS 相同则并列</p>
+{% load simc_display %}
+<div class="simc-ranking-heading"><h3 tabindex="-1" data-ranking-title>{% simc_scenario_label scenario_name targets duration %} · {{ scope_label }}榜单</h3><span>{{ entries|length }} 个有效组合</span></div>
+<p class="simc-ranking-description">{% if use_ptr %}PTR{% else %}正式服{% endif %} · DPS 相同则并列</p>
 <div class="simc-ranking-scroll" tabindex="0" role="region" aria-label="{{ scope_label }}完整排名表">
 <table class="simc-leaderboard">
     <thead><tr><th scope="col">排名</th><th scope="col">职业专精</th><th scope="col">装备</th><th scope="col">天赋</th><th scope="col">APL</th><th scope="col">DPS</th></tr></thead>

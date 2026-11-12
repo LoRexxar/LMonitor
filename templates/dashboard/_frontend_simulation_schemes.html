@@ -1,9 +1,10 @@
+{% load simc_display %}
 <div class="scheme-table-heading"><h3 id="scheme-table-title">配置组合 <span>{{ scheme_page.paginator.count }}</span></h3><p>每行一组配置 · 悬停或点按名称查看简要资料</p></div>
 <p class="scheme-ranking-note admin-note">全职业 / 本专精排名按相同版本与模拟条件的公开组合比较；仅计入有效结果，DPS 相同则并列。</p>
 <p class="scheme-scroll-hint admin-note">左右滑动表格，查看模拟结果与操作。</p>
 <div class="table-scroll scheme-table-scroll" tabindex="0" role="region" aria-labelledby="scheme-table-title">
 <table class="scheme-table">
-<thead><tr><th scope="col">装备配置</th><th scope="col">天赋方案</th><th scope="col">公开 APL</th>{% for scene in active_scenarios %}<th scope="col" class="scheme-scene-column" data-scenario-id="{{ scene.pk }}">{{ scene.name }}<small>{{ scene.simulation_params.desired_targets }} 目标 · {{ scene.simulation_params.max_time }} 秒 · {{ scene.simulation_params.iterations }} 次迭代</small></th>{% endfor %}<th scope="col" class="scheme-actions-column">操作</th></tr></thead>
+<thead><tr><th scope="col">装备配置</th><th scope="col">天赋方案</th><th scope="col">公开 APL</th>{% for scene in active_scenarios %}<th scope="col" class="scheme-scene-column" data-scenario-id="{{ scene.pk }}">{% simc_scenario_label scene.name scene.simulation_params.desired_targets scene.simulation_params.max_time %}</th>{% endfor %}<th scope="col" class="scheme-actions-column">操作</th></tr></thead>
 <tbody>{% for scheme in scheme_page %}<tr class="scheme-row{% if not scheme.is_public %} historical-row{% endif %}">
 <th scope="row" class="scheme-resource"><strong>{% include 'dashboard/simc_reference_resource_detail.html' with resource=scheme.profile preview_url=scheme.preview_links.profile resource_label='装备' fallback='装备已删除' only %}</strong>{% if not scheme.is_public %}<small>历史组合</small>{% endif %}{% if scheme.issue %}<p class="issue">{{ scheme.issue }}</p>{% endif %}</th>
 <td class="scheme-resource">{% include 'dashboard/simc_reference_resource_detail.html' with resource=scheme.talent preview_url=scheme.preview_links.talent resource_label='天赋' fallback='天赋已删除' only %}</td>

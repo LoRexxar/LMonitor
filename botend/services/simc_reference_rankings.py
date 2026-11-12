@@ -8,6 +8,7 @@ from django.db.models import CharField, Max, Value
 from botend.models import SimcReferencePublication, SimcReferenceSimulation
 from botend.services.simc_reference_simulations import snapshot, validate_config, active_scenarios, scenario_for_snapshot, scenario_simulation_params
 from botend.services.simc_task_service import _compute_content_hash
+from botend.services.simc_scenario_display import scenario_label
 
 
 def _current_cohorts(config):
@@ -173,7 +174,7 @@ def ranking_page_context(config, signature, scope, *, admin=False):
         for key, label in (('overall', '全职业'), ('spec', '当前专精'))
     ]
     board['scene_options'] = [
-        {'label': f"{scene.name} · {scene.simulation_params['desired_targets']} 目标 · {scene.simulation_params['max_time']} 秒 · {scene.simulation_params['iterations']} 次迭代",
+        {'label': scenario_label(scene.name, scene.simulation_params['desired_targets'], scene.simulation_params['max_time']),
          'scenario_id': scene.pk, 'selected': scene.pk == board['scenario_id'],
          'url': reverse(route, args=[config.pk, board['scene_signatures'][scene.pk], scope])
                 if scene.pk in board['scene_signatures'] else None}

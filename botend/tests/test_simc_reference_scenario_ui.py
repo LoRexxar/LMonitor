@@ -72,12 +72,21 @@ class ScenarioUITests(TestCase):
         response = self.client.get(reverse('simc_reference_spec_results', args=[config.spec_key]))
         self.assertContains(response, 'Burst')
         self.assertContains(response, 'Sustained')
-        self.assertContains(response, '40 秒 · 1000 次迭代')
-        self.assertContains(response, '300 秒 · 2000 次迭代')
+        self.assertContains(response, 'Burst · 20 目标 · 40 秒')
+        self.assertContains(response, 'Sustained · 20 目标 · 300 秒')
+        self.assertNotContains(response, '次迭代')
         board = ranking_page_context(config, scenes[0]['signature'], 'overall')
         self.assertEqual(len(board['scene_options']), 2)
         self.assertEqual(sum(s['selected'] for s in board['scene_options']), 1)
         self.assertEqual(len(board['entries']), 1)
+        self.assertEqual([s['label'] for s in board['scene_options']],
+                         ['Burst · 20 目标 · 40 秒', 'Sustained · 20 目标 · 300 秒'])
+        for route in ('portal_simc_reference_rankings', 'simc_reference_rankings'):
+            result = self.client.get(reverse(route, args=[config.pk, scenes[0]['signature'], 'overall']))
+            self.assertContains(result, 'Burst · 20 目标 · 40 秒')
+            self.assertNotContains(result, '次迭代')
+            self.assertNotContains(result, '20 目标 · 20 目标')
+        self.assertContains(self.client.get(self.url), '迭代次数')
         self.assertEqual(SimcTask.objects.count(), 0)
 
     def test_tampered_initial_count_cannot_turn_existing_scene_into_new_record(self):

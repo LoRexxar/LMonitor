@@ -1,24 +1,29 @@
 {% if apl_display.groups %}
 <div class="reference-apl-workspace">
-<aside class="reference-scene-rail"><h3>执行场景</h3>
+<aside class="reference-scene-rail"><h3>执行层级</h3>
 <nav class="reference-apl-index" aria-label="切换优先级分组" data-apl-tabs>
-    {% for group in apl_display.groups %}<a id="{{ group.anchor }}-tab" href="#{{ group.anchor }}" data-apl-jump data-apl-tab>{{ group.label }} <span>{{ group.rows|length }}</span></a>{% endfor %}
+    {% for section in apl_display.hierarchy %}<div class="reference-hierarchy-section"><p class="reference-hierarchy-title">{{ section.title }}</p>
+    {% for item in section.items %}<a id="{{ item.group.anchor }}-tab" href="#{{ item.group.anchor }}" data-apl-jump data-apl-tab><span class="reference-scene-title"><span class="reference-hierarchy-name">{{ item.group.label }}</span></span><small>{% if item.path %}<span class="reference-hierarchy-number" aria-label="调用路径 {{ item.path }}">{{ item.path }}</span> · {% endif %}{{ item.group.role_label }}{% if item.group.entries|length > 1 %} · {{ item.group.entries|length }} 处入口{% endif %}</small>{% if item.group.trigger_hint %}<small class="reference-hierarchy-trigger">{{ item.group.trigger_hint }}</small>{% endif %}</a>{% endfor %}</div>{% endfor %}
 </nav>
-<p>按顺序检查技能，展开查看完整判定。</p></aside>
+<p>路径编号表示调用层级。5.2 表示主列表第 5 项中的第 2 项，不是跨组技能排名。公共子列表在各自入口处参与检查。</p></aside>
 <div class="reference-priorities">
 {% for group in apl_display.groups %}
 <section id="{{ group.anchor }}" class="reference-priority-group" aria-labelledby="{{ group.anchor }}-title" data-apl-panel{% if group.name is None %} data-apl-default{% endif %}>
-    <header class="reference-scenario-heading"><h3 id="{{ group.anchor }}-title">{{ group.label }}</h3>{% if group.name and not heroes.apl_id %}<code>{{ group.name }}</code>{% endif %}<span>{{ group.rows|length }} 项</span></header>
+    <header class="reference-scenario-heading"><h3 id="{{ group.anchor }}-title">{{ group.label }}</h3><span class="reference-group-role">{{ group.role_label }}{% if group.hierarchy_path %} · 路径 {{ group.hierarchy_path }}{% endif %}</span><span>{{ group.rows|length }} 项</span></header>
     <div class="reference-scenario-context">
-        {% if group.name is None %}<p>从这里检查技能和场景分流；前一项没有执行时，再检查下一项。</p>
+        {% if group.name is None %}<p>每次选择行动从主优先级开始。先按本层顺序检查；遇到子列表，先按子列表内部顺序寻找技能。检查型调用没有选出技能时返回下一项；转入型调用满足条件后接管，不再检查本层后续规则。</p>
         {% elif group.name == 'precombat' %}<p>开战前执行的准备。</p>
-        {% elif group.entries %}<p class="reference-context-label">进入本组的分流规则</p><ul>{% for entry in group.entries %}<li><a href="#{{ entry.anchor }}" data-apl-jump data-apl-rule="{{ entry.rule_anchor }}">{{ entry.parent }}</a><span>：{% if entry.condition %}{% for segment in entry.condition %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}{% else %}{{ entry.text }}{% endif %}。</span></li>{% endfor %}</ul><small>到达上级列表的这条规则时才会进入；上级的条件和执行顺序仍然有效。</small>
+        {% elif group.entries %}<p class="reference-context-label">什么时候进入本组</p><ul class="reference-entry-list">{% for entry in group.entries %}<li><a href="#{{ entry.anchor }}" data-apl-jump data-apl-rule="{{ entry.rule_anchor }}">{{ entry.parent }} · 第 {{ entry.priority }} 项</a><p>{% for guard in entry.guards %}先满足：{% include 'portal/_simc_reference_condition.html' with segments=guard.condition only %}；{% endfor %}{% if not entry.guards or not entry.unconditional %}{% include 'portal/_simc_reference_condition.html' with segments=entry.condition only %}。{% endif %}</p><small>{{ entry.behavior }}{% if entry.extra %} 另有执行设置，请查看对应入口。{% endif %}</small></li>{% endfor %}</ul><small>以上入口分别判断，只有上级列表实际检查到对应项时才进入。</small>
+        {% for path in group.entry_paths %}{% if path|length > 1 %}<div class="reference-upstream-path"><strong>上游路径</strong>{% for step in path %}{% if not forloop.last %}<p><a href="#{{ step.anchor }}" data-apl-jump data-apl-rule="{{ step.rule_anchor }}">{{ step.parent }}第 {{ step.priority }} 项</a> → {{ step.target_label }}：{% for guard in step.guards %}{% include 'portal/_simc_reference_condition.html' with segments=guard.condition only %}；{% endfor %}{% include 'portal/_simc_reference_condition.html' with segments=step.condition only %}。</p>{% endif %}{% endfor %}</div>{% endif %}{% endfor %}
+        {% if group.paths_incomplete %}<small>调用中存在循环、较长路径或未确认的入口；以上直接入口完整保留，不将路径摘要当作完整执行条件。</small>{% endif %}
         {% else %}<p>未找到调用此组的分流规则，请结合完整 APL 判断使用场景。</p>{% endif %}
     </div>
+    {% if group.name and not heroes.apl_id %}<details class="reference-list-identity"><summary>APL 列表标识</summary><code>{{ group.name }}</code></details>{% endif %}
     <div class="reference-priority-columns" aria-hidden="true"><span>顺序</span><span>技能 / 动作</span><span>使用时机</span><span></span></div>
     <ol class="reference-priority-list">
         {% for row in group.rows %}
         <li class="reference-priority-row">
+            {% if row.target %}{% include 'portal/_simc_reference_dispatch.html' with row=row only %}{% else %}
             <details id="{{ row.anchor }}" class="reference-rule">
                 <summary class="reference-rule-line">
                     <span class="reference-priority-number" aria-label="优先级 {{ row.priority }}">{{ row.priority|stringformat:'02d' }}</span>
@@ -43,6 +48,7 @@
                     <details class="reference-action-source"><summary>原始规则 · 第 {{ row.line }} 行</summary><code>{{ row.raw }}</code></details>
                 </div>
             </details>
+            {% endif %}
         </li>
         {% endfor %}
     </ol>

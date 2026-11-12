@@ -60,8 +60,8 @@ class ReferenceRankingTests(TestCase):
         self.assertEqual([r['ranking'] for r in projected], [self.rank(row), self.rank(aoe)])
         self.client.force_login(self.user)
         response = self.client.get(self.url)
-        self.assertContains(response, '全职业 <strong>2</strong> / 3')
-        self.assertContains(response, '本专精 <strong>1</strong> / 2')
+        self.assertContains(response, '<span class="simc-ranking-label">全职业</span> <strong>2</strong> <span class="simc-ranking-total">/ 3</span>')
+        self.assertContains(response, '<span class="simc-ranking-label">本专精</span> <strong>1</strong> <span class="simc-ranking-total">/ 2</span>')
 
     def test_ties_latest_success_and_pending_rerun(self):
         row = self.result(200)
