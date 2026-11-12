@@ -135,6 +135,14 @@ class ArticleTranslationServiceTests(SimpleTestCase):
 
         self.assertEqual(svc.translate_title("English title"), "中文标题")
 
+    def test_news_version_labels_are_preserved_without_model_classification(self):
+        for label in ('正式服', '怀旧服', '正式服/怀旧服/无限', '魔兽世界'):
+            with self.subTest(label=label):
+                engine = FakeEngine(['中文标题'])
+                svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)
+                self.assertEqual(svc.translate_title(f'[{label}]English title'), f'[{label}]中文标题')
+                self.assertNotIn(f'[{label}]', engine.prompts[0][0])
+
     def test_translate_title_forces_wowhead_live_label_to_retail(self):
         engine = FakeEngine(["直播版本更新"])
         svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)

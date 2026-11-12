@@ -30,6 +30,7 @@
 .home-news-exwind { --news-accent: #5e43a0; --news-tint: #f4f0fb; }
 .home-news-nga_preview { --news-accent: #8b4a22; --news-tint: #fbf1e8; }
 .home-news-wowhead { --news-accent: #ae3446; --news-tint: #fdf0f1; }
+.home-news-icy_veins { --news-accent: #176e83; --news-tint: #edf8fa; }
 .home-news-sources { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 22px; }
 .home-news-source[hidden], .home-news-jumps a[hidden] { display: none !important; }
 .home-news-source { min-width: 0; background: var(--portal-surface, #fff); border: 1px solid var(--news-line); border-radius: 14px; scroll-margin-top: 88px; }
@@ -55,6 +56,7 @@ html.portal-theme-dark .home-news-blizzard_cn { --news-accent: #e7c174; --news-t
 html.portal-theme-dark .home-news-exwind { --news-accent: #c2a6f3; --news-tint: #2b243d; }
 html.portal-theme-dark .home-news-nga_preview { --news-accent: #edb486; --news-tint: #382a20; }
 html.portal-theme-dark .home-news-wowhead { --news-accent: #f4a3ae; --news-tint: #3c232b; }
+html.portal-theme-dark .home-news-icy_veins { --news-accent: #8ddce8; --news-tint: #19333b; }
 html.portal-theme-dark .home-news-date-error { color: #ffabb5; }
 html.portal-theme-dark .home-news-custom input { color-scheme: dark; }
 html.portal-theme-dark .home-news-presets button:is([aria-pressed="true"], [aria-expanded="true"]) { color: #c4bdff; }

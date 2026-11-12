@@ -25,7 +25,7 @@ class PortalArticleTranslateMonitor(BaseScan):
 
     def scan(self, url):
         query = Q(
-            source__in=['blizzard_tracker', 'wowhead'],
+            source__in=['blizzard_tracker', 'wowhead', 'icy_veins'],
             category__in=['bluepost', 'news'],
             is_active=True,
             url__isnull=False,
@@ -110,6 +110,9 @@ class PortalArticleTranslateMonitor(BaseScan):
 
             soup = BeautifulSoup(html_text, 'html.parser')
 
+            if source == 'icy_veins':
+                return []
+
             for tag in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe']):
                 tag.decompose()
 
@@ -140,6 +143,11 @@ class PortalArticleTranslateMonitor(BaseScan):
         url = (url or '').strip()
         if not url:
             return None
+        if source == 'icy_veins':
+            from botend.services.icy_veins_news import fetch_html, news_url
+            if not news_url(url):
+                return None
+            return fetch_html(self.req, url, lambda text: extract_structured_article(text, base_url=url, source=source))
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36'
         }

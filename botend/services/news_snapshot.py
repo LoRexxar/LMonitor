@@ -30,11 +30,11 @@ logger = logging.getLogger(__name__)
 SCHEMA = 1
 CHUNK_SIZE = 500
 NEWS_TIMEZONE = ZoneInfo('Asia/Shanghai')
-HOME_NEWS_SECTIONS = ('blueposts', 'exwind', 'wowhead', 'nga_preview')
+HOME_NEWS_SECTIONS = ('blueposts', 'exwind', 'wowhead', 'icy_veins', 'nga_preview')
 SOURCE_LABELS = {
     'blizzard_cn': '魔兽世界中国', 'blizzard_tracker': 'Blizzard Tracker',
     'bilibili': 'B 站视频', 'exwind': 'Exwind 新闻', 'lhfszs': '老黄蜂说芝士',
-    'nga': 'NGA', 'unknown': '其他来源', 'wowhead': 'Wowhead',
+    'nga': 'NGA', 'unknown': '其他来源', 'wowhead': 'Wowhead', 'icy_veins': 'Icy Veins',
 }
 _thread = None
 _thread_lock = threading.Lock()
@@ -180,6 +180,7 @@ def refresh_news_snapshot(*, poll=False):
             shards, chunk, month = [], [], None
             home_shards, home_chunk, home_month = [], [], None
             source_counts = Counter()
+            # 旧首页容器仅供 NGA 热帖读取，保留其结构；新来源写入日期分片。
             home = {key: [] for key in ('blueposts', 'exwind', 'wowhead', 'nga_preview', 'nga_hot', 'nga_fallback')}
             def save_chunk():
                 counts = dict(Counter(row['source'] for row in chunk))
@@ -196,6 +197,7 @@ def refresh_news_snapshot(*, poll=False):
                     'blueposts': row['category'] == 'bluepost',
                     'exwind': row['source'] in ('exwind', 'blizzard_cn'),
                     'wowhead': row['source'] == 'wowhead' and row['category'] == 'news',
+                    'icy_veins': row['source'] == 'icy_veins' and row['category'] == 'news',
                     'nga_preview': row['source'] == 'nga' and (row['_board'] == '310' or
                                    row['_board'] == '' and row['category'] == 'nga' and row['_author'] == 'nga前瞻区'),
                     'nga_hot': row['source'] == 'nga' and row['category'] == 'hot' and row['reply_count'] > 20,
