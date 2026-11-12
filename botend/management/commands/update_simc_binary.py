@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+from botend.management.commands.import_simc_player_templates import Command as PlayerTemplateCommand
 from botend.models import (SimcApl, SimcBackendBinary,
                            SimcContentTemplate, SimcProfile,
                            WowSpellSnapshotState, WowTalentVersion)
@@ -677,6 +678,25 @@ class Command(BaseCommand):
                 for name in os.listdir(profile_dir)
                 if name.endswith('.simc') and os.path.isfile(os.path.join(profile_dir, name))
             ) if os.path.isdir(profile_dir) else []
+            # Keep every primary profile (including hero variants), but measure
+            # base-spec coverage from the files actually passed to SimC, not DB rows.
+            available_specs = set()
+            for profile in profiles:
+                parsed = PlayerTemplateCommand._parse_filename(
+                    os.path.basename(profile), os.path.basename(profile_dir))
+                if parsed:
+                    available_specs.add('_'.join(parsed))
+            fallback_dir = os.path.join(self.simc_source_dir, 'profiles', 'MID1')
+            if profile_dir != fallback_dir and os.path.isdir(fallback_dir):
+                for name in sorted(os.listdir(fallback_dir)):
+                    parsed = PlayerTemplateCommand._parse_filename(name, 'MID1')
+                    fallback = os.path.join(fallback_dir, name)
+                    if not parsed or not os.path.isfile(fallback):
+                        continue
+                    spec = '_'.join(parsed)
+                    if spec not in available_specs:
+                        profiles.append(fallback)
+                        available_specs.add(spec)
             if not profiles:
                 self._fail(
                     'SimC runtime manifest 缺少 actor profile',
@@ -689,7 +709,6 @@ class Command(BaseCommand):
                 is_active=True, sync_version=git_hash,
             ))
             baselines = {row.spec: row for row in baseline_rows}
-            available_specs = set(baselines)
             required_specs = set(SimcApl.objects.filter(
                 source=SimcApl.SOURCE_SIMC_UPSTREAM, is_system=True,
                 is_active=True, sync_version=git_hash,

@@ -1,6 +1,6 @@
 """将 APL 解析为玩家可阅读的优先级，保留条件、列表重置与未知语法。"""
 
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 from botend.constants.wow import canonical_class_spec
 from botend.models import SimcAplSymbolScope, WowTalentNodeMetadata
@@ -9,10 +9,11 @@ from botend.services.simc_apl.ast import (
     IdentifierExpression, InvalidLine, NumberExpression, Option, UnaryExpression,
 )
 from botend.services.simc_apl.catalog import query_visible_symbols
+from botend.services.simc_apl.translation import CONTROL_ACTIONS
 from botend.services.simc_apl.parser import parse
 from botend.services.simc_apl.narrative import action_guide, list_title
 from botend.services.simc_apl.hero_filter import filter_options, reachable_groups, scenario_title
-from botend.services.wow_spell_display import SpellDisplayReader
+from botend.services.wow_spell_display import SpellDisplayReader, plain_text
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
@@ -24,6 +25,9 @@ CONTROL_LABELS = {
     'use_item': '使用装备', 'use_items': '使用可用装备',
     'invoke_external_buff': '请求外部增益', 'cancel_buff': '取消增益',
     'retarget_auto_attack': '切换自动攻击目标',
+    'retarget': '重新选择目标', 'cancel_action': '中断当前动作',
+    'strict_sequence': '依次执行技能序列', 'pick_up_fragment': '拾取灵魂残片',
+    'apply_poison': '涂抹毒药', 'summon_pet': '召唤宠物',
 }
 LIST_LABELS = {
     None: '战斗优先级', 'precombat': '战斗准备', 'cooldowns': '爆发技能',
@@ -61,6 +65,26 @@ PROPERTIES = {
 OPERATORS = {'&': '且', '|': '或', '^': '异或', '=': '=', '!=': '≠', '>=': '≥', '<=': '≤', '%': '÷', '%%': '取余'}
 
 
+def _talent_spell_id(entry):
+    # DB2 backfill stores EntryID in spell_id when a definition has no spell.
+    # Only an explicit display relation can validate that same numeric value.
+    if entry.display_spell_id and entry.display_spell_id > 0:
+        return entry.display_spell_id
+    if entry.spell_id and entry.spell_id > 0 and entry.spell_id != entry.node_id:
+        return entry.spell_id
+    return None
+
+
+def _talent_entry(entries, runtime_spell_id):
+    if runtime_spell_id:
+        entries = [entry for entry in entries if runtime_spell_id == _talent_spell_id(entry) or (
+            entry.spell_id == runtime_spell_id and entry.spell_id != entry.node_id
+        )]
+    # Even a shared display spell does not prove which Entry override to use.
+    # Never resolve choice/multi-entry nodes by query order or localized name.
+    return entries[0] if len(entries) == 1 else None
+
+
 def display_symbols(class_name, spec_name, talent_version=None, *, branch='retail'):
     """仅按已验证的 token 类型和 ID 关联提示，不用名字猜测技能或天赋。"""
     hero_trees = list(SimcAplSymbolScope.objects.filter(
@@ -69,6 +93,9 @@ def display_symbols(class_name, spec_name, talent_version=None, *, branch='retai
     candidates = {}
     for hero in [None, *hero_trees]:
         for row in query_visible_symbols(class_name, spec_name, hero):
+            # Engine operations have labels and semantics, not a game-spell tooltip.
+            if row.symbol_kind == 'action' and row.token in CONTROL_ACTIONS:
+                continue
             candidates.setdefault((row.symbol_kind, row.token), {})[row.pk] = row
     symbols = {}
     for key, rows in candidates.items():
@@ -76,28 +103,34 @@ def display_symbols(class_name, spec_name, talent_version=None, *, branch='retai
         if len(identities) == 1:
             symbols[key] = next(iter(rows.values()))
     trait_ids = {r.trait_id for r in symbols.values() if r.symbol_kind == 'talent' and r.trait_id}
-    traits = {}
+    entries_by_trait = defaultdict(list)
     if talent_version and trait_ids:
         canonical_class, canonical_spec = canonical_class_spec(class_name, spec_name) or (class_name, spec_name)
         rows = WowTalentNodeMetadata.objects.filter(
             talent_version=talent_version, class_name__iexact=canonical_class,
-            spec_name__iexact=canonical_spec, node_id__in=trait_ids,
+            spec_name__iexact=canonical_spec, talent_id__in=trait_ids,
         )
         for row in rows:
-            traits[row.node_id] = row
+            # Runtime trait_id is TraitNode; metadata node_id is TraitNodeEntry.
+            entries_by_trait[row.talent_id].append(row)
+    traits = {
+        key: _talent_entry(entries_by_trait[row.trait_id], row.spell_id)
+        for key, row in symbols.items() if row.symbol_kind == 'talent'
+    }
     reader = SpellDisplayReader(talent_version.branch if talent_version else branch)
-    reader.preload({r.spell_id for r in symbols.values() if r.spell_id} | {
-        r.display_spell_id or r.spell_id for r in traits.values() if r.display_spell_id or r.spell_id
+    reader.preload({r.spell_id for r in symbols.values() if r.symbol_kind != 'talent' and r.spell_id} | {
+        _talent_spell_id(trait) for trait in traits.values() if trait
     })
     result = {}
     for key, row in symbols.items():
-        trait = traits.get(row.trait_id) if row.symbol_kind == 'talent' else None
+        trait = traits.get(key)
         # TraitNodeEntry ID 与技能 ID 不是同一命名空间。
-        sid = (trait.display_spell_id or trait.spell_id) if trait else (row.spell_id if row.symbol_kind != 'talent' else None)
+        sid = _talent_spell_id(trait) if trait else (row.spell_id if row.symbol_kind != 'talent' else None)
         data = reader.get(sid, class_name=class_name, spec_name=spec_name,
                           node_id=trait.node_id if trait else None) if sid else {}
         name = data.get('name_zh') or (trait.name_zh if trait else '') or row.name_zh or data.get('name') or row.name_en or row.token
-        description = data.get('description_zh') or data.get('description') or (trait.description_zh or trait.description if trait else '')
+        description = data.get('description_zh') or data.get('description') or (
+            plain_text(trait.description_zh) or plain_text(trait.description) if trait else '')
         if row.symbol_kind in ('buff', 'debuff', 'dot'):
             description = data.get('aura_description_zh') or data.get('aura_description') or description
         icon = data.get('icon') or (trait.icon if trait else '')
@@ -188,11 +221,11 @@ def readable_apl(source, symbols, *, hero_id=None):
             group['rows'].append({
                 **action_guide(action.name, options, symbols),
                 'name': action.name, 'label': CONTROL_LABELS.get(action.name, action.name),
-                'reference': symbols.get(('action', action.name)), 'fields': fields,
+                'reference': None if action.name in CONTROL_ACTIONS else symbols.get(('action', action.name)), 'fields': fields,
                 'target': target.value if target else None,
                 'behavior': ('子列表没有执行技能时，继续检查下一项。' if action.name == 'call_action_list' else
                              '转入子列表，停止继续检查当前列表。' if action.name == 'run_action_list' else ''),
-                'control': action.name in CONTROL_LABELS, 'raw': raw, 'line': line.range.start.line,
+                'control': action.name in CONTROL_ACTIONS, 'raw': raw, 'line': line.range.start.line,
             })
     if hero_id:
         original_targets = {target for group in groups.values() for target in group['original_targets']}
