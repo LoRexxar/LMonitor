@@ -17,7 +17,8 @@ from django.utils import timezone
 
 from botend.models import WowArticle
 from botend.portal.api import (PortalBluepostsAPIView, PortalExwindLatestAPIView,
-                              PortalNgaHotAPIView, PortalNewsIndexAPIView, PortalWowheadLatestAPIView)
+                              PortalNgaHotAPIView, PortalNewsIndexAPIView, PortalWowheadLatestAPIView,
+                              PortalIcyVeinsLatestAPIView)
 from botend.services import news_snapshot as ns
 
 
@@ -47,6 +48,26 @@ class NewsSnapshotTests(TestCase):
 
     def response(self, view, query=None, headers=None):
         return view.as_view()(self.factory.get('/', query or {}, headers=headers))
+
+    def test_icy_veins_latest_and_source_filter_use_snapshot_without_database(self):
+        from django.urls import resolve
+        article = WowArticle.objects.create(title='[正式服]Icy Veins 新闻', source='icy_veins', category='news',
+                                           publish_time=self.now, content='完整正文', title_cn='[正式服]中文新闻标题', content_cn='中文正文')
+        WowArticle.objects.create(title='攻略不进入首页新闻', source='icy_veins', category='guide', publish_time=self.now)
+        WowArticle.objects.create(title='过期新闻', source='icy_veins', category='news', publish_time=self.now - timedelta(days=40))
+        ns.refresh_news_snapshot()
+        self.assertIs(resolve('/portal/api/icy-veins/latest/').func.view_class, PortalIcyVeinsLatestAPIView)
+        with self.assertNumQueries(0):
+            latest = self.payload(self.response(PortalIcyVeinsLatestAPIView, {'days': '7'}))
+            archive = ns.read_news_page({'source': 'icy_veins'})
+        self.assertEqual([row['id'] for row in latest['data']], [article.pk])
+        self.assertEqual(latest['data'][0]['title_cn'], '[正式服]中文新闻标题')
+        self.assertEqual(latest['data'][0]['category'], 'news')
+        self.assertEqual(latest['data'][0]['source'], 'icy_veins')
+        self.assertTrue(latest['data'][0]['has_translation'])
+        self.assertEqual(archive['meta']['total'], 3)
+        self.assertIn({'key': 'icy_veins', 'label': 'Icy Veins', 'count': 3}, archive['sources'])
+        self.assertEqual(self.response(PortalIcyVeinsLatestAPIView, {'days': '0'}).status_code, 400)
 
     @staticmethod
     def payload(response):

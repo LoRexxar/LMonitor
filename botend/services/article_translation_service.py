@@ -16,11 +16,16 @@ from utils.log import logger
 _LIVE_TITLE_PREFIX_RE = re.compile(r"^\s*\[\s*live\s*\]\s*", re.IGNORECASE)
 _TRANSLATED_LIVE_TITLE_PREFIX_RE = re.compile(r"^\s*\[(?:直播|实时|正式服)\]\s*")
 _FOREVER_TITLE_PREFIX_RE = re.compile(r"^\s*\[无限\]\s*")
+_NEWS_TITLE_PREFIX_RE = re.compile(r"^\s*\[(?:正式服|怀旧服|无限|魔兽世界)(?:/(?:正式服|怀旧服|无限))*\]\s*")
 
 
 def normalize_translated_title(source_title: str, translated_title: str) -> str:
     """Restore source channel labels without asking the translation engine."""
     translated_title = (translated_title or "").strip()
+    news_prefix = _NEWS_TITLE_PREFIX_RE.match(source_title or '')
+    if translated_title and news_prefix and news_prefix.group().strip() != '[无限]':
+        translated_title = _NEWS_TITLE_PREFIX_RE.sub('', translated_title).strip()
+        return news_prefix.group().strip() + translated_title
     if translated_title and _FOREVER_TITLE_PREFIX_RE.match(source_title or ""):
         translated_title = re.sub(r"^(?:\s*\[(?:无限|Forever|永久)\]\s*)+", "", translated_title, flags=re.I)
         return "[无限]{}".format(translated_title)
@@ -192,7 +197,7 @@ class ArticleTranslationService:
         title = (title or "").strip()
         if not title or not self.available():
             return ""
-        title_for_translation = _FOREVER_TITLE_PREFIX_RE.sub("", _LIVE_TITLE_PREFIX_RE.sub("", title, count=1), count=1)
+        title_for_translation = _NEWS_TITLE_PREFIX_RE.sub("", _LIVE_TITLE_PREFIX_RE.sub("", title, count=1), count=1)
         protected = glossary.protect(title_for_translation)
         prompt = (
             "请将以下英文标题翻译成自然、完整的中文，只返回翻译结果，不要添加任何解释。"

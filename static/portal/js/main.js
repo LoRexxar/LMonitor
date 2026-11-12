@@ -579,6 +579,7 @@ const SECTION_MAP = {
   exwind: { url: "/portal/api/exwind/latest/?source=exwind", listId: "exwind-list", homeNews: true },
   nga_preview: { url: "/portal/api/exwind/latest/?source=nga_preview", listId: "nga_preview-list", homeNews: true },
   wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list", homeNews: true },
+  icy_veins: { url: "/portal/api/icy-veins/latest/", listId: "icy_veins-list", homeNews: true },
   today_in_wow: { url: "/portal/api/today-in-wow/latest/" },
   daily_report: { url: "/portal/api/daily-report/latest/" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
@@ -1063,7 +1064,7 @@ function renderTodayStrip() {
 
 const HOME_NEWS_SOURCE_NAMES = {
   blizzard_tracker: "Blizzard Tracker", blizzard_cn: "魔兽世界中国",
-  exwind: "Exwind", nga: "NGA", wowhead: "Wowhead",
+  exwind: "Exwind", nga: "NGA", wowhead: "Wowhead", icy_veins: "Icy Veins",
 };
 
 function homeNewsKeys() {
@@ -1177,7 +1178,7 @@ function renderHomeNews(key) {
   const entries = items.map((item) => {
       const title = escapeHtml(item.title_cn || item.title || "未提供标题");
       const original = sanitizeHref(item.url || "");
-      const internal = (key === "blueposts" || key === "wowhead") && /^\d+$/.test(String(item.id))
+      const internal = (key === "blueposts" || key === "wowhead" || key === "icy_veins") && /^\d+$/.test(String(item.id))
         ? `/portal/article/${item.id}/` : "";
       const href = internal || original;
       const link = href ? `<a class="home-news-title" href="${escapeHtml(href)}"${internal ? "" : ' target="_blank" rel="noreferrer"'}>${title}</a>`

@@ -660,6 +660,11 @@ class PortalWowheadLatestAPIView(View):
         return news_response(request, 'wowhead')
 
 
+class PortalIcyVeinsLatestAPIView(View):
+    def get(self, request):
+        return news_response(request, 'icy_veins')
+
+
 class PortalNewsIndexAPIView(View):
     def get(self, request):
         return news_response(request)

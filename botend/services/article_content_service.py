@@ -194,6 +194,13 @@ def translate_blocks(blocks: Iterable[Dict[str, Any]], translated_pairs: Any) ->
 
 
 def _select_article_root(soup, *, source: str = ""):
+    if source == "icy_veins":
+        # 限定正文容器，不回退整页，避免收录导航、相关推荐及验证页面。
+        root = soup.select_one('[itemprop="articleBody"], .entry-content, .article-content, .post-content')
+        if root is not None:
+            for ad in root.select('[class*="_in_content_ad"], [data-freestar-dataset]'):
+                ad.decompose()
+        return root
     if source == "blizzard_cn":
         for selector in ("#blog .detail", ".Blog .detail"):
             root = soup.select_one(selector)

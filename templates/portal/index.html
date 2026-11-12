@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="{% static 'shared/css/bluepost-channel.css' %}?v=20261108_channel_colors_1">
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20261109_activity_calendar_1">
-    <link rel="stylesheet" href="{% static 'portal/css/home-news.css' %}?v=20261106_home_headers_1">
+    <link rel="stylesheet" href="{% static 'portal/css/home-news.css' %}?v=20261112_icy_veins_1">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -81,6 +81,7 @@
                     <nav class="home-news-jumps" aria-label="跳转新闻来源">
                         <a id="news-jump-blueposts" class="home-news-blueposts" href="#news-source-blueposts">蓝帖速递</a>
                         <a id="news-jump-wowhead" class="home-news-wowhead" href="#news-source-wowhead">Wowhead</a>
+                        <a id="news-jump-icy_veins" class="home-news-icy_veins" href="#news-source-icy_veins">Icy Veins</a>
                         <a id="news-jump-blizzard_cn" class="home-news-blizzard_cn" href="#news-source-blizzard_cn">魔兽世界中国</a>
                         <a id="news-jump-exwind" class="home-news-exwind" href="#news-source-exwind">Exwind</a>
                         <a id="news-jump-nga_preview" class="home-news-nga_preview" href="#news-source-nga_preview">NGA 前瞻</a>
@@ -89,6 +90,7 @@
                 <div id="home-news-sources" class="home-news-sources">
                     {% include 'portal/_home_news_source.html' with key='blueposts' name='蓝帖速递' description='暴雪蓝帖追踪' icon='megaphone' %}
                     {% include 'portal/_home_news_source.html' with key='wowhead' name='Wowhead' description='海外新闻与前瞻' icon='globe' %}
+                    {% include 'portal/_home_news_source.html' with key='icy_veins' name='Icy Veins' description='魔兽新闻与版本动态' icon='globe' %}
                     {% include 'portal/_home_news_source.html' with key='blizzard_cn' name='魔兽世界中国' description='国服官网资讯' icon='globe' %}
                     {% include 'portal/_home_news_source.html' with key='exwind' name='Exwind' description='魔兽资讯与动态' icon='newspaper' %}
                     {% include 'portal/_home_news_source.html' with key='nga_preview' name='NGA 前瞻' description='NGA 前瞻资讯区' icon='chat' %}
@@ -184,7 +186,7 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20261109_activity_calendar_1"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20261112_icy_veins_1"></script>
     <script src="{% static 'portal/js/home-news-layout.js' %}?v=20261106_home_masonry_1"></script>
     <script src="{% static 'portal/js/site-updates.js' %}?v=20260911_focus_digest"></script>
 </body>

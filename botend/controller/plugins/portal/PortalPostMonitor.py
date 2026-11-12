@@ -45,6 +45,15 @@ class PortalPostMonitor(BaseScan):
         self.update_exwind_latest()
         self.update_blizzard_cn_news()
         self.update_nga_hot()
+        try:
+            from botend.services.icy_veins_news import update_news
+            update_news(self)
+        except MonitorTaskLeaseLost:
+            raise
+        except Exception as exc:
+            self.last_error_detail = str(exc)
+            logger.warning('[PortalPostMonitor] Icy Veins 新闻更新失败：{}'.format(exc))
+            return False
         return True
 
     def _upsert_article(self, *, title, url, source, category, author=None, description=None, publish_time=None, reply_count=None):

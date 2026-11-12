@@ -59,7 +59,7 @@ function setup(localStorage) {
       setAttribute(key, value) { this.attrs[key] = value; }});
     return elements.get(id);
   };
-  for (const key of ['blueposts', 'blizzard_cn', 'exwind', 'nga_preview', 'wowhead']) {
+  for (const key of ['blueposts', 'blizzard_cn', 'exwind', 'nga_preview', 'wowhead', 'icy_veins']) {
     element(`${key}-list`); element(`news-count-${key}`);
     element(`news-source-${key}`); element(`news-jump-${key}`);
   }
@@ -75,6 +75,23 @@ function preferenceStorage() {
   const values = new Map();
   return {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value)};
 }
+
+test('Icy Veins 来源支持日期请求、中文标题与站内详情链接', async () => {
+  const {context, element} = setup();
+  let requested;
+  context.fetchJson = async url => {
+    requested = new URL(url, 'https://example.invalid');
+    return {data: [{id: 123, title: '原文标题', title_cn: '中文标题', source: 'icy_veins',
+      url: 'https://www.icy-veins.com/wow/news/test/', publish_time: '2026-11-12 12:00:00'}], snapshot: {state: 'ready'}};
+  };
+  await context.loadSection('icy_veins');
+  assert.equal(requested.pathname, '/portal/api/icy-veins/latest/');
+  assert.ok(requested.searchParams.has('start_date'));
+  const rendered = element('icy_veins-list').innerHTML;
+  assert.match(rendered, /中文标题/);
+  assert.match(rendered, /Icy Veins/);
+  assert.match(rendered, /href="\/portal\/article\/123\/"/);
+});
 
 test('日期偏好跨页面保存，近7天在下次打开时随北京时间滚动', () => {
   const storage = preferenceStorage();
