@@ -7,7 +7,6 @@ from botend.services import spec_stats_service as stats
 from botend.services import wcl_combatant_snapshot as combatants
 from botend.services.dungeon_aggregation import _metadata_dependencies
 from botend.services.spec_aggregation_cache import load_work, save_work, work_fingerprint_hint
-from botend.services.spec_stats_snapshot import content_digest
 
 ALGORITHM_VERSION = 'raid-scope-v6-sample-facts'
 
@@ -78,12 +77,11 @@ def _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids,
 
 
 def _fingerprint(rows, facts, boss_name, class_name, spec_name, context=None):
+    from .wcl_log_analysis_cache import scope_fingerprint
     dependencies = _metadata_dependencies(rows, facts, class_name, spec_name,
                                           context=context) if rows else {}
-    return content_digest({'algorithm': ALGORITHM_VERSION, 'name': boss_name,
-        'rows': [{k: v for k, v in row.items() if k != 'last_updated'} for row in rows],
-        'facts': [(list(key), value) for key, value in sorted(facts.items())],
-        'metadata': dependencies})
+    return scope_fingerprint(rows, facts, class_name, spec_name,
+        scope=[ALGORITHM_VERSION, boss_name], metadata=dependencies)
 
 
 def raid_fingerprints(scopes, *, selected_ids=None, source_cutoff=None, prepared_inputs=None,
@@ -151,13 +149,15 @@ def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty,
             phase_timings['raid_work_read'] += time.monotonic() - started
         if cached is not None:
             return cached, fingerprint, True
-    started = time.monotonic()
-    enriched = combatants.enrich_dungeon_records(rows, class_name, spec_name, facts=facts)
-    if phase_timings is not None:
-        phase_timings['log_enrichment'] += time.monotonic() - started
+    from .wcl_log_analysis_cache import prepare_cached_logs, reusable_log_statistics
+    log_statistics = reusable_log_statistics(season_id, scope, fingerprint)
+    enriched, prepared_logs, provider = prepare_cached_logs(rows, class_name, spec_name,
+        season_id=season_id, scope=scope, facts=facts, timings=phase_timings)
     result = stats.SpecStatsService._compute_raid_records(
         rows, season_id, boss_id, boss_name, class_name, spec_name, full=True,
-        enriched_records=enriched, phase_timings=phase_timings)
+        enriched_records=enriched, phase_timings=phase_timings,
+        prepared_log_records=prepared_logs, talent_provider=provider,
+        cached_log_statistics=log_statistics)
     started = time.monotonic()
     saved = save_work(season_id, scope, fingerprint, result)
     if phase_timings is not None:

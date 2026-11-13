@@ -99,6 +99,24 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertEqual(self.detail(), expected)
         self.assertEqual(self.detail()['sample_size'], sum(self.detail(i)['sample_size'] for i in (1, 2)) - 1)
 
+    def test_rank_change_reuses_gear_for_single_dungeon_and_union(self):
+        from collections import defaultdict
+        from botend.services import wcl_log_analysis_cache as analysis
+        self.row(name='A', dps=100)
+        second = self.row(name='B', report_code='RB', dps=90)
+        self.aggregate()
+        before = self.detail()
+        SpecDungeonRanking.objects.filter(pk=second.pk).update(dps=200)
+        timings = defaultdict(float)
+        with patch.object(analysis, 'prepare_log_talents', side_effect=AssertionError('不应重新解析日志')), \
+             patch.object(stats, '_compute_gear_popularity', side_effect=AssertionError('不应重算装备')):
+            self.aggregate(phase_timings=timings)
+        after = self.detail()
+        self.assertEqual(timings['gear_statistics_reused'], 2)
+        self.assertEqual(after['gear_popularity'], before['gear_popularity'])
+        self.assertEqual(after['top5'][0]['character_name'], 'B')
+        self.assertNotEqual(after['dps'], before['dps'])
+
     def test_shared_talent_provider_preserves_statistics_and_reduces_reads(self):
         """以独立提供器为对照，检查真实日志投影和数据库读取量。"""
         version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={

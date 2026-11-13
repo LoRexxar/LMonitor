@@ -15,7 +15,7 @@ from django.conf import settings
 from botend.models import SpecAggregationWorkCache
 from django.db import connection
 from botend.services.spec_stats_retention import _scope_lock, _safe_path
-from botend.services.spec_stats_snapshot import content_digest
+from botend.services.spec_stats_snapshot import content_digest, _bounded_canonical_chunks
 
 logger = logging.getLogger(__name__)
 SCHEMA = 1
@@ -225,10 +225,16 @@ def load_work(season_id, scope, fingerprint):
     return payload
 
 
-def save_work(season_id, scope, fingerprint, payload, *, strict=False):
+def save_work(season_id, scope, fingerprint, payload, *, strict=False, raw_json=False, durable=True):
+    """日志检查点可直接编码JSON；可重建派生数据允许省略刷盘屏障。
+
+    durable=False仍保留原子替换和摘要，断电后允许丢失缓存并从中央事实重建。
+    排名采集进度、范围统计等既有调用默认仍强制刷盘。
+    """
     from .stats_storage_codec import pack_detail
-    payload = _normalized(payload)
-    stored = pack_detail(payload) if isinstance(payload, dict) else payload
+    if not raw_json:
+        payload = _normalized(payload)
+    stored = pack_detail(payload) if isinstance(payload, dict) and not raw_json else payload
     data = {'schema': SCHEMA, 'season_id': int(season_id), 'scope': scope,
             'fingerprint': fingerprint, 'payload': stored}
     try:
@@ -243,7 +249,9 @@ def save_work(season_id, scope, fingerprint, payload, *, strict=False):
                 with gzip.GzipFile(fileobj=stream, mode='wb', compresslevel=3, mtime=0) as compressed:
                     compressed.write(NEW_PREFIX)
                     buffer = bytearray()
-                    for fragment in encoder.iterencode(data):
+                    fragments = (_bounded_canonical_chunks(data, encoder) if raw_json
+                                 else encoder.iterencode(data))
+                    for fragment in fragments:
                         chunk = fragment.encode('utf-8')
                         size += len(chunk)
                         if size > byte_limit():
@@ -256,9 +264,10 @@ def save_work(season_id, scope, fingerprint, payload, *, strict=False):
                     compressed.write(buffer)
                     compressed.write(NEW_SUFFIX + digest.hexdigest().encode('ascii') + b'"}')
                 stream.flush()
-                os.fsync(stream.fileno())
+                if durable:
+                    os.fsync(stream.fileno())
             os.replace(pending, path)
-            if os.name != 'nt':
+            if durable and os.name != 'nt':
                 directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
                 try:
                     os.fsync(directory_fd)

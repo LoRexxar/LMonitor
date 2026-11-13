@@ -65,8 +65,14 @@ def _scope(keys):
     return where
 
 
+class StoredCombatant(dict):
+    """携带已入库、不可覆盖的日志身份；标识不进入业务 JSON。"""
+    pass
+
+
 def _project_fact(row):
-    result = {**deepcopy(row.identity_json), **deepcopy(row.attributes_json)}
+    result = StoredCombatant({**deepcopy(row.identity_json), **deepcopy(row.attributes_json)})
+    result.cache_identity = (row.report_code, row.fight_id, row.actor_id)
     if row.gear_document_id is not None:
         result['gear'] = deepcopy(row.gear_document.payload)
     if row.talent_document_id is not None:

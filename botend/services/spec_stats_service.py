@@ -469,7 +469,8 @@ class SpecStatsService:
     @staticmethod
     def _compute_dungeon_records(selected_records, season_id, dungeon_id, dungeon_name,
                                  class_name, spec_name, full=False, *, include_talent_build_popularity=True,
-                                 enriched_records=None, phase_timings=None):
+                                 enriched_records=None, phase_timings=None, prepared_log_records=None,
+                                 talent_provider=None, cached_log_statistics=None):
         """Shared single/combined detail statistics over actual selected records."""
         stats = {
             'dungeon_id': dungeon_id,
@@ -565,15 +566,20 @@ class SpecStatsService:
 
         # Consume only the matching WCL fight/actor snapshot; never current profiles.
         from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
-        records = (enriched_records if enriched_records is not None else
+        records = (prepared_log_records if prepared_log_records is not None else
+                   enriched_records if enriched_records is not None else
                    enrich_dungeon_records(selected_records, class_name, spec_name))
+        records = sorted(records, key=lambda row: repr(_dungeon_log_identity(row)))
         from botend.services.log_talent_analysis import prepare_log_talents
         phase_timings = phase_timings if phase_timings is not None else defaultdict(float)
         phase_started = time.monotonic()
-        provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
-        records = prepare_log_talents(records, class_name, spec_name,
+        provider = talent_provider or TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+        if prepared_log_records is None:
+            records = prepare_log_talents(records, class_name, spec_name,
                                       encode_builds=include_talent_build_popularity,
                                       provider=provider)
+        elif not include_talent_build_popularity:
+            records = [dict(row, talent_build_code='') for row in records]
         phase_timings['talent_prepare'] += time.monotonic() - phase_started
         phase_started = time.monotonic()
         talent_limit = 20 if full else 10
@@ -604,15 +610,22 @@ class SpecStatsService:
         phase_timings['talent_statistics'] += time.monotonic() - phase_started
         phase_started = time.monotonic()
 
-        # Gear and enhancements are frozen in the same WCL observations.
-        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
-        stats['gem_popularity'] = _compute_gem_popularity(records, top_n=20)
-        stats['enchant_popularity'] = _compute_enchant_popularity(records, top_n=20)
-        stats['secondary_stats'] = _compute_secondary_stats_distribution(records)
-        for stat in stats['secondary_stats']:
-            stat['sample_size'] = sum(bool((row.get('stats_json') or {}).get(stat['key'])) for row in records)
-        stats['race_distribution'] = _compute_race_distribution([row for row in records if row.get('race')])
-        _omit_unavailable_log_statistics(stats)
+        if cached_log_statistics is not None:
+            for key in LOG_STATISTIC_FIELDS:
+                if key in cached_log_statistics:
+                    stats[key] = cached_log_statistics[key]
+            _omit_unavailable_log_statistics(stats)
+            phase_timings['gear_statistics_reused'] += 1
+        else:
+            # Gear and enhancements are frozen in the same WCL observations.
+            stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+            stats['gem_popularity'] = _compute_gem_popularity(records, top_n=20)
+            stats['enchant_popularity'] = _compute_enchant_popularity(records, top_n=20)
+            stats['secondary_stats'] = _compute_secondary_stats_distribution(records)
+            for stat in stats['secondary_stats']:
+                stat['sample_size'] = sum(bool((row.get('stats_json') or {}).get(stat['key'])) for row in records)
+            stats['race_distribution'] = _compute_race_distribution([row for row in records if row.get('race')])
+            _omit_unavailable_log_statistics(stats)
         phase_timings['gear_statistics'] += time.monotonic() - phase_started
 
         if full:
@@ -709,13 +722,16 @@ class SpecStatsService:
 
     @staticmethod
     def _compute_raid_records(records, season_id, boss_id, boss_name, class_name, spec_name,
-                              full=False, *, enriched_records=None, phase_timings=None):
+                              full=False, *, enriched_records=None, phase_timings=None,
+                              prepared_log_records=None, talent_provider=None, cached_log_statistics=None):
         # 装备、天赋、属性与大秘境共用同一日志投影，避免两套来源规则漂移。
         from botend.services.wcl_combatant_snapshot import _fight_key
         records = [row for row in records if _fight_key(row)]
         result = SpecStatsService._compute_dungeon_records(
             records, season_id, boss_id, boss_name, class_name, spec_name, full=full,
-            enriched_records=enriched_records, phase_timings=phase_timings)
+            enriched_records=enriched_records, phase_timings=phase_timings,
+            prepared_log_records=prepared_log_records, talent_provider=talent_provider,
+            cached_log_statistics=cached_log_statistics)
         result['boss_id'] = result.pop('dungeon_id')
         result['boss_name'] = result.pop('dungeon_name')
         times = sorted(row['kill_time'] for row in records if row.get('kill_time'))
@@ -727,6 +743,12 @@ class SpecStatsService:
             if row.get('kill_time'):
                 row['kill_time_fmt'] = _ms_to_time(row['kill_time'])
         return result
+
+
+LOG_STATISTIC_FIELDS = (
+    'gear_popularity', 'gem_popularity', 'enchant_popularity',
+    'secondary_stats', 'race_distribution',
+)
 
 
 def _omit_unavailable_log_statistics(result):
@@ -2936,7 +2958,7 @@ def _compute_gear_popularity(records, top_n=5):
     result = {}
     for slot, item_players in slot_item_players.items():
         items = []
-        sorted_items = sorted(item_players.items(), key=lambda x: len(x[1]), reverse=True)[:top_n]
+        sorted_items = sorted(item_players.items(), key=lambda x: (-len(x[1]), x[0]))[:top_n]
         for item_id, player_set in sorted_items:
             info = slot_item_info.get((slot, item_id), {})
             count = len(player_set)

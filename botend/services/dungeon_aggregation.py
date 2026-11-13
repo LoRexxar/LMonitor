@@ -329,19 +329,21 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     facts = combatants.load_matched_facts(selected, class_name, spec_name, fetched_before=source_cutoff)
     phase_timings['dungeon_input'] += time.monotonic() - started
     started = time.monotonic()
-    metadata, context = {}, {}
+    from .wcl_log_analysis_cache import scope_fingerprint, reusable_log_statistics
+    metadata, fingerprints, context = {}, {}, {}
     for dungeon_id, rows in by_dungeon.items():
         scope_facts = combatants.matched_facts(rows, facts, class_name, spec_name)
         metadata[dungeon_id] = content_digest(
             _metadata_dependencies(rows, scope_facts, class_name, spec_name, context=context))
+        fingerprints[dungeon_id] = scope_fingerprint(rows, facts, class_name, spec_name,
+            scope=[ALGORITHM_VERSION, dungeon_id, stats._lookup_dungeon_cn(encounters[dungeon_id]['name'])],
+            metadata=metadata[dungeon_id])
     fingerprint = content_digest({
         'algorithm': ALGORITHM_VERSION,
         'storage_version': 4,
         'scope': [season.pk, class_name, spec_name],
         'encounters': [(key, stats._lookup_dungeon_cn(enc['name'])) for key, enc in encounters.items()],
-        'selected': list(by_dungeon.items()),
-        'facts': [(list(key), events) for key, events in sorted(facts.items())],
-        'metadata': metadata,
+        'scopes': list(fingerprints.items()),
     })
     required_keys = [f'dungeon-{key}' for key in encounters] + ['dungeon-all']
     phase_timings['dungeon_fingerprint'] += time.monotonic() - started
@@ -350,26 +352,34 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     phase_timings['dungeon_publication_check'] += time.monotonic() - started
     reused = index is not None
     if not reused:
-        started = time.monotonic()
-        enriched = combatants.enrich_dungeon_records(selected, class_name, spec_name, facts=facts)
-        phase_timings['log_enrichment'] += time.monotonic() - started
-        enriched_by_id = {row['id']: row for row in enriched}
-        singles, union, union_enriched, coverage, seen = [], [], [], [], set()
+        from .wcl_log_analysis_cache import prepare_cached_logs
+        prepared = None
+        def log_arguments(rows):
+            nonlocal prepared
+            if prepared is None:
+                enriched, parsed, provider = prepare_cached_logs(selected, class_name, spec_name,
+                    season_id=season.pk, scope=f'dungeon:{class_name}:{spec_name}', facts=facts,
+                    timings=phase_timings)
+                prepared = ({r['id']: r for r in enriched}, {r['id']: r for r in parsed}, provider)
+            enriched, parsed, provider = prepared
+            return {'enriched_records': [enriched[row['id']] for row in rows],
+                    'prepared_log_records': [parsed[row['id']] for row in rows],
+                    'talent_provider': provider}
+        singles, union, coverage, seen = [], [], [], set()
         for dungeon_id, enc in encounters.items():
             rows = by_dungeon[dungeon_id]
             name = stats._lookup_dungeon_cn(enc['name'])
             from botend.services.spec_aggregation_cache import load_work, save_work
             scope = f'dungeon:{class_name}:{spec_name}:{dungeon_id}'
-            scope_fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': name,
-                'storage_version': 4, 'rows': rows,
-                'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata[dungeon_id]})
-            detail = load_work(season.id, scope, scope_fingerprint)
+            current_fingerprint = fingerprints[dungeon_id]
+            detail = load_work(season.id, scope, current_fingerprint)
             if detail is None:
+                previous = reusable_log_statistics(season.id, scope, current_fingerprint)
+                arguments = dict(log_arguments(rows), cached_log_statistics=previous)
                 detail = stats.SpecStatsService._compute_dungeon_records(
                     rows, season.id, dungeon_id, name, class_name, spec_name, full=True,
-                      enriched_records=[enriched_by_id[row['id']] for row in rows],
-                      phase_timings=phase_timings)
-                detail = save_work(season.id, scope, scope_fingerprint, detail)
+                    phase_timings=phase_timings, **arguments)
+                detail = save_work(season.id, scope, current_fingerprint, detail)
             singles.append(detail)
             contributed = 0
             for row in rows:
@@ -377,20 +387,22 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
                 if identity not in seen:
                     seen.add(identity)
                     union.append(row)
-                    union_enriched.append(enriched_by_id[row['id']])
                     contributed += 1
             coverage.append({'dungeon_id': dungeon_id, 'dungeon_name': name,
                              'sample_size': len(rows), 'contributed_sample_size': contributed,
                              'target_sample_size': 100})
         from botend.services.spec_aggregation_cache import load_work, save_work
         summary_scope = f'dungeon:{class_name}:{spec_name}:all'
-        summary = load_work(season.id, summary_scope, fingerprint)
+        summary_fingerprint = scope_fingerprint(union, facts, class_name, spec_name,
+            scope=[ALGORITHM_VERSION, 'all'], metadata=metadata)
+        summary = load_work(season.id, summary_scope, summary_fingerprint)
         if summary is None:
+            previous = reusable_log_statistics(season.id, summary_scope, summary_fingerprint)
+            arguments = dict(log_arguments(union), cached_log_statistics=previous)
             summary = stats.SpecStatsService._compute_dungeon_records(
                 union, season.id, 'all', '全部副本汇总', class_name, spec_name, full=True,
-                  include_talent_build_popularity=False, enriched_records=union_enriched,
-                  phase_timings=phase_timings)
-            summary = save_work(season.id, summary_scope, fingerprint, summary)
+                include_talent_build_popularity=False, phase_timings=phase_timings, **arguments)
+            summary = save_work(season.id, summary_scope, summary_fingerprint, summary)
         target = len(encounters) * 100
         summary.update(target_sample_size=target, missing_sample_size=max(0, target - len(union)),
                        dungeon_samples=coverage)
