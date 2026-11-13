@@ -787,7 +787,7 @@
       );
       body.appendChild(section);
     }
-    const talentName = profileDetail?.talents?.name || "无法获取";
+    const talentName = profileDetail?.talents?.display_name || profileDetail?.talents?.name || "无法获取";
     const talentCode = profileDetail?.talents?.build_code;
     const section = node("section", "simc-benchmark-profile-section");
     const talentFacts = node("dl", "simc-benchmark-profile-identity");

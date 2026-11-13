@@ -183,6 +183,9 @@ def _ranked_entries(rows, anchor_pk=None):
     from django.urls import reverse
     from urllib.parse import urlencode
     entries, role_ranks = [], {}
+    from botend.services.simc_talent_titles import apply_talent_display_names
+    rows = list(rows)
+    apply_talent_display_names([row.talent for row in rows])
     for row in sorted(rows, key=lambda item: (-item.dps, item.pk)):
         metadata = ranking_spec_metadata(row.config.spec_key)
         role = metadata['role']
@@ -197,7 +200,7 @@ def _ranked_entries(rows, anchor_pk=None):
         })
         entries.append({
             'rank': rank, **metadata,
-            'profile': row.profile.name, 'talent': row.talent.name, 'apl': row.apl.name,
+            'profile': row.profile.name, 'talent': row.talent.display_name, 'apl': row.apl.name,
             'dps': row.dps, 'is_current': row.pk == anchor_pk,
             'detail_url': detail_url,
             'resource_links': {kind: detail_url + '#' + section for kind, section in (

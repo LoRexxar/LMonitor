@@ -72,6 +72,9 @@ from botend.services.simc_skill_actor_page import (
 )
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
+from botend.services.simc_talent_titles import (
+    apply_talent_display_names, talent_display_name, frozen_talent_display_names,
+)
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_benchmark_config import SIMC_RAID_BUFFS
 from botend.services.spec_stats_service import SpecStatsService, _hero_subtree_name_from_table
@@ -4900,7 +4903,8 @@ class SimcTalentStringAPIView(View):
     def _row(row, request):
         is_system = bool(row.is_system)
         return {
-            'id': row.id, 'name': normalize_hero_subtree_title_zh(row.name),
+            'id': row.id, 'name': row.name,
+            'display_name': getattr(row, 'display_name', None) or talent_display_name(row),
             'spec': row.spec, 'canonical_spec': row.spec,
             'spec_label': _simc_spec_label(row.spec, ''), 'class_label': _simc_class_label(row.spec, ''),
             'label': f"{_simc_spec_label(row.spec, '')} · {_simc_class_label(row.spec, '')}", 'talent': row.talent,
@@ -4946,7 +4950,8 @@ class SimcTalentStringAPIView(View):
         spec = str(request.GET.get('spec') or '').strip().lower()
         if spec:
             rows = rows.filter(spec=spec)
-        return JsonResponse({'success': True, 'data': [self._row(row, request) for row in rows.order_by('spec', 'name', 'id')]})
+        rows = apply_talent_display_names(list(rows.order_by('spec', 'name', 'id')))
+        return JsonResponse({'success': True, 'data': [self._row(row, request) for row in rows]})
 
     def post(self, request):
         try:
@@ -5026,9 +5031,12 @@ class SimcTalentStringCandidatesAPIView(View):
         )
         if spec:
             queryset = queryset.filter(spec=spec)
-        return JsonResponse({'success': True, 'data': list(queryset.values(
-            'id', 'name', 'spec', 'talent', 'hero_talent_names', 'is_system',
-        ))})
+        rows = apply_talent_display_names(list(queryset))
+        return JsonResponse({'success': True, 'data': [{
+            'id': row.id, 'name': row.name, 'display_name': row.display_name,
+            'spec': row.spec, 'talent': row.talent,
+            'hero_talent_names': row.hero_talent_names, 'is_system': row.is_system,
+        } for row in rows]})
 
 
 class OssConfigAPIView(View):
@@ -7150,7 +7158,9 @@ class SimcWorkbenchAPIView(View):
                 apl.id: apl for apl in SimcApl.objects.filter(id__in=apl_ids).only('id', 'name')
             }
             talents = {
-                talent.id: talent for talent in SimcTalentString.objects.filter(id__in=talent_ids).only('id', 'name')
+                talent.id: talent for talent in apply_talent_display_names(list(
+                    SimcTalentString.objects.filter(id__in=talent_ids)
+                ))
             }
             completed_task_ids = set(SimulationRun.objects.filter(
                 task_id__in=task_ids, status='completed',
@@ -7208,6 +7218,20 @@ class SimcWorkbenchAPIView(View):
                 )
             }
 
+            frozen_title_rows = [
+                (task.id, versions[task.talent_version_id].payload, task.talent_string_id)
+                for task in tasks.values()
+                if task.talent_version_id in versions
+                and isinstance(versions[task.talent_version_id].payload, dict)
+                and versions[task.talent_version_id].payload.get('name')
+            ]
+            frozen_titles = dict(zip(
+                [row[0] for row in frozen_title_rows],
+                frozen_talent_display_names(
+                    [row[1] for row in frozen_title_rows],
+                    [row[2] for row in frozen_title_rows],
+                ),
+            ))
             page_rows = []
             for row_type, object_id, _created_at in page_refs:
                 if row_type == 'benchmark_execution':
@@ -7252,6 +7276,11 @@ class SimcWorkbenchAPIView(View):
                             or getattr(talents.get(task.talent_string_id), 'name', '')
                             or '—'
                         ),
+                        'talent_display_name': (
+                            frozen_titles.get(task.id, '')
+                            if talent_payload.get('name') else
+                            getattr(talents.get(task.talent_string_id), 'display_name', '')
+                        ) or '—',
                         'battle_scenario': scenario,
                     })
             return JsonResponse({
@@ -11007,6 +11036,7 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
     # for call-site/API compatibility, but never use them to scope content.
     querysets = benchmark_resource_querysets()
     resources = {name: list(queryset) for name, queryset in querysets.items()}
+    apply_talent_display_names(resources['talent_strings'])
     specs = _benchmark_spec_options()
     backend_game_versions = _benchmark_backend_game_versions(resources['backends'])
     consumable_values = {
@@ -11090,7 +11120,7 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
                 'is_default': row.user_id is None,
             } for row in resources['profiles']],
             'talent_strings': [{
-                'id': row.pk, 'name': normalize_hero_subtree_title_zh(row.name),
+                'id': row.pk, 'name': row.name, 'display_name': row.display_name,
                 'build_code': row.talent,
                 'spec': row.spec,
                 'spec_key': _benchmark_resource_spec_key(row),

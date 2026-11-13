@@ -76,7 +76,7 @@
             <input type="hidden" name="spec" value="{{ selected_spec.key }}">
             {% if profile %}<input type="hidden" name="profile" value="{{ profile.id }}">{% endif %}
             <label for="reference-talent">天赋</label>
-            <select id="reference-talent" name="talent">{% for item in selected_spec.talents %}<option value="{{ item.id }}"{% if talent.id == item.id %} selected{% endif %}>{{ item.name }}</option>{% endfor %}</select>
+            <select id="reference-talent" name="talent">{% for item in selected_spec.talents %}<option value="{{ item.id }}"{% if talent.id == item.id %} selected{% endif %}>{{ item.display_name|default:item.name }}</option>{% endfor %}</select>
             <button type="submit">查看方案</button>
         </form>
         {% endif %}

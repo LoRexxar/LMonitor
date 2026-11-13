@@ -238,6 +238,7 @@ class SimcTaskReferenceContracts(TestCase):
         self.assertEqual(rows, [{
             'id': talent.id,
             'name': 'Fury raid build',
+            'display_name': 'Fury raid build',
             'spec': 'warrior_fury',
             'talent': 'SELECTED_BUILD',
             'hero_talent_names': ['山丘领主'],

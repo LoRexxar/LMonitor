@@ -43,6 +43,8 @@ def scheme_results(config, page_number):
     groups = list(page.object_list)
     profiles = SimcProfile.objects.in_bulk(g['profile_id'] for g in groups if g['profile_id'])
     talents = SimcTalentString.objects.in_bulk(g['talent_id'] for g in groups if g['talent_id'])
+    from botend.services.simc_talent_titles import apply_talent_display_names
+    apply_talent_display_names(list(talents.values()))
     apls = SimcApl.objects.in_bulk(g['apl_id'] for g in groups if g['apl_id'])
     wanted, successful_candidates = Q(pk__in=[]), base.none()
     scenarios = active_scenarios(config)

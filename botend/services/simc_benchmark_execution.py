@@ -40,6 +40,9 @@ from botend.services.simc_benchmark_noise_display import apply_noise_display
 from botend.services.simc_benchmark_result_evidence import load_candidate_result_evidence
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_player_config import parse_manual_player_config
+from botend.services.simc_talent_titles import (
+    frozen_talent_display_name, frozen_talent_display_names,
+)
 from botend.services.simc_task_service import (
     TaskCreationError, TaskPreparedResourceChanged, TaskValidationUnavailable,
     _compute_content_hash, create_task, prepare_task_creation,
@@ -2290,9 +2293,48 @@ def _hero_talent_label(result=None):
     return ' / '.join(names) if names else '无法获取'
 
 
-def _coordinate_option(coordinate):
+def _project_profile_labels(labels, payloads):
+    """Display only: retain custom/Profile context and never invent frozen code."""
+    labels, payloads = list(labels), list(payloads)
+    clean_labels = frozen_talent_display_names([{'name': label} for label in labels])
+    clean_names = frozen_talent_display_names([
+        {'name': (payload or {}).get('name')} for payload in payloads
+    ])
+    titles = frozen_talent_display_names(payloads)
+    output = []
+    for label, name, title, payload in zip(clean_labels, clean_names, titles, payloads):
+        if (not payload or not payload.get('spec') or not payload.get('talent')
+                or not title or title == name
+                or not str(payload.get('name') or '').startswith('[Icy Veins]')):
+            output.append(label)
+        elif name and name in label:
+            output.append(label.replace(name, title, 1))
+        elif name and normalize_hero_subtree_title_zh(name) in label:
+            output.append(label.replace(normalize_hero_subtree_title_zh(name), title, 1))
+        elif title in label:
+            output.append(label)
+        else:
+            output.append(f'{label} · {title}' if label else title)
+    return output
+
+
+def _frozen_task_talents(task_ids):
+    """Bounded relation batches; never read mutable talent resources by ID."""
+    ids = sorted({pk for pk in task_ids if pk})
+    payloads = {}
+    for start in range(0, len(ids), 200):
+        payloads.update(SimcTask.objects.filter(pk__in=ids[start:start + 200]).values_list(
+            'pk', 'talent_version__payload',
+        ))
+    return payloads
+
+
+def _coordinate_option(coordinate, display_label=None):
     params = coordinate.get('simulation_params') or {}
-    talent_label = normalize_hero_subtree_title_zh(coordinate['profile_label'])
+    talent_label = display_label if display_label is not None else _project_profile_labels(
+        [coordinate['profile_label']],
+        [(coordinate.get('resources') or {}).get('talent_string') or {}],
+    )[0]
     return {
         'spec_key': coordinate['spec_key'],
         'scenario_key': coordinate['scenario_key'],
@@ -2338,6 +2380,15 @@ def _profile_detail_from_payload(
         detail['talents']['build_code'] = profile_talent_code
     detail['talents']['name'] = normalize_hero_subtree_title_zh(
         detail['talents']['name'],
+    )
+    # Resolve only a display title from the frozen identity. Keep the existing
+    # name/build_code projection and immutable resource payload untouched.
+    detail['talents']['display_name'] = frozen_talent_display_name(
+        talent_payload if talent_payload is not None else {
+            'name': detail['talents']['name'],
+            'spec': payload.get('spec') or spec_key,
+            'talent': profile_talent_code,
+        },
     )
     is_ptr = payload.get('use_ptr') is True
     detail['is_ptr'] = is_ptr
@@ -2628,6 +2679,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         if include_details else {}
     )
     profile_details = {}
+    title_task_ids = []
     coordinates = []
     option_gain_rows = []
     for coordinate in projected_cases:
@@ -2659,6 +2711,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             else source_tasks_by_coordinate.get(_coordinate_input_identity(coordinate))
         )
         source_result = source_match['result'] if source_match is not None else None
+        title_task_ids.append(source_task.pk if source_task is not None else None)
         detail_key = None
         if include_details:
             profile_version = source_task.profile_version if source_task is not None else None
@@ -2890,6 +2943,18 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             if coordinate_audit is not None:
                 coordinate_payload['audit'] = coordinate_audit
         coordinates.append(coordinate_payload)
+    frozen_titles = _frozen_task_talents(title_task_ids)
+    projected_titles = _project_profile_labels(
+        [row['profile_label'] for row in projected_cases],
+        [frozen_titles.get(task_id) or (row.get('resources') or {}).get('talent_string') or {}
+         for row, task_id in zip(projected_cases, title_task_ids)],
+    )
+    titles_by_coordinate = {}
+    for row, title in zip(coordinates, projected_titles):
+        row['labels']['profile'] = row['labels']['talent'] = title
+        titles_by_coordinate[(row['spec_key'], row['scenario_key'], row['profile_key'])] = title
+    for row in option_gain_rows:
+        row['profile_label'] = titles_by_coordinate[(row['spec_key'], row['scenario_key'], row['profile_key'])]
     payload = {'panel_id': panel.pk, 'coordinates': coordinates}
     if is_option_gain:
         payload['comparison_option_label'] = comparison_label
@@ -2908,7 +2973,15 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
             for row in comparison_rows
         ]
     if include_coordinate_options:
-        payload['coordinate_options'] = [_coordinate_option(row) for row in plan_cases]
+        option_titles = _project_profile_labels(
+            [row['profile_label'] for row in plan_cases],
+            [(row.get('resources') or {}).get('talent_string') or {} for row in plan_cases],
+        )
+        payload['coordinate_options'] = [
+            _coordinate_option(row, titles_by_coordinate.get(
+                (row['spec_key'], row['scenario_key'], row['profile_key']), title,
+            )) for row, title in zip(plan_cases, option_titles)
+        ]
     return payload
 
 
@@ -3540,6 +3613,20 @@ def _summarize_persisted_execution(execution):
 
 
 def summarize_execution(execution):
+    # Seal verification consumes original labels; project only after it finishes.
+    summary = _summarize_execution_facts(execution)
+    rows = summary['cases']
+    talents = _frozen_task_talents(row.get('task_id') for row in rows)
+    titles = _project_profile_labels(
+        [row['labels']['profile'] for row in rows],
+        [talents.get(row.get('task_id')) or {} for row in rows],
+    )
+    for row, title in zip(rows, titles):
+        row['labels']['profile'] = title
+    return summary
+
+
+def _summarize_execution_facts(execution):
     """Use live Task/Run state only before finalization; terminal reads are aggregate-only."""
     current = SimcBenchmarkExecution.objects.get(pk=execution.pk)
     if current.status in (
@@ -4307,6 +4394,12 @@ def serialize_public_execution(panel_or_execution):
         })
     if _result_seal(seal_rows, execution.completed_at) != execution.result_hash:
         return {'status': 'not_ready', 'execution': None}
+    # This aggregate-only public path has no frozen code: clean names only.
+    public_titles = _project_profile_labels(
+        [row['labels']['profile'] for row in public_cases], [{} for _ in public_cases],
+    )
+    for row, title in zip(public_cases, public_titles):
+        row['labels']['profile'] = title
     for candidates, sources in noise_coordinates:
         _apply_candidate_noise_display(candidates, sources)
     return {

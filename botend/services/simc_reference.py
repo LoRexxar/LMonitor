@@ -1,6 +1,7 @@
 """面向内测用户的现行 SimC 资料投影；只读取全局资源和本地展示元数据。"""
 
 from django.http import Http404
+from botend.services.simc_talent_titles import apply_talent_display_names
 
 from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, SPEC_ICON
 from botend.models import SimcApl, SimcProfile, SimcTalentString, WowTalentVersion, SimcReferencePublication
@@ -40,7 +41,7 @@ def reference_catalog(*, public_only=True):
         ),
         'talents': SimcTalentString.objects.filter(
             is_active=True, is_selectable=True, is_system=True, owner_user_id__isnull=True,
-        ).values('id', 'name', 'spec', 'system_key', 'default_apl_id', 'hero_talent_names'),
+        ).values('id', 'name', 'spec', 'talent', 'system_key', 'default_apl_id', 'hero_talent_names'),
         'apls': SimcApl.objects.filter(
             is_active=True, is_selectable=True, is_system=True, owner_user_id__isnull=True,
         ).values('id', 'name', 'spec', 'class_name', 'source'),
@@ -54,7 +55,10 @@ def reference_catalog(*, public_only=True):
                 allowed[kind].setdefault(spec_key, set()).add(resource_id)
             querysets[kind] = querysets[kind].filter(pk__in=published.values_list(f'{kind}__pk', flat=True))
     for kind, queryset in querysets.items():
-        for resource in queryset.order_by('name', 'id'):
+        resources = list(queryset.order_by('name', 'id'))
+        if kind == 'talents':
+            apply_talent_display_names(resources)
+        for resource in resources:
             key = canonical_simc_profile_key(resource['spec'], resource.get('class_name', ''))
             if key in by_key and (not public_only or resource['id'] in allowed[kind].get(key, set())):
                 by_key[key][kind].append(resource)

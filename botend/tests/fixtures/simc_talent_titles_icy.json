@@ -1,0 +1,245 @@
+{
+  "resources": [
+    {
+      "name": "[Icy Veins] 霜火 · ![](<https://static.icy-veins.com/images/wow/tools/hero-talents/frostfire.webp>) Frostfire Mythic+ Talents · 750b3e9f",
+      "spec": "mage_fire",
+      "talent": "C8DAAAAAAAAAAAAAAAAAAAAAAYGGLzMzsgZGZmZGAAAMLzYmZZWAAAALmZYbmZmZsBAAAAgNzMmZAAwMDzMmZmZWAmZANjxYwMMGA",
+      "hero_talent_names": [
+        "霜火"
+      ],
+      "system_key": "guide:icy-veins:83:mage_fire:750b3e9f4033aafc0db0ca879ead8e8cfa6d0644c31a4d7e1bb359256ce07933",
+      "guide_id": 83,
+      "code_hash": "750b3e9f4033aafc0db0ca879ead8e8cfa6d0644c31a4d7e1bb359256ce07933"
+    },
+    {
+      "name": "[Icy Veins] 霜火 · ![](<https://static.icy-veins.com/images/wow/tools/hero-talents/frostfire.webp>) Frostfire Mythic+ Talents · 2394bacb",
+      "spec": "mage_fire",
+      "talent": "C8DAAAAAAAAAAAAAAAAAAAAAAYGGLzMzsgZGZmZGAAAmZZGzMLzCAAAYxMDbzMzMjNAAAAAsZmxMDAAmZYmxMzMzCwMDIjxYwMMGA",
+      "hero_talent_names": [
+        "霜火"
+      ],
+      "system_key": "guide:icy-veins:83:mage_fire:2394bacbf4b7102014ee61a2543b8533ac06391e06fe7633fd1b917f53fc3923",
+      "guide_id": 83,
+      "code_hash": "2394bacbf4b7102014ee61a2543b8533ac06391e06fe7633fd1b917f53fc3923"
+    },
+    {
+      "name": "[Icy Veins] 山丘领主 · Defensive Mythic+ Build · 5b9e9bb2",
+      "spec": "warrior_protection",
+      "talent": "CkEAAAAAAAAAAAAAAAAAAAAAAkBAAGzwMzMzMmFzMLzYMmpxMGWMzMzYGmZAAAAwyMDwMGgB2gtFjGzAYWwMbYYmZYsAAzMAAMgxA",
+      "hero_talent_names": [
+        "山丘领主"
+      ],
+      "system_key": "guide:icy-veins:90:warrior_protection:5b9e9bb27bd9d0f909e30ec7fd5e1f3351921afdbcbaf0ba428e394fc76572f2",
+      "guide_id": 90,
+      "code_hash": "5b9e9bb27bd9d0f909e30ec7fd5e1f3351921afdbcbaf0ba428e394fc76572f2"
+    },
+    {
+      "name": "[Icy Veins] 山丘领主 · Defensive Mythic+ Build · 4654546c",
+      "spec": "warrior_protection",
+      "talent": "CkEAAAAAAAAAAAAAAAAAAAAAAkBAAGzwMzMzMmFzMLzYMmpxMGWMzMzYGmZAAAAwyMDwMGgB2gtFjGzAYWwMbgZmZYsAAzMAAMgxA",
+      "hero_talent_names": [
+        "山丘领主"
+      ],
+      "system_key": "guide:icy-veins:90:warrior_protection:4654546c11fb967df8daee640783302d1622a9cddcb7dba7d81af6d31e3d06af",
+      "guide_id": 90,
+      "code_hash": "4654546c11fb967df8daee640783302d1622a9cddcb7dba7d81af6d31e3d06af"
+    },
+    {
+      "name": "[Icy Veins] 欺诈者 · Fatebound Raid Build · af58c38d",
+      "spec": "rogue_outlaw",
+      "talent": "CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMmZmtZmZmZMmF4BmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG",
+      "hero_talent_names": [
+        "欺诈者"
+      ],
+      "system_key": "guide:icy-veins:105:rogue_outlaw:af58c38dc0432b6cb23c10f10128a578ca27ca60efebf7c079c2d7cea369fc7b",
+      "guide_id": 105,
+      "code_hash": "af58c38dc0432b6cb23c10f10128a578ca27ca60efebf7c079c2d7cea369fc7b"
+    },
+    {
+      "name": "[Icy Veins] 欺诈者 · Fatebound Raid Build · 6d775aa0",
+      "spec": "rogue_outlaw",
+      "talent": "CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG",
+      "hero_talent_names": [
+        "欺诈者"
+      ],
+      "system_key": "guide:icy-veins:105:rogue_outlaw:6d775aa05577b5a0e5b11c997a344abc29923cb1ecf8380629fe2668678d107e",
+      "guide_id": 105,
+      "code_hash": "6d775aa05577b5a0e5b11c997a344abc29923cb1ecf8380629fe2668678d107e"
+    }
+  ],
+  "occurrences": [
+    {
+      "guide_id": 83,
+      "spec_id": 63,
+      "class_name": "Mage",
+      "spec_name": "Fire",
+      "heading_path": [
+        "天赋与构筑",
+        "天赋方案 1-1"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"C8DAAAAAAAAAAAAAAAAAAAAAAYGGLzMzsgZGZmZGAAAMLzYmZZWAAAALmZYbmZmZsBAAAAgNzMmZAAwMDzMmZmZWAmZANjxYwMMGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 83,
+      "spec_id": 63,
+      "class_name": "Mage",
+      "spec_name": "Fire",
+      "heading_path": [
+        "大秘境",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/frostfire.webp>) Frostfire    Mythic+ Talents",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/frostfire.webp>) Frostfire Mythic+ Talents"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"C8DAAAAAAAAAAAAAAAAAAAAAAYGGLzMzsgZGZmZGAAAmZZGzMLzCAAAYxMDbzMzMjNAAAAAsZmxMDAAmZYmxMzMzCwMDIjxYwMMGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 90,
+      "spec_id": 73,
+      "class_name": "Warrior",
+      "spec_name": "Protection",
+      "heading_path": [
+        "天赋与构筑",
+        "天赋方案 0-1"
+      ],
+      "raw_block": ":::talents Defensive Mythic+ Build\n```json\n{\n  \"code\": \"CkEAAAAAAAAAAAAAAAAAAAAAAkBAAGzwMzMzMmFzMLzYMmpxMGWMzMzYGmZAAAAwyMDwMGgB2gtFjGzAYWwMbYYmZYsAAzMAAMgxA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 90,
+      "spec_id": 73,
+      "class_name": "Warrior",
+      "spec_name": "Protection",
+      "heading_path": [
+        "大秘境",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/mountain-thane.webp>) Mountain Thane Talent Build",
+        "Mountain Thane Talents"
+      ],
+      "raw_block": ":::talents Defensive Mythic+ Build\n```json\n{\n  \"code\": \"CkEAAAAAAAAAAAAAAAAAAAAAAkBAAGzwMzMzMmFzMLzYMmpxMGWMzMzYGmZAAAAwyMDwMGgB2gtFjGzAYWwMbgZmZYsAAzMAAMgxA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "快速入门",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/fatebound.webp>) Fatebound   Single-Target Talents",
+        "Beginner Single-Target Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents Fatebound Raid Build\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMmZmtZmZmZMmF4BmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "快速入门",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/fatebound.webp>) Fatebound   Single-Target Talents",
+        "Beginner Single-Target Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMmZmtZmZmZMmF4BmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "快速入门",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/fatebound.webp>) Fatebound   Multi-Target Talents",
+        "Beginner AoE, Delve, and Mythic+ Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents Fatebound Raid Build\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "快速入门",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/fatebound.webp>) Fatebound   Multi-Target Talents",
+        "Beginner AoE, Delve, and Mythic+ Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "天赋与构筑",
+        "Best Midnight Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents Outlaw Single Target - Trickster\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMmZmtZmZmZMmF4BmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "天赋与构筑",
+        "Best Midnight Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents Outlaw AoE - Trickster\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "天赋与构筑",
+        "Best Midnight Talents for Outlaw Rogue"
+      ],
+      "raw_block": ":::talents Outlaw Delves - Trickster\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "天赋与构筑",
+        "天赋方案 0-0"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMmZmtZmZmZMmF4BmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "天赋与构筑",
+        "天赋方案 0-1"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "大秘境",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/trickster.webp>) Trickster Mythic+ Build",
+        "Trickster Mythic+ Talents"
+      ],
+      "raw_block": ":::talents Outlaw Trickster AoE\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 105,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "heading_path": [
+        "大秘境",
+        "![](<https://static.icy-veins.com/images/wow/tools/hero-talents/trickster.webp>) Trickster Mythic+ Build",
+        "Trickster Mythic+ Talents"
+      ],
+      "raw_block": ":::talents 天赋构筑\n```json\n{\n  \"code\": \"CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MMzMjZmtZmZMzMzsAmZbaZw2MAAAAAALLzMzwMzMziZmZbAAAAYmBAjZxwADMLsQLsxAMzgBG\"\n}\n```\n:::"
+    }
+  ]
+}

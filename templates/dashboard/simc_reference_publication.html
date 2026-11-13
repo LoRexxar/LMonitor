@@ -23,9 +23,9 @@
         <p>{{ section.description }}</p>
         <label class="resource-search"><span class="reference-visually-hidden">搜索{{ section.field.label }}</span><input type="search" data-resource-search placeholder="搜索{{ section.field.label }}" autocomplete="off"></label>
         {{ section.field.errors }}
-        <div class="publication-resource-list">{% for item in section.choices %}<div class="publication-resource-row" data-resource-row data-resource-name="{{ item.resource.name }}">
-            <label>{{ item.choice.tag }}<span><strong>{{ item.resource.name }}</strong><small>{% if section.kind == 'profile' %}{% if item.resource.use_ptr %}PTR{% else %}正式服{% endif %} · {{ item.resource.version|default:'未标注版本' }}{% elif section.kind == 'talent' %}{{ item.resource.hero_talent_names|join:' / '|default:'共享天赋' }}{% else %}{{ item.resource.get_source_display }}{% endif %}</small></span></label>
-            {% if item.editor_url %}<a href="{{ item.editor_url }}" title="在 SimC 中编辑：{{ item.resource.name }}" aria-label="在 SimC 中编辑：{{ item.resource.name }}">编辑</a>{% endif %}
+        <div class="publication-resource-list">{% for item in section.choices %}<div class="publication-resource-row" data-resource-row data-resource-name="{{ item.resource.display_name|default:item.resource.name }}">
+            <label>{{ item.choice.tag }}<span><strong>{{ item.resource.display_name|default:item.resource.name }}</strong><small>{% if section.kind == 'profile' %}{% if item.resource.use_ptr %}PTR{% else %}正式服{% endif %} · {{ item.resource.version|default:'未标注版本' }}{% elif section.kind == 'talent' %}{{ item.resource.hero_talent_names|join:' / '|default:'共享天赋' }}{% else %}{{ item.resource.get_source_display }}{% endif %}</small></span></label>
+            {% if item.editor_url %}<a href="{{ item.editor_url }}" title="在 SimC 中编辑：{{ item.resource.display_name|default:item.resource.name }}" aria-label="在 SimC 中编辑：{{ item.resource.display_name|default:item.resource.name }}">编辑</a>{% endif %}
         </div>{% empty %}<p class="resource-empty">暂无可用的共享资料。</p>{% endfor %}<p class="resource-empty" data-search-empty hidden>没有匹配的资料，试试其他名称。</p></div>
         {% if section.library_url %}<a class="resource-library-link" href="{{ section.library_url }}">在 SimC 中管理{{ section.field.label }}</a>{% else %}<p class="resource-access-note">资料由拥有 SimC 工作流权限的管理员维护。</p>{% endif %}
     </section>{% endfor %}

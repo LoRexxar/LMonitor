@@ -1,6 +1,6 @@
 {% load simc_display %}
 <div class="section-heading"><h3>方案历史记录</h3><a href="?config={{ selected.pk }}">返回方案汇总</a></div>
-<p class="admin-note">{{ history_scheme.profile.name }} · {{ history_scheme.talent.name }} · {{ history_scheme.apl.name }}</p>
+<p class="admin-note">{{ history_scheme.profile.name }} · {{ history_scheme.talent.display_name|default:history_scheme.talent.name }} · {{ history_scheme.apl.name }}</p>
 <div class="table-scroll" tabindex="0" role="region" aria-label="方案历史记录，可横向滚动"><table><thead><tr><th>模拟条件</th><th>状态</th><th class="number">DPS</th><th>登记时间</th><th>报告与管理</th></tr></thead><tbody>{% for row in page %}<tr>
 <td>{% simc_scenario_label row.scene_name|default:"历史场景" row.snapshot.simulation_params.desired_targets row.snapshot.simulation_params.max_time %}</td>
 <td>{{ row.get_status_display }}{% if row.is_stale %}<small class="issue">配置已变化，前台不展示</small>{% endif %}{% if row.error %}<details><summary>失败原因</summary>{{ row.error }}</details>{% endif %}</td>

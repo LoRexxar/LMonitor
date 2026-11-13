@@ -79,7 +79,8 @@ def resource_preview(kind, resource, spec, config, *, is_public):
         tree_display = display['talent_display']
         if not tree_display['trees']:
             lines.append(tree_display['message'])
-        return {'name': resource.name, 'description': '\n'.join(lines),
+        from botend.services.simc_talent_titles import talent_display_name
+        return {'name': talent_display_name(resource), 'description': '\n'.join(lines),
                 'talent_render_model': tree_display.get('render_model')}
     else:
         groups = display['apl_display']['groups']

@@ -2,6 +2,7 @@
 from urllib.parse import urlencode
 
 from django.urls import reverse
+from botend.services.simc_talent_titles import apply_talent_display_names
 
 from botend.dashboard.permissions import effective_dashboard_permissions
 
@@ -45,6 +46,10 @@ def publication_sections(form, config, workflow):
     ):
         field = form[key]
         resources = {str(row.pk): row for row in form.fields[key].queryset}
+        if kind == 'talent':
+            apply_talent_display_names(list(resources.values()))
+            labels = {pk: row.display_name for pk, row in resources.items()}
+            form.fields[key].label_from_instance = lambda obj, labels=labels: labels.get(str(obj.pk), obj.name)
         choices = []
         for choice in field:
             resource = resources.get(str(choice.data['value']))

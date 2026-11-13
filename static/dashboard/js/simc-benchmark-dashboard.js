@@ -440,7 +440,7 @@ function updateSpecResources(card,selectedProfileId=null,selectedTalentIds=[],or
     (resources?.resources?.apls||[]).filter(item=>resourceMatches(item,spec)).forEach(apl=>aplSelect.append(el('option',{value:apl.id,selected:String(apl.id)===String(explicitApl)},`覆盖：${apl.name}`)));
     row.append(el('span',{},name),aplSelect);variantAplEditor.append(row);
   };
-  talents.forEach(talent=>addTalent(talent.id,talent.name,(talent.hero_talent_names||[]).join('、'),talent.build_code));
+  talents.forEach(talent=>addTalent(talent.id,talent.display_name||talent.name,(talent.hero_talent_names||[]).join('、'),talent.build_code));
 }
 function renderRaidBuffEditor(card,simulationParams={},inheritDefaults=false){
   const catalog=Array.isArray(resources?.raid_buffs)?resources.raid_buffs:[],explicit=Object.prototype.hasOwnProperty.call(simulationParams||{},'raid_buffs'),hasClassToggle=Object.prototype.hasOwnProperty.call(simulationParams||{},'use_class_raid_buff'),useClassRaidBuff=hasClassToggle?simulationParams.use_class_raid_buff===true:!explicit,selected=new Set(explicit&&Array.isArray(simulationParams.raid_buffs)?simulationParams.raid_buffs:[]);
@@ -772,7 +772,7 @@ function renderOptionGainDetails(profileDetail,simulationDetail,audit,coordinate
   appendOptionGainDetailSection(body,'APL 额外选项',[["使用选项",extraOptions.length?extraOptions.join('、'):'未启用']]);
   const additionalSimcInput=String(simulationDetail.additional_simc_input||'').trim();
   if(additionalSimcInput){const section=el('section',{class:'benchmark-option-detail-section'});section.append(el('h5',{},'附加 SimC 输入'),el('pre',{class:'benchmark-option-detail-additional-input'},additionalSimcInput));body.append(section);}
-  const talentName=profileDetail.talents?.name||'无法获取',talentCode=profileDetail.talents?.build_code,heroTalent=coordinate?.labels?.hero_talent||'无法获取';
+  const talentName=profileDetail.talents?.display_name||profileDetail.talents?.name||'无法获取',talentCode=profileDetail.talents?.build_code,heroTalent=coordinate?.labels?.hero_talent||'无法获取';
   appendOptionGainDetailSection(body,'天赋',[["当前天赋",talentName],["英雄天赋",heroTalent],["Build Code",talentCode]]);
   if(talentCode){const thumbnail=el('div',{class:'benchmark-result-talent-thumbnail','data-benchmark-result-talent-thumbnail':''});body.prepend(thumbnail);mountBenchmarkTalentThumbnail(thumbnail,talentCode,420);}
   const equipment=Array.isArray(profileDetail.equipment)?profileDetail.equipment:[];

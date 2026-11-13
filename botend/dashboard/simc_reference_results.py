@@ -349,6 +349,9 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
         if selected and self.view_mode == 'results':
             if request.GET.get('scheme'):
                 history_scheme = get_object_or_404(SimcReferenceSimulation, pk=_positive_id(request.GET['scheme']), config=selected)
+                if history_scheme.talent_id:
+                    from botend.services.simc_talent_titles import apply_talent_display_names
+                    apply_talent_display_names([history_scheme.talent])
                 simulations = with_report(SimcReferenceSimulation.objects.filter(
                     config=selected, profile_id=history_scheme.profile_id,
                     talent_id=history_scheme.talent_id, apl_id=history_scheme.apl_id,

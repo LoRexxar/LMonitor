@@ -39,6 +39,7 @@ from botend.services.simc_composer import (
     SIMC_EXTRA_OPTIONS, SIMC_RAID_BUFF_VALUES, validate_simulation_options,
 )
 from botend.services.simc_candidate_options import normalize_controlled_simc_options
+from botend.services.simc_talent_titles import apply_talent_display_names
 from botend.services.wow_item_display import load_item_tooltip_metadata
 
 MAX_SPECS = len(SUPPORTED_SIMC_SPEC_IDENTITIES)
@@ -1527,6 +1528,12 @@ def serialize_panel_config(panel):
         panel = _panel_snapshot_queryset(enabled_only=False).get(pk=panel.pk)
     except SimcBenchmarkPanel.DoesNotExist:
         _error('Panel 不存在', 'panel')
+    # This read-only projection is deliberately outside the execution snapshot.
+    apply_talent_display_names([
+        selected.talent_string
+        for spec in panel._snapshot_specs for selected in spec._snapshot_profiles
+        if selected.talent_string_id
+    ])
     result = {
         'id': panel.pk, 'name': panel.name, 'slug': panel.slug,
         'description': panel.description, 'benchmark_type': panel.benchmark_type,
@@ -1552,6 +1559,7 @@ def serialize_panel_config(panel):
                 'label': selected.label, 'profile_name': selected.profile.name,
                 'talent_string_id': selected.talent_string_id,
                 'talent_string_name': selected.talent_string.name if selected.talent_string_id else '',
+                'talent_string_display_name': selected.talent_string.display_name if selected.talent_string_id else '',
                 'apl': {
                     'id': effective_apl.pk, 'name': effective_apl.name,
                     'inherited': not bool(selected.apl_id),
@@ -1622,6 +1630,7 @@ def duplicate_panel_config(panel, user_id):
             profile.pop('id', None)
             profile.pop('profile_name', None)
             profile.pop('talent_string_name', None)
+            profile.pop('talent_string_display_name', None)
             apl = profile.pop('apl', None)
             if apl and not apl.get('inherited'):
                 profile['apl_id'] = apl['id']
