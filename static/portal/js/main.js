@@ -1036,9 +1036,9 @@ function renderTodayStrip() {
       if (!duplicate) picked.push(item);
     });
 
-  // 数据更新与原有资讯共用短条；未更新的板块不进入今日重点。
-  PORTAL_STATE.todayUpdates.filter((item) => item.status === 'today').forEach((item, index) => {
-    picked.push({ label: item.label, text: item.headline || item.summary, url: item.url,
+  // 仅展示有真实变化摘要的今日更新，不将“已同步”状态冒充重点。
+  PORTAL_STATE.todayUpdates.filter((item) => item.status === 'today' && item.headline?.trim()).forEach((item, index) => {
+    picked.push({ label: item.label, text: item.headline, url: item.url,
       muted: '今日', priority: 20 + index / 10 });
   });
   picked.sort((a, b) => a.priority - b.priority);

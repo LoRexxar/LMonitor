@@ -189,7 +189,8 @@ function render(updates, sections = {}) {
   return items.innerHTML;
 }
 const today = {key:'skill_diffs', label:'改动挖掘', headline:'3 职业 · 17 项技能改动', status:'today', url:'/portal/wow-skill-diff/1/'};
-let html = render([today, {key:'gear', label:'装备目录', status:'older'}, {key:'mdt', label:'MDT', status:'empty'}]);
+let html = render([today, ...['mplus', 'raid', 'gear', 'mdt'].map(key => ({key, label:'无变化的同步', status:'today', headline:'', summary:'今日已同步'}))]);
+assert.doesNotMatch(html, /无变化的同步|已同步/);
 assert.match(html, /3 职业 · 17 项技能改动/);
 assert.match(html, /href="\/portal\/wow-skill-diff\/1\/"/);
 assert.doesNotMatch(html, /装备目录|MDT|暂无数据|portal-update-item/);
