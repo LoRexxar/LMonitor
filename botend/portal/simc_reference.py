@@ -37,11 +37,14 @@ class PortalSimcReferenceRankingsView(LoginRequiredMixin, View):
 
     def get(self, request, config_id=None, signature=None, scope='overall'):
         from botend.models import SimcReferenceSimulationConfig
-        from botend.services.simc_reference_rankings import ranking_page_context, ranking_entry
+        from botend.services.simc_reference_rankings import (
+            ranking_page_context, ranking_entry, apply_ranking_role, validate_ranking_role, ranking_role_url,
+        )
+        role = validate_ranking_role(request.GET.get('role'))
         if config_id is None:
             entry = ranking_entry(request.GET.get('config'))
             if entry:
-                return redirect('portal_simc_reference_rankings', *entry)
+                return redirect(ranking_role_url(reverse('portal_simc_reference_rankings', args=entry), role))
             board = {'empty_ranking': True, 'scope_label': '全职业', 'module_section': 'rankings',
                      'module_reference_url': reverse('portal_simc_reference'),
                      'module_rankings_url': reverse('portal_simc_reference_rankings_entry')}
@@ -54,6 +57,7 @@ class PortalSimcReferenceRankingsView(LoginRequiredMixin, View):
             board = ranking_page_context(config, signature, scope)
             if board is None:
                 raise Http404('当前配置已更新或不再公开，请刷新页面查看排名')
+        apply_ranking_role(board, role, request.get_full_path())
         response = render(request, 'portal/simc_reference_rankings.html', board)
         response['X-Robots-Tag'] = 'noindex, nofollow'
         return response

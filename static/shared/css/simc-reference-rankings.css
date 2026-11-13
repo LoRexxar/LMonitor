@@ -44,6 +44,9 @@
 .simc-leaderboard th:first-child { width:100px; }
 .simc-leaderboard th:last-child { width:130px; text-align:right; }
 .simc-leaderboard .simc-rank-dps { text-align:right; font-weight:650; white-space:nowrap; }
+.simc-rank-identity { display:flex; align-items:center; gap:9px; min-width:0; }
+.simc-rank-identity>div { min-width:0; }
+.simc-rank-icon { display:block; flex:0 0 24px; width:24px; height:24px; object-fit:cover; border-radius:4px; box-shadow:0 0 0 1px var(--rank-line); }
 .simc-leaderboard .is-current { background:var(--rank-soft); scroll-margin-top:150px; }
 .simc-current-label { display:block; margin-top:3px; color:var(--rank-accent); font-size:11px; font-weight:650; white-space:nowrap; }
 .ranking-page :focus-visible { outline:2px solid var(--rank-accent); outline-offset:3px; }

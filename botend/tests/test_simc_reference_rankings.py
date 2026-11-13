@@ -239,8 +239,8 @@ class ReferenceRankingTests(TestCase):
         response = self.client.get(url)
         spec_url = reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'spec'])
         aoe_url = reverse('portal_simc_reference_rankings', args=[self.config.pk, aoe.signature, 'overall'])
-        self.assertContains(response, f'href="{spec_url}"')
-        self.assertContains(response, f'href="{aoe_url}"')
+        self.assertContains(response, f'href="{spec_url}?role=dps"')
+        self.assertContains(response, f'href="{aoe_url}?role=dps"')
         self.assertEqual(self.client.get(aoe_url).context['targets'], 5)
         self.assertEqual(self.client.get(spec_url).context['scope_label'], '本专精')
         from urllib.parse import parse_qs, urlsplit
@@ -271,7 +271,7 @@ class ReferenceRankingTests(TestCase):
         self.assertNotContains(response, '当前配置')
         self.assertIn('no-store', response['Cache-Control'])
         result_page = self.client.get(self.url)
-        self.assertContains(result_page, '查看同配置与场景的排行榜')
+        self.assertContains(result_page, '查看同职责、同配置与场景的排行榜')
         self.assertContains(result_page, f'?settings={self.config.settings_id}&amp;scenario={anchor.scenario_id}')
         self.assertNotContains(self.client.get(self.url), 'data-ranking-panel')
 

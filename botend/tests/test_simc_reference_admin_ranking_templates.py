@@ -16,6 +16,7 @@ class AdminRankingTemplateTests(SimpleTestCase):
                 {'label': 'PTR', 'url': '?settings=3&scenario=4', 'selected': False},
             ],
             'scene_options': [{'label': '单体长战斗', 'url': '?settings=1&scenario=2', 'selected': True}],
+            'current_in_ranking': True,
             'current': {'spec': '火焰', 'profile': '旧当前装备'},
             'entries': [{'rank': 1, 'spec': '火焰', 'profile': '公开装备',
                          'talent': '公开天赋', 'apl': '公开APL', 'dps': 100,
@@ -32,6 +33,22 @@ class AdminRankingTemplateTests(SimpleTestCase):
                          '?settings=3&amp;scenario=4', '公开装备', '单体长战斗',
                          '单体长战斗 · 1 目标 · 300 秒', '1 个有效组合', 'aria-label="完整排名表"'):
             self.assertIn(expected, html)
+
+    def test_role_navigation_and_spec_icons_share_both_templates(self):
+        for admin in (True, False):
+            with self.subTest(admin=admin):
+                board = self.board(admin)
+                board.update(role_label='输出 DPS', current_in_ranking=False, role_options=[
+                    {'label': '输出 DPS', 'url': '?role=dps', 'selected': True},
+                    {'label': '坦克 T', 'url': '?role=tank', 'selected': False},
+                ])
+                board['entries'][0]['icon'] = '/static/test-spec.jpg'
+                html = render_to_string('shared/simc_reference_ranking_panel.html', board)
+                self.assertIn('aria-label="排名职责"', html)
+                self.assertIn('href="?role=tank"', html)
+                self.assertIn('src="/static/test-spec.jpg"', html)
+                self.assertIn('输出 DPS', html)
+                self.assertNotIn('data-ranking-locate', html)
 
     def test_admin_single_setting_is_label_not_empty_control(self):
         board = self.board(True)
@@ -58,6 +75,9 @@ class AdminRankingTemplateTests(SimpleTestCase):
         self.assertIn('排行榜', html)
         self.assertNotIn('本专精', html)
         self.assertNotIn('全职业', html)
+        context['ranking_role'] = 'tank'
+        html = render_to_string('shared/simc_reference_rank_buttons.html', context)
+        self.assertIn('scenario=8&amp;role=tank', html)
         context['ranking_route'] = 'portal_simc_reference_rankings'
         html = render_to_string('shared/simc_reference_rank_buttons.html', context)
         self.assertEqual(html.count('<a '), 2)

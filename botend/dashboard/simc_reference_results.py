@@ -63,7 +63,10 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
 
     def get(self, request, config_id=None, signature=None, scope='overall'):
         from botend.dashboard.dashboard import DashboardView
-        from botend.services.simc_reference_rankings import admin_ranking_page_context
+        from botend.services.simc_reference_rankings import (
+            admin_ranking_page_context, apply_ranking_role, validate_ranking_role, ranking_role_url,
+        )
+        role = validate_ranking_role(request.GET.get('role'))
         settings_id = _positive_id(request.GET['settings']) if request.GET.get('settings') else None
         scene_id = _positive_id(request.GET['scenario']) if request.GET.get('scenario') else None
         # Historical per-result/spec URLs are aliases, never a ranking filter.
@@ -83,13 +86,14 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
             params = {'settings': config.settings_id}
             if scene_id is not None:
                 params['scenario'] = scene_id
-            response = redirect(reverse('simc_reference_rankings_entry') + '?' + urlencode(params))
+            response = redirect(ranking_role_url(reverse('simc_reference_rankings_entry') + '?' + urlencode(params), role))
             response['Cache-Control'] = 'private, no-store'
             response['X-Robots-Tag'] = 'noindex, nofollow'
             return response
         board = admin_ranking_page_context(settings_id, scene_id)
         if board is None:
             raise Http404('模拟配置或场景不存在、已停用，或场景不属于该配置')
+        apply_ranking_role(board, role, request.get_full_path())
         dashboard = DashboardView()
         dashboard.setup(request)
         context = dashboard.get_context_data(title='后台', page_name='frontend-rankings', include_stats=False)
@@ -384,7 +388,11 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
         if publication_form is not None and selected:
             context['publication_sections'] = publication_sections(publication_form, selected, workflow)
         if scheme_page is not None:
+            from botend.services.simc_reference_rankings import ranking_spec_metadata
+            ranking_role = ranking_spec_metadata(selected.spec_key)['role']
             for scheme in scheme_page:
+                for scene in scheme['scenes']:
+                    scene['ranking_role'] = ranking_role
                 scheme['editor_links'] = {kind: editor_url(kind, scheme[kind + '_id'], config=selected, page='results')
                                           for kind in ('profile', 'talent', 'apl') if scheme[kind + '_id']} if workflow['can_edit'] else {}
         response = render(request, self.template_name, context, status=status)

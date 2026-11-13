@@ -3,13 +3,84 @@
 import math
 from collections import defaultdict
 from types import SimpleNamespace
+from functools import lru_cache
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.http import Http404
 from django.db.models import Case, Exists, F, IntegerField, OuterRef, Value, When
 
-from botend.services.simc_scenario_display import scenario_label
+from botend.constants.wow import specialization_catalog, SPEC_ROLE
 from botend.models import SimcReferencePublication, SimcReferenceRankingEntry
+from botend.services.simc_player_config import canonical_simc_profile_key
+from botend.services.simc_scenario_display import scenario_label
 from botend.services.simc_reference_ranking_index import comparison_key
 from botend.services.simc_reference_simulations import active_scenarios, scenario_simulation_params
+
+
+ROLE_LABELS = {'dps': '输出', 'tank': '坦克', 'healer': '治疗', 'unknown': '未识别'}
+
+
+@lru_cache(maxsize=1)
+def _spec_metadata():
+    """Local authoritative labels/icons/roles; never load the resource catalog."""
+    metadata = {}
+    for spec in specialization_catalog():
+        key = canonical_simc_profile_key(
+            'beast_mastery' if spec['spec_name'] == 'BeastMastery' else spec['spec_name'].lower(),
+            spec['class_name'],
+        )
+        if key:
+            role = SPEC_ROLE.get((spec['class_name'], spec['spec_name']), 'unknown')
+            metadata[key] = dict(spec=spec['label'], icon=spec['icon'], role=role,
+                                 role_label=ROLE_LABELS[role])
+    return metadata
+
+
+def ranking_spec_metadata(spec_key):
+    return dict(_spec_metadata().get(spec_key, dict(
+        spec=spec_key, icon='', role='unknown', role_label=ROLE_LABELS['unknown'],
+    )))
+
+
+def validate_ranking_role(role):
+    if role is not None and role not in ROLE_LABELS:
+        raise Http404('排行榜职责不存在')
+    return role
+
+
+def ranking_role_url(url, role):
+    """Retain the original path, query identities and fragment when adding role."""
+    validate_ranking_role(role)
+    if not url or role is None:
+        return url
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != 'role']
+    return urlunsplit(parts._replace(query=urlencode(query + [('role', role)])))
+
+
+def apply_ranking_role(board, role, path):
+    """Pure projection: one role per page, while retaining the anchor card."""
+    validate_ranking_role(role)
+    entries = board.get('entries', [])
+    current = board.get('current')
+    present = {entry['role'] for entry in entries}
+    if role is None:
+        role = (current['role'] if current and not board.get('admin_ranking') else
+                next((key for key in ROLE_LABELS if key in present), 'dps'))
+    board.update(
+        entries=[entry for entry in entries if entry['role'] == role],
+        selected_role=role, role_label=ROLE_LABELS[role],
+        role_options=[dict(label=label, url=ranking_role_url(path, key), selected=key == role)
+                      for key, label in ROLE_LABELS.items() if key != 'unknown' or key in present or key == role],
+        current_in_ranking=bool(current and current['role'] == role),
+    )
+    board['empty_ranking'] = not board['entries']
+    for name in ('scope_options', 'scene_options', 'settings_options'):
+        board[name] = [dict(option, url=ranking_role_url(option.get('url'), role))
+                       for option in board.get(name, [])]
+    if board.get('module_rankings_url'):
+        board['module_rankings_url'] = ranking_role_url(board['module_rankings_url'], role)
+    return board
 
 
 def _read_queryset():
@@ -90,10 +161,11 @@ def current_rankings(config):
     """两个维度的名次摘要，与完整榜单共用候选和排序规则。"""
     rankings = {}
     for rows in _current_cohorts(config):
-        by_spec = defaultdict(list)
+        by_spec, by_role = defaultdict(list), defaultdict(list)
         for row in rows:
             by_spec[row.config.spec_key].append(row)
-        for dimension, groups in (('overall', [rows]), ('spec', by_spec.values())):
+            by_role[ranking_spec_metadata(row.config.spec_key)['role']].append(row)
+        for dimension, groups in (('overall', by_role.values()), ('spec', by_spec.values())):
             for group in groups:
                 previous, rank = None, 0
                 for index, row in enumerate(sorted(group, key=lambda item: (-item.dps, item.pk)), 1):
@@ -108,26 +180,23 @@ def current_rankings(config):
 
 def _ranked_entries(rows, anchor_pk=None):
     """One formatter for public contextual rankings and admin condition groups."""
-    from botend.constants.wow import CLASS_CN, SPEC_CN, CLASS_SPEC_MAP
-    from botend.services.simc_player_config import canonical_simc_profile_key
     from django.urls import reverse
     from urllib.parse import urlencode
-    labels = {
-        canonical_simc_profile_key('beast_mastery' if spec == 'BeastMastery' else spec.lower(), cls):
-            f'{CLASS_CN[cls]} · {SPEC_CN[spec]}'
-        for cls, specs in CLASS_SPEC_MAP.items() for spec in specs
-    }
-    entries, previous, rank = [], None, 0
-    for index, row in enumerate(sorted(rows, key=lambda item: (-item.dps, item.pk)), 1):
+    entries, role_ranks = [], {}
+    for row in sorted(rows, key=lambda item: (-item.dps, item.pk)):
+        metadata = ranking_spec_metadata(row.config.spec_key)
+        role = metadata['role']
+        count, previous, rank = role_ranks.get(role, (0, None, 0))
+        count += 1
         if row.dps != previous:
-            rank = index
-        previous = row.dps
+            rank = count
+        role_ranks[role] = count, row.dps, rank
         detail_url = reverse('portal_simc_reference') + '?' + urlencode({
             'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
             'scenario': row.current_scenario.pk,
         })
         entries.append({
-            'rank': rank, 'spec': labels.get(row.config.spec_key, row.config.spec_key),
+            'rank': rank, **metadata,
             'profile': row.profile.name, 'talent': row.talent.name, 'apl': row.apl.name,
             'dps': row.dps, 'is_current': row.pk == anchor_pk,
             'detail_url': detail_url,

@@ -1,7 +1,7 @@
 {% if not admin_ranking %}{% include 'shared/simc_reference_navigation.html' %}{% endif %}
 <header class="ranking-page-heading simc-page-heading"><div><h1 id="reference-admin-title">模拟排行榜</h1><p>比较相同模拟条件下的公开配置组合。</p></div>{% if return_url %}<a class="ranking-back" href="{{ return_url }}">{{ return_label }}</a>{% endif %}</header>
 <div class="simc-ranking-workspace">
-{% if not empty_ranking or admin_ranking %}
+{% if not empty_ranking or admin_ranking or role_options %}
 <div class="ranking-filters">
     {% if admin_ranking %}
     <nav aria-label="模拟配置">{% for option in settings_options %}{% if settings_options|length > 1 %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% else %}<span>{{ option.label }}</span>{% endif %}{% endfor %}</nav>
@@ -9,6 +9,7 @@
     <nav aria-label="排名范围">{% for option in scope_options %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% endfor %}</nav>
     {% endif %}
     <nav aria-label="模拟场景">{% for option in scene_options %}{% if option.url %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% else %}<span aria-disabled="true">{{ option.label }} · 未模拟</span>{% endif %}{% endfor %}</nav>
+    {% if role_options %}<nav aria-label="排名职责">{% for option in role_options %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% endfor %}</nav>{% endif %}
 </div>
 {% endif %}
 {% if empty_ranking %}
@@ -16,7 +17,7 @@
 {% else %}
 {% if not admin_ranking %}
 <section class="ranking-current-config" aria-label="当前配置">
-    <div class="ranking-current-heading"><h2>当前配置 <span>{{ current.spec }}</span></h2><a href="#ranking-current" data-ranking-locate>定位榜单中的当前配置</a></div>
+    <div class="ranking-current-heading"><h2>当前配置 <span>{{ current.spec }}</span></h2>{% if current_in_ranking %}<a href="#ranking-current" data-ranking-locate>定位榜单中的当前配置</a>{% endif %}</div>
     <dl>
         <div><dt>装备</dt><dd>{% include 'shared/simc_reference_rank_resource.html' with name=current.profile detail_url=current.resource_links.profile preview_url=current.preview_links.profile label='装备' %}</dd></div>
         <div><dt>天赋</dt><dd>{% include 'shared/simc_reference_rank_resource.html' with name=current.talent detail_url=current.resource_links.talent preview_url=current.preview_links.talent label='天赋' %}</dd></div>
