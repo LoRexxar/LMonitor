@@ -1342,7 +1342,7 @@ class GuideMarkdownTests(SimpleTestCase):
     def test_vertical_conversion_preserves_nested_components_and_code(self):
         source = ('## 配装\n\n:::tabs\n:::tab 单体\n### 优先级\n'
                   '[[spell:30451]]\n:::tabs 备选\n:::tab 爆发\n'
-                  ':::talents\n```json\n{"code":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}\n```\n:::\n:::\n:::\n:::\n'
+                  ':::talents\n```json\n{"code":"C4DAAAAAAAAAAAAAAAAAAAAAAMzwYZmZmFMzQzMmBAAwAAmZmmlllZmZmZZZmJ2AAYBmZG2sMjZWmxYmZmZYhZMjZAAGAAgZmFMzAzMAYYmZA"}\n```\n:::\n:::\n:::\n:::\n'
                   ':::tab 多目标\n| 技能 |\n| --- |\n| [[item:123]] |\n:::\n:::\n'
                   '## 宏\n```wow-macro\n:::tab 这是宏内文本\n/cast 奥术冲击\n```\n')
         converted = normalize_tab_markdown(source)
@@ -1350,7 +1350,7 @@ class GuideMarkdownTests(SimpleTestCase):
         self.assertIn('#### 优先级', converted)
         self.assertIn('### 多目标', converted)
         self.assertIn('## 宏\n```wow-macro\n:::tab 这是宏内文本\n/cast 奥术冲击\n```', converted)
-        self.assertIn('"code":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"', converted)
+        self.assertIn('"code":"C4DAAAAAAAAAAAAAAAAAAAAAAMzwYZmZmFMzQzMmBAAwAAmZmmlllZmZmZZZmJ2AAYBmZG2sMjZWmxYmZmZYhZMjZAAGAAgZmFMzAzMAYYmZA"', converted)
         self.assertIn('| [[item:123]] |', converted)
         self.assertEqual(normalize_tab_markdown(converted), converted)
         self.assertNotIn("'type': 'tab'", str(compile_markdown(converted)))
@@ -1391,7 +1391,7 @@ class GuideMarkdownTests(SimpleTestCase):
         self.assertNotIn('src="javascript:', rendered)
 
     def test_table_and_talent_source_roundtrip(self):
-        source = '| 技能 | 用途 |\n| --- | --- |\n| [[spell:30451]] | 单体 |\n\n:::talents 团本\n```json\n{"code":"ABCDEFGHIJKLMNOPQRSTUVWXYZ"}\n```\n配合爆发使用。\n:::'
+        source = '| 技能 | 用途 |\n| --- | --- |\n| [[spell:30451]] | 单体 |\n\n:::talents 团本\n```json\n{"code":"C4DAAAAAAAAAAAAAAAAAAAAAAMzwYZmZmFMzQzMmBAAwAAmZmmlllZmZmZZZmJ2AAYBmZG2sMjZWmxYmZmZYhZMjZAAGAAgZmFMzAzMAYYmZA"}\n```\n配合爆发使用。\n:::'
         blocks = compile_markdown(source)
         self.assertIn('<table>', blocks[0]['html'])
         self.assertTrue(blocks[1]['data']['converted'])

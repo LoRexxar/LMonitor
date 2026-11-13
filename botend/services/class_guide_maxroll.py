@@ -260,9 +260,12 @@ def convert(post):
                 match = re.search(r'/embed-tools/(talents|paperdoll|rotation|priority|timeline|simulation)=([^/?#]+)', url)
                 if match:
                     block['type'] = {'paperdoll': 'gear'}.get(match[1], match[1])
-                    block['data'] = {'source_url': url, 'source_code': unquote(match[2]), 'converted': match[1] == 'talents'}
+                    block['data'] = {'source_url': url, 'source_code': unquote(match[2]), 'converted': False}
                     if match[1] == 'talents':
-                        block['data']['code'] = unquote(match[2]).replace('-', '+').replace('_', '/')
+                        from botend.services.class_guide_talents import prepare_talent_data
+                        block['data'] = prepare_talent_data(block['data'])
+                        if not block['data']['converted']:
+                            unsupported.append({'id': block['id'], 'type': 'talents', 'reason': block['data']['conversion_error']})
                     else:
                         try:
                             decoded = decode_component(match[1], unquote(match[2]))

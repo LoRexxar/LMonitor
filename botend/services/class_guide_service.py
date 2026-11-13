@@ -93,7 +93,7 @@ def check_article(guide, blocks=None):
     previous = guide.check_data or {}
     refs = resolve_references(blocks, guide.game_version, guide.class_name, guide.spec_name, previous.get('source_refs'))
     unsupported = [b['id'] for b in walk_blocks(blocks)
-                   if b['type'] == 'unsupported' or (b['type'] in {'gear', 'rotation', 'priority', 'timeline', 'simulation'} and not b.get('data', {}).get('converted'))]
+                   if b['type'] == 'unsupported' or (b['type'] in {'talents', 'gear', 'rotation', 'priority', 'timeline', 'simulation'} and not b.get('data', {}).get('converted'))]
     untranslated = previous.get('untranslated', [])
     mismatches = [token for token, ref in refs.items() if ref['resolved'] and ref.get('source_name') and ref.get('name_en')
         and not reference_names_match(ref['source_name'], ref['name_en'])]

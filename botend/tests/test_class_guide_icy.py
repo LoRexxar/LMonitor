@@ -14,7 +14,8 @@ from botend.services.class_guide_icy import convert_page, merge_chapters, locali
 
 
 BASE = 'https://www.icy-veins.com/wow/blood-death-knight-pve-tank-'
-CODE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+# Real game export: alphabet-only placeholders are not valid talent headers.
+CODE = 'C4DAAAAAAAAAAAAAAAAAAAAAAMzwYZmZmFMzQzMmBAAwAAmZmmlllZmZmZZZmJ2AAYBmZG2sMjZWmxYmZmZYhZMjZAAGAAgZmFMzAzMAYYmZA'
 
 
 def page(body):

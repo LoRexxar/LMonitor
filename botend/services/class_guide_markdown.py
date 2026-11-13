@@ -257,10 +257,8 @@ def compile_markdown(source, *, _expand_tabs=True):
                 if kind in COMPONENTS:
                     data = block['data']; data['converted'] = False
                     if kind == 'talents':
-                        data['code'] = str(data.get('code') or data.get('source_code') or '').replace('-', '+').replace('_', '/')
-                        if not re.fullmatch(r'[A-Za-z0-9+/=]{8,4096}', data['code']):
-                            raise ValueError('天赋扩展需要有效的 code 参数')
-                        data['converted'] = True
+                        from botend.services.class_guide_talents import prepare_talent_data
+                        block['data'] = data = prepare_talent_data(data)
                     elif data.get('source_code'):
                         data['decoded'] = decode_component('paperdoll' if kind == 'gear' else kind, str(data['source_code']))
                         data['converted'] = True

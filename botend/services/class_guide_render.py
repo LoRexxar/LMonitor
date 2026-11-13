@@ -23,9 +23,12 @@ def render_blocks(blocks, refs, guide):
             if len(labels) > 1 and len(decoded.get('relation', [])) == len(labels) - 1:
                 block['html'] = priority_html(labels, decoded['relation'])
         data['tool_url'] = ''
-        if block['type'] == 'talents' and data.get('code'):
-            data['tool_url'] = '/portal/talents/?' + urlencode({'class': identity[0], 'spec': identity[1],
-                'code': data['code'], 'version': data.get('talent_version') or (version.key if version else guide.game_version)})
+        if block['type'] == 'talents':
+            from botend.services.class_guide_talents import prepare_talent_data
+            block['data'] = data = prepare_talent_data(data, expected_spec=guide.spec_id)
+            if data['converted']:
+                data['tool_url'] = '/portal/talents/?' + urlencode({'class': identity[0], 'spec': identity[1],
+                    'code': data['code'], 'version': data.get('talent_version') or (version.key if version else guide.game_version)})
         elif block['type'] == 'gear' and data.get('decoded'):
             data['tool_url'] = gear_tool_url(data['decoded'], guide, refs)
         if data.get('steps'):
