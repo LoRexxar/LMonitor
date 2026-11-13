@@ -406,9 +406,6 @@ function renderSimpleList(containerId, items, opts) {
       if (author) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-user", "w-3.5 h-3.5 text-slate-400")}<span>${author}</span></span>`);
       if (time) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></span>`);
       if (reply) parts.push(reply);
-      if (containerId === "nga-list" && it.id) {
-        parts.push(`<button type="button" data-nga-preview-toggle aria-haspopup="dialog" aria-controls="nga-hover-tooltip" aria-expanded="false" class="portal-nga-preview__toggle">预览</button>`);
-      }
       const meta = parts.join("");
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
