@@ -2390,7 +2390,7 @@ async function loadAll() {
   await Promise.allSettled([
     loadTools(),
     loadHomepageSections([
-      "today_in_wow", "daily_report", "blueposts", "exwind", "wowhead", "blizzard_cn", "nga_preview", "nga",
+      "today_in_wow", "daily_report", ...homeNewsKeys(), "nga",
       "events", "videos", "mplus_cutoffs", "mplus_rankings", "peak_spec_rankings",
     ]),
   ]);
