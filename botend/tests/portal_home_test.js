@@ -20,6 +20,9 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
   context.loadTools = () => new Promise((resolve, reject) => { navigation = {resolve, reject}; });
   context.bindSearch = () => { bound = true; };
   context.bindHomeNewsControls = context.updateSearchMeta = () => {};
+  const expectedSections = ['today_in_wow', 'daily_report',
+    ...Array.from(vm.runInContext('homeNewsKeys()', context)), 'nga',
+    'events', 'videos', 'mplus_cutoffs', 'mplus_rankings', 'peak_spec_rankings'];
   const loading = context.loadAll();
   await flush();
   assert.equal(bound, true, '导航未完成时搜索也应可用');
@@ -27,13 +30,13 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
   pending.get('daily_report').reject(Error('模拟板块失败'));
   navigation.reject(Error('模拟导航失败'));
   await flush();
-  assert.equal(started[3], 'exwind', '空出的并发位置应马上加载后续板块');
+  assert.equal(started[3], expectedSections[3], '空出的并发位置应马上加载后续板块');
   // 首个板块持续未完成，其余板块仍应全部加载。
-  while (started.length < 13) {
+  for (let attempt = 0; started.length < expectedSections.length && attempt < expectedSections.length * 2; attempt++) {
     for (const [key, task] of pending) if (key !== 'today_in_wow') task.resolve();
     await flush();
   }
-  assert.equal(new Set(started).size, 13);
+  assert.deepEqual(started, expectedSections, '所有注册来源和内容板块都应加载一次');
   assert.equal(peak, 3, '内容板块最多并发三个');
   for (const task of pending.values()) task.resolve();
   await loading;
