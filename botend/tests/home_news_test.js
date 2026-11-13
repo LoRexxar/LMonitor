@@ -76,6 +76,33 @@ function preferenceStorage() {
   return {getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value)};
 }
 
+test('首页首次加载所有已注册新闻来源，Icy 空结果隐藏卡片和跳转，有新闻时恢复', async () => {
+  const {context, element} = setup();
+  context.bindSearch = context.bindHomeNewsControls = context.updateSearchMeta = () => {};
+  context.loadTools = async () => {};
+  const loadSection = context.loadSection;
+  const keys = Array.from(context.homeNewsKeys());
+  context.loadSection = key => keys.includes(key) ? loadSection(key) : Promise.resolve();
+  const requested = [];
+  let icyRows = [];
+  context.fetchJson = async url => {
+    requested.push(new URL(url, 'https://example.invalid').pathname);
+    return {data: url.includes('/icy-veins/') ? icyRows : [], snapshot: {state: 'ready'}};
+  };
+  await context.loadAll();
+  assert.equal(requested.filter(path => path === '/portal/api/icy-veins/latest/').length, 1);
+  assert.equal(requested.length, keys.length);
+  assert.equal(element('news-source-icy_veins').hidden, true);
+  assert.equal(element('news-jump-icy_veins').hidden, true);
+  assert.equal(element('icy_veins-list').innerHTML, '');
+  assert.equal(element('icy_veins-list').attrs['aria-busy'], 'false');
+  icyRows = [{id: 123, title: '新闻标题', source: 'icy_veins', publish_time: '2026-11-12 12:00:00'}];
+  await context.loadAll();
+  assert.equal(element('news-source-icy_veins').hidden, false);
+  assert.equal(element('news-jump-icy_veins').hidden, false);
+  assert.match(element('icy_veins-list').innerHTML, /新闻标题/);
+});
+
 test('Icy Veins 来源支持日期请求、中文标题与站内详情链接', async () => {
   const {context, element} = setup();
   let requested;

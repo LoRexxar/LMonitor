@@ -406,9 +406,6 @@ function renderSimpleList(containerId, items, opts) {
       if (author) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-user", "w-3.5 h-3.5 text-slate-400")}<span>${author}</span></span>`);
       if (time) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></span>`);
       if (reply) parts.push(reply);
-      if (containerId === "nga-list" && it.id) {
-        parts.push(`<button type="button" data-nga-preview-toggle aria-haspopup="dialog" aria-controls="nga-hover-tooltip" aria-expanded="false" class="portal-nga-preview__toggle">预览</button>`);
-      }
       const meta = parts.join("");
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
@@ -1036,9 +1033,9 @@ function renderTodayStrip() {
       if (!duplicate) picked.push(item);
     });
 
-  // 数据更新与原有资讯共用短条；未更新的板块不进入今日重点。
-  PORTAL_STATE.todayUpdates.filter((item) => item.status === 'today').forEach((item, index) => {
-    picked.push({ label: item.label, text: item.headline || item.summary, url: item.url,
+  // 仅展示有真实变化摘要的今日更新，不将“已同步”状态冒充重点。
+  PORTAL_STATE.todayUpdates.filter((item) => item.status === 'today' && item.headline?.trim()).forEach((item, index) => {
+    picked.push({ label: item.label, text: item.headline, url: item.url,
       muted: '今日', priority: 20 + index / 10 });
   });
   picked.sort((a, b) => a.priority - b.priority);
@@ -2390,7 +2387,7 @@ async function loadAll() {
   await Promise.allSettled([
     loadTools(),
     loadHomepageSections([
-      "today_in_wow", "daily_report", "blueposts", "exwind", "wowhead", "blizzard_cn", "nga_preview", "nga",
+      "today_in_wow", "daily_report", ...homeNewsKeys(), "nga",
       "events", "videos", "mplus_cutoffs", "mplus_rankings", "peak_spec_rankings",
     ]),
   ]);

@@ -158,6 +158,24 @@ console.log('副本本地筛选、搜索、缺失状态、巅峰逐人物链接�
 
 });
 
+test("NGA list: remove preview button and preserve post metadata", () => {
+  const list = {innerHTML: '', querySelectorAll() { return []; }};
+  const context = vm.createContext({console, URL, clearTimeout,
+    document: {addEventListener() {}, getElementById() { return list; }},
+    window: {addEventListener() {}},
+  });
+  vm.runInContext(source, context);
+  context.renderSimpleList('nga-list', [{id: 123, title: '讨论帖',
+    url: 'https://bbs.nga.cn/read.php?tid=123', author: '作者', source: '职业讨论', reply_count: 42}]);
+  assert.doesNotMatch(list.innerHTML, /data-nga-preview-toggle|>预览<|<button/);
+  assert.match(list.innerHTML, /href="https:\/\/bbs\.nga\.cn\/read\.php\?tid=123"/);
+  assert.match(list.innerHTML, /讨论帖/);
+  assert.match(list.innerHTML, /作者/);
+  assert.match(list.innerHTML, /职业讨论/);
+  assert.match(list.innerHTML, /42 回复/);
+  assert.match(list.innerHTML, /data-nga-article-id="123"/);
+});
+
 test("today digest: selection, visibility, expansion and escaping", async () => {
 // 验证今日重点的信息筛选、原有内容保留与展开行为。
 const strip = { hidden: false };
@@ -189,7 +207,8 @@ function render(updates, sections = {}) {
   return items.innerHTML;
 }
 const today = {key:'skill_diffs', label:'改动挖掘', headline:'3 职业 · 17 项技能改动', status:'today', url:'/portal/wow-skill-diff/1/'};
-let html = render([today, {key:'gear', label:'装备目录', status:'older'}, {key:'mdt', label:'MDT', status:'empty'}]);
+let html = render([today, ...['mplus', 'raid', 'gear', 'mdt'].map(key => ({key, label:'无变化的同步', status:'today', headline:'', summary:'今日已同步'}))]);
+assert.doesNotMatch(html, /无变化的同步|已同步/);
 assert.match(html, /3 职业 · 17 项技能改动/);
 assert.match(html, /href="\/portal\/wow-skill-diff\/1\/"/);
 assert.doesNotMatch(html, /装备目录|MDT|暂无数据|portal-update-item/);

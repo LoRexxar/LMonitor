@@ -20,8 +20,10 @@ class PortalSiteUpdatesTests(TestCase):
     def items(self):
         return {row['key']: row for row in build_site_updates(self.now)['items']}
 
-    def report(self, at, build='1', content='职业改动'):
-        row = WowSkillDiffReport.objects.create(to_build=build, content_md=content)
+    def report(self, at, build='1', content='职业改动', class_count=1, spell_count=1):
+        row = WowSkillDiffReport.objects.create(
+            to_build=build, content_md=content, class_count=class_count, spell_count=spell_count,
+        )
         WowSkillDiffReport.objects.filter(pk=row.pk).update(created_at=at)
         return row
 
@@ -50,14 +52,61 @@ class PortalSiteUpdatesTests(TestCase):
         self.assertEqual(self.items()['skill_diffs']['headline'], '3 职业 · 17 项技能改动')
         release = JournalRelease.objects.create(build='test', status='completed', completed_at=self.now)
         JournalState.objects.create(active_release=release)
-        self.assertEqual(self.items()['journal']['headline'], '首领技能与掉落已同步')
+        self.assertEqual(self.items()['journal']['headline'], '')
 
     def test_hotfix_is_independent_from_build_report(self):
-        row = WowHotfixReport.objects.create(to_push=123, content_md='热修内容')
+        row = WowHotfixReport.objects.create(
+            to_push=123, content_md='热修内容', collection_complete=True,
+            class_class_count=1, class_spell_count=1, class_content_html_path='reports/class.html',
+        )
         WowHotfixReport.objects.filter(pk=row.pk).update(created_at=self.now)
         items = self.items()
         self.assertEqual(items['hotfixes']['today_count'], 1)
         self.assertEqual(items['skill_diffs']['status'], 'empty')
+
+    def test_digest_requires_verified_class_changes_and_real_headlines(self):
+        build = self.report(self.now, 'no-class', class_count=0)
+        WowSkillDiffReport.objects.filter(pk=build.pk).update(spell_count=7)
+        hotfix = WowHotfixReport.objects.create(
+            to_push=456, content_md='全量热修', entry_count=100,
+            summary_title='热修已更新', collection_complete=True,
+        )
+        WowHotfixReport.objects.filter(pk=hotfix.pk).update(created_at=self.now)
+        items = self.items()
+        for key in ('skill_diffs', 'hotfixes'):
+            self.assertEqual(items[key]['status'], 'empty')
+            self.assertEqual(items[key]['today_count'], 0)
+            self.assertEqual(items[key]['headline'], '')
+        for key in ('mplus', 'raid', 'gear', 'journal', 'mdt', 'talents'):
+            self.assertEqual(items[key]['headline'], '')
+
+        WowSkillDiffReport.objects.filter(pk=build.pk).update(class_count=2)
+        WowHotfixReport.objects.filter(pk=hotfix.pk).update(
+            class_class_count=1, class_spell_count=3, class_content_html_path='reports/class.html',
+            content_md='', content_html_path='',
+        )
+        items = self.items()
+        self.assertEqual(items['skill_diffs']['headline'], '2 职业 · 7 项技能改动')
+        self.assertEqual(items['hotfixes']['headline'], '1 职业 · 3 项改动来源')
+        self.assertEqual(items['hotfixes']['url'], f'/portal/wow-hotfix-class/{hotfix.pk}/')
+        self.assertEqual(items['hotfixes']['today_count'], 1)
+        # Newer generic/fallback reports must not hide an earlier valid class report.
+        self.report(self.now, 'newer-non-class', class_count=0)
+        other = WowHotfixReport.objects.create(to_push=789, content_md='fallback')
+        WowHotfixReport.objects.filter(pk=other.pk).update(created_at=self.now)
+        self.assertEqual(self.items()['hotfixes']['url'], items['hotfixes']['url'])
+        self.assertEqual(self.items()['skill_diffs']['url'], items['skill_diffs']['url'])
+        for invalid in (
+            {'collection_complete': False}, {'class_content_html_path': ''},
+            {'class_class_count': 0}, {'class_spell_count': 0},
+        ):
+            with self.subTest(invalid=invalid):
+                WowHotfixReport.objects.filter(pk=hotfix.pk).update(**invalid)
+                self.assertEqual(self.items()['hotfixes']['status'], 'empty')
+                WowHotfixReport.objects.filter(pk=hotfix.pk).update(
+                    collection_complete=True, class_content_html_path='reports/class.html',
+                    class_class_count=1, class_spell_count=3,
+                )
 
     def test_only_active_completed_journal_counts(self):
         release = JournalRelease.objects.create(build='old', status='completed', completed_at=self.now - timedelta(days=1))

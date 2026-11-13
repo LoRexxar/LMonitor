@@ -38,14 +38,8 @@ def build_site_updates(now=None):
         )
         items.append({
             'key': key, 'label': label, 'url': url, 'status': status,
-            'summary': summary, 'detail': detail, 'headline': headline or {
-                'journal': '首领技能与掉落已同步',
-                'mplus': '本赛季伤害榜已同步',
-                'raid': '本赛季首领数据已同步',
-                'gear': '装备属性与特效已同步',
-                'mdt': '副本地图与怪物资料已同步',
-                'talents': '天赋树与技能说明已同步',
-            }.get(key, summary),
+            # 同步时间不是内容变化；无可核实变化摘要时不生成今日重点。
+            'summary': summary, 'detail': detail, 'headline': headline,
             'updated_at': updated_at.astimezone(SITE_TIMEZONE).isoformat() if updated_at else None,
             'updated_label': updated_at.astimezone(SITE_TIMEZONE).strftime('%m-%d %H:%M') if updated_at else '',
             'today_count': count if count is not None else None,
@@ -53,19 +47,26 @@ def build_site_updates(now=None):
 
     for key, label, model, detail_route in (
         ('skill_diffs', '改动挖掘', WowSkillDiffReport, 'wow-skill-diff'),
-        ('hotfixes', '热修报告', WowHotfixReport, 'wow-hotfix-report'),
+        ('hotfixes', '热修报告', WowHotfixReport, 'wow-hotfix-class'),
     ):
-        reports = model.objects.filter(created_at__lte=now).exclude(
-            content_md='', content_html_path='',
-        )
+        reports = model.objects.filter(created_at__lte=now)
+        if key == 'skill_diffs':
+            reports = reports.filter(class_count__gt=0, spell_count__gt=0).exclude(
+                content_md='', content_html_path='',
+            )
+        else:
+            reports = reports.filter(
+                collection_complete=True, class_class_count__gt=0, class_spell_count__gt=0,
+            ).exclude(class_content_html_path='')
         stats = reports.aggregate(latest=Max('created_at'), today=Count('id', filter=Q(created_at__gte=start)))
         latest = reports.order_by('-created_at', '-id').first()
-        headline = f"新增 {stats['today']} 份报告"
-        if latest and key == 'skill_diffs' and latest.spell_count:
-            scope = f'{latest.class_count} 职业 · ' if latest.class_count else ''
-            headline = f'{scope}{latest.spell_count} 项技能改动'
+        headline = ''
+        if latest and key == 'skill_diffs':
+            headline = f'{latest.class_count} 职业 · {latest.spell_count} 项技能改动'
         elif latest and key == 'hotfixes':
-            headline = latest.summary_title or (f'{latest.entry_count} 项热修变动' if latest.entry_count else headline)
+            headline = f'{latest.class_class_count} 职业 · {latest.class_spell_count} 项改动来源'
+            if latest.class_unresolved_count:
+                headline += f'（另 {latest.class_unresolved_count} 条来源归属待核实）'
         if stats['today'] > 1 and latest:
             headline = f'新增 {stats["today"]} 份 · 最新：{headline}'
         add(key, label, f'/portal/{detail_route}/{latest.pk}/' if latest else '/portal/wow-updates/',
