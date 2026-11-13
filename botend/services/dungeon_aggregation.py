@@ -286,7 +286,7 @@ def _metadata_dependencies(records, facts, class_name, spec_name, *, context=Non
 
 
 def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
-                      selected_ids=None, source_cutoff=None):
+                      selected_ids=None, source_cutoff=None, phase_timings=None):
     """Publish once or reuse a verified generation; return publication evidence.
 
     selected_ids is {str(dungeon_id): [ranking_id, ...]} in frozen selector order.
@@ -295,7 +295,13 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     publish(path, payload, class_name, spec_name) must publish a stats projection.
     """
     from .stats_talent_dependencies import structure_token
+    from collections import defaultdict
+    import time
+    phase_timings = phase_timings if phase_timings is not None else defaultdict(float)
+    started = time.monotonic()
     token = structure_token(class_name)
+    phase_timings['dungeon_structure'] += time.monotonic() - started
+    started = time.monotonic()
     path = Path(path)
     encounters = {int(enc['id']): enc for enc in (season.mplus_encounters or [])}
     if selected_ids is not None and set(selected_ids) != {str(key) for key in encounters}:
@@ -321,6 +327,8 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         by_dungeon[dungeon_id] = [row for row in selected if combatants._fight_key(row)]
     selected = [row for rows in by_dungeon.values() for row in rows]
     facts = combatants.load_matched_facts(selected, class_name, spec_name, fetched_before=source_cutoff)
+    phase_timings['dungeon_input'] += time.monotonic() - started
+    started = time.monotonic()
     metadata, context = {}, {}
     for dungeon_id, rows in by_dungeon.items():
         scope_facts = combatants.matched_facts(rows, facts, class_name, spec_name)
@@ -336,10 +344,15 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         'metadata': metadata,
     })
     required_keys = [f'dungeon-{key}' for key in encounters] + ['dungeon-all']
+    phase_timings['dungeon_fingerprint'] += time.monotonic() - started
+    started = time.monotonic()
     index = reusable_projection(path, fingerprint, required_keys)
+    phase_timings['dungeon_publication_check'] += time.monotonic() - started
     reused = index is not None
     if not reused:
+        started = time.monotonic()
         enriched = combatants.enrich_dungeon_records(selected, class_name, spec_name, facts=facts)
+        phase_timings['log_enrichment'] += time.monotonic() - started
         enriched_by_id = {row['id']: row for row in enriched}
         singles, union, union_enriched, coverage, seen = [], [], [], [], set()
         for dungeon_id, enc in encounters.items():
@@ -354,7 +367,8 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             if detail is None:
                 detail = stats.SpecStatsService._compute_dungeon_records(
                     rows, season.id, dungeon_id, name, class_name, spec_name, full=True,
-                    enriched_records=[enriched_by_id[row['id']] for row in rows])
+                      enriched_records=[enriched_by_id[row['id']] for row in rows],
+                      phase_timings=phase_timings)
                 detail = save_work(season.id, scope, scope_fingerprint, detail)
             singles.append(detail)
             contributed = 0
@@ -374,15 +388,18 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         if summary is None:
             summary = stats.SpecStatsService._compute_dungeon_records(
                 union, season.id, 'all', '全部副本汇总', class_name, spec_name, full=True,
-                include_talent_build_popularity=False, enriched_records=union_enriched)
+                  include_talent_build_popularity=False, enriched_records=union_enriched,
+                  phase_timings=phase_timings)
             summary = save_work(season.id, summary_scope, fingerprint, summary)
         target = len(encounters) * 100
         summary.update(target_sample_size=target, missing_sample_size=max(0, target - len(union)),
                        dungeon_samples=coverage)
+        started = time.monotonic()
         publish(path, {'_data_contract': 'wcl-log-v2', 'dungeons': singles, 'summary': summary, '_input_fingerprint': fingerprint,
                        '_talent_structure_token': token},
                 class_name, spec_name)
         index = reusable_projection(path, fingerprint, required_keys)
+        phase_timings['dungeon_publish'] += time.monotonic() - started
         if index is None:
             raise RuntimeError('Dungeon publication did not produce a complete matching generation')
     return {'reused': reused, 'generation': index['_snapshot']['generation'],

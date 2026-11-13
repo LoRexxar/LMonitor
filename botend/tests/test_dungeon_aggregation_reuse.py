@@ -99,6 +99,34 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertEqual(self.detail(), expected)
         self.assertEqual(self.detail()['sample_size'], sum(self.detail(i)['sample_size'] for i in (1, 2)) - 1)
 
+    def test_shared_talent_provider_preserves_statistics_and_reduces_reads(self):
+        """以独立提供器为对照，检查真实日志投影和数据库读取量。"""
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'is_active': True, 'status': 'active', 'is_default_stats': True})
+        _, talents = self.talent_metadata(version, name_zh='测试天赋')
+        self.fact(self.row(), talent_tree=talents)
+        rows = list(SpecDungeonRanking.objects.values(*stats.DUNGEON_SAMPLE_FIELDS))
+        enriched = facts.enrich_dungeon_records(rows, 'Warrior', 'Arms')
+        compute = lambda: stats.SpecStatsService._compute_dungeon_records(
+            rows, self.season.pk, 1, '测试副本', 'Warrior', 'Arms', full=True,
+            enriched_records=enriched)
+        usage, builds = stats._build_talent_usage_snapshot, stats._compute_talent_build_popularity
+        def independent_usage(*args, **kwargs):
+            return usage(*args, **dict(kwargs, provider=None))
+        def independent_builds(*args, **kwargs):
+            return builds(*args, **dict(kwargs, provider=None))
+        compute()
+        with patch.object(stats, '_build_talent_usage_snapshot', side_effect=independent_usage), \
+             patch.object(stats, '_compute_talent_build_popularity', side_effect=independent_builds), \
+             CaptureQueriesContext(connection) as independent:
+            expected = compute()
+        with CaptureQueriesContext(connection) as shared:
+            actual = compute()
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual['talent_sample_size'], 1)
+        self.assertLess(len(shared), len(independent))
+        print('天赋元数据读取对照', {'独立提供器': len(independent), '共享提供器': len(shared)})
+
     def test_unchanged_skips_compute_enrichment_publish_and_preserves_bytes(self):
         row = self.row()
         self.fact(row)

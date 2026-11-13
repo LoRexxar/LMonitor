@@ -5,6 +5,7 @@
 """
 
 from collections import Counter, defaultdict
+import time
 from botend.services.player_external_links import build_player_external_links
 from botend.services.player_raiderio_activity import project_player_activity
 from django.db import connection
@@ -468,7 +469,7 @@ class SpecStatsService:
     @staticmethod
     def _compute_dungeon_records(selected_records, season_id, dungeon_id, dungeon_name,
                                  class_name, spec_name, full=False, *, include_talent_build_popularity=True,
-                                 enriched_records=None):
+                                 enriched_records=None, phase_timings=None):
         """Shared single/combined detail statistics over actual selected records."""
         stats = {
             'dungeon_id': dungeon_id,
@@ -567,11 +568,17 @@ class SpecStatsService:
         records = (enriched_records if enriched_records is not None else
                    enrich_dungeon_records(selected_records, class_name, spec_name))
         from botend.services.log_talent_analysis import prepare_log_talents
+        phase_timings = phase_timings if phase_timings is not None else defaultdict(float)
+        phase_started = time.monotonic()
+        provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
         records = prepare_log_talents(records, class_name, spec_name,
-                                      encode_builds=include_talent_build_popularity)
+                                      encode_builds=include_talent_build_popularity,
+                                      provider=provider)
+        phase_timings['talent_prepare'] += time.monotonic() - phase_started
+        phase_started = time.monotonic()
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
-        usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
+        usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name, provider=provider)
         stats['talent_sample_size'] = usage_snapshot.get('total', 0)
         stats['talent_popularity'] = _compute_talent_popularity(
             records, top_n=talent_limit, snapshot=usage_snapshot,
@@ -592,8 +599,10 @@ class SpecStatsService:
         )
         if include_talent_build_popularity:
             stats['talent_build_popularity'] = _compute_talent_build_popularity(
-                records, class_name, spec_name, top_n=20 if full else 5,
+                records, class_name, spec_name, top_n=20 if full else 5, provider=provider,
             )
+        phase_timings['talent_statistics'] += time.monotonic() - phase_started
+        phase_started = time.monotonic()
 
         # Gear and enhancements are frozen in the same WCL observations.
         stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
@@ -604,6 +613,7 @@ class SpecStatsService:
             stat['sample_size'] = sum(bool((row.get('stats_json') or {}).get(stat['key'])) for row in records)
         stats['race_distribution'] = _compute_race_distribution([row for row in records if row.get('race')])
         _omit_unavailable_log_statistics(stats)
+        phase_timings['gear_statistics'] += time.monotonic() - phase_started
 
         if full:
             # 详细模式：Top 5 玩家（与统计口径使用同一批筛选样本）
@@ -699,13 +709,13 @@ class SpecStatsService:
 
     @staticmethod
     def _compute_raid_records(records, season_id, boss_id, boss_name, class_name, spec_name,
-                              full=False, *, enriched_records=None):
+                              full=False, *, enriched_records=None, phase_timings=None):
         # 装备、天赋、属性与大秘境共用同一日志投影，避免两套来源规则漂移。
         from botend.services.wcl_combatant_snapshot import _fight_key
         records = [row for row in records if _fight_key(row)]
         result = SpecStatsService._compute_dungeon_records(
             records, season_id, boss_id, boss_name, class_name, spec_name, full=full,
-            enriched_records=enriched_records)
+            enriched_records=enriched_records, phase_timings=phase_timings)
         result['boss_id'] = result.pop('dungeon_id')
         result['boss_name'] = result.pop('dungeon_name')
         times = sorted(row['kill_time'] for row in records if row.get('kill_time'))
@@ -1014,9 +1024,9 @@ def _add_selected_choice_options_from_build_code(record_nodes, build_code, decod
             record_nodes[option_key] = option_node
 
 
-def _build_talent_usage_snapshot(records, class_name, spec_name):
+def _build_talent_usage_snapshot(records, class_name, spec_name, *, provider=None):
     """聚合统计页热门天赋所需的节点、使用率、玩家样本与父子连线。"""
-    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    provider = provider or TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
     normalization_context = {}
     records = _valid_talent_records(
         records, class_name, spec_name, provider=provider, context=normalization_context,
@@ -1508,11 +1518,12 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, con
     return summary
 
 
-def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
+def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20, *, provider=None):
     """日志投影保留全部方案，旧调用方仍可使用有界的历史语义投影。"""
     is_log = any('_log_talent_status' in row for row in records or [])
     result = _aggregate_talent_build_popularity(
-        records, class_name, spec_name, top_n=(len(records) or 1) if is_log else top_n)
+        records, class_name, spec_name, top_n=(len(records) or 1) if is_log else top_n,
+        provider=provider)
     if is_log:
         from botend.services.log_talent_analysis import add_template_analysis
         states = {}
@@ -1526,7 +1537,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     return result
 
 
-def _aggregate_talent_build_popularity(records, class_name, spec_name, top_n=20):
+def _aggregate_talent_build_popularity(records, class_name, spec_name, top_n=20, *, provider=None):
     """按解码后的天赋语义聚合，并输出与最热门模板状态的完整差异。"""
     coded_records = [record for record in records or []
                      if record.get('_log_talent_state') or str(record.get('talent_build_code') or '').strip()]
@@ -1539,7 +1550,7 @@ def _aggregate_talent_build_popularity(records, class_name, spec_name, top_n=20)
             'hero_groups': [],
             'builds': [],
         }
-    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    provider = provider or TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
     context = {}
     candidate_records = []
     for record in _valid_talent_records(coded_records, class_name, spec_name, provider=provider, context=context):

@@ -7,6 +7,8 @@
 import json
 import os
 import tempfile
+import time
+from collections import defaultdict
 from contextlib import nullcontext, contextmanager
 from functools import partial
 from decimal import Decimal
@@ -147,9 +149,19 @@ class SpecDetailAggregationMonitor(BaseScan):
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
-                    self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle)
+                    runtime = defaultdict(float)
+                    started = time.monotonic()
+                    self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle,
+                                            phase_timings=runtime)
+                    dungeon_finished = time.monotonic()
                     self._aggregate_raid(season, class_name, spec_name, spec_dir,
-                                         publish=partial(publish_stats, cycle=cycle), cycle=cycle)
+                                         publish=partial(publish_stats, cycle=cycle), cycle=cycle,
+                                         phase_timings=runtime)
+                    logger.info('[SpecDetailAggregation] phase=spec_runtime %s/%s dungeon_seconds=%.3f '
+                        'raid_seconds=%.3f stages=%s',
+                        class_name, spec_name, dungeon_finished - started,
+                        time.monotonic() - dungeon_finished,
+                        {key: round(value, 3) for key, value in runtime.items()})
             finish_publication(cycle)
             return True
         except CycleOwnershipLost:
@@ -167,7 +179,8 @@ class SpecDetailAggregationMonitor(BaseScan):
             return False
 
     @staticmethod
-    def _aggregate_dungeon(season, class_name, spec_name, spec_dir, *, cycle=None, publish=None):
+    def _aggregate_dungeon(season, class_name, spec_name, spec_dir, *, cycle=None, publish=None,
+                           phase_timings=None):
         if not season.mplus_encounters:
             return
 
@@ -180,17 +193,22 @@ class SpecDetailAggregationMonitor(BaseScan):
                       'source_cutoff': cycle.collected_at}
         return aggregate_dungeon(season, class_name, spec_name,
             os.path.join(spec_dir, 'dungeon.json'),
-            publish or (partial(publish_stats, cycle=cycle) if cycle else publish_stats), **kwargs)
+            publish or (partial(publish_stats, cycle=cycle) if cycle else publish_stats),
+            phase_timings=phase_timings, **kwargs)
 
     @staticmethod
-    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None, cycle=None):
+    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None, cycle=None,
+                        phase_timings=None):
         if not season.raid_encounters and not season.raid_zones:
             return
 
         from botend.services.raid_aggregation import raid_stats, raid_fingerprints, RaidInputBuffer
         from botend.services.spec_stats_snapshot import content_digest, reusable_projection
         from botend.services.stats_talent_dependencies import structure_token
+        phase_timings = phase_timings if phase_timings is not None else defaultdict(float)
+        started = time.monotonic()
         token = structure_token(class_name)
+        phase_timings['raid_structure'] += time.monotonic() - started
         path = os.path.join(spec_dir, 'raid.json')
         encounters = ([enc for zone in season.raid_zones for enc in zone.get('encounters', [])]
                       if season.raid_zones else season.raid_encounters)
@@ -208,7 +226,8 @@ class SpecDetailAggregationMonitor(BaseScan):
         # doing a speculative full fingerprint and immediately redoing it on miss.
         if os.path.isfile(path):
             for scope, fingerprint in zip(scopes, raid_fingerprints(
-                    scopes, selected_ids=selected_ids, source_cutoff=source_cutoff, prepared_inputs=prepared_inputs)):
+                    scopes, selected_ids=selected_ids, source_cutoff=source_cutoff,
+                    prepared_inputs=prepared_inputs, phase_timings=phase_timings)):
                 difficulty, boss_id = scope[-1], scope[1]
                 prepared[difficulty, boss_id] = fingerprint
                 checked.append([difficulty, boss_id, fingerprint])
@@ -218,7 +237,10 @@ class SpecDetailAggregationMonitor(BaseScan):
         required = [f'raid-{scope[-1]}-{scope[1]}' for scope in scopes]
         # Existing publication is the checkpoint. Prove its current input and
         # every detail body before decoding any per-boss work/talent catalog.
-        if checked and reusable_projection(path, publication_fingerprint(checked), required) is not None:
+        started = time.monotonic()
+        reusable = checked and reusable_projection(path, publication_fingerprint(checked), required) is not None
+        phase_timings['raid_publication_check'] += time.monotonic() - started
+        if reusable:
             logger.info('[SpecDetailAggregation] %s/%s 团本整模块发布复用 %s/%s；跳过工作缓存展开',
                         class_name, spec_name, len(checked), len(checked))
             return
@@ -232,7 +254,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                 fingerprint=prepared.get((difficulty, enc['id'])),
                 prepared_inputs=prepared_inputs,
                 selected_ids=selected_ids[f'{difficulty}:{enc["id"]}'] if selected_ids is not None else None,
-                source_cutoff=source_cutoff)
+                source_cutoff=source_cutoff, phase_timings=phase_timings)
             fingerprints.append([difficulty, enc['id'], fingerprint])
             reused += int(hit)
             return result
@@ -268,6 +290,7 @@ class SpecDetailAggregationMonitor(BaseScan):
         mythic_zones = aggregate_difficulty(5)
         heroic_zones = aggregate_difficulty(4)
 
+        started = time.monotonic()
         (publish or publish_stats)(path, {
             '_data_contract': 'wcl-log-v2',
             '_talent_structure_token': token,
@@ -278,6 +301,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                 {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': heroic_zones},
             ],
         }, class_name, spec_name)
+        phase_timings['raid_publish'] += time.monotonic() - started
         logger.info('[SpecDetailAggregation] %s/%s 团本计算复用 %s/%s',
                     class_name, spec_name, reused, len(fingerprints))
 

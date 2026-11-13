@@ -12,6 +12,7 @@ import time
 from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
+from datetime import timedelta
 from urllib.parse import urlencode
 
 import requests
@@ -41,6 +42,26 @@ class WagoDiffUnavailable(RuntimeError):
 
 
 class WagoSkillDiffMonitor(BaseScan):
+    FAILURE_RETRY_DELAY = timedelta(minutes=30)
+    RETRYABLE_FAILURES = frozenset({
+        'diff_unavailable', 'generate_failed', 'save_report_failed', 'publish_failed',
+        'rerun_failed', 'generate_failed_fallback_report', 'no_data_fallback_report',
+        'source_unavailable_preserved', 'complete_report_preserved',
+    })
+
+    def _event_retry_deferred(self, event, *, now=None):
+        """失败从结束时退避；轮询和手动重试仍保留原入口，不新增状态字段。"""
+        if (getattr(self.task, '_monitor_task_is_manual', False)
+                or event.status not in self.RETRYABLE_FAILURES):
+            return False
+        finished = event.updated_at
+        retry_at = finished + self.FAILURE_RETRY_DELAY
+        if (now or timezone.now()) >= retry_at:
+            return False
+        logger.info('[WagoSkillDiffMonitor] phase=retry_wait event=%s:%s status=%s retry_at=%s',
+                    type(event).__name__, event.pk, event.status, retry_at.isoformat())
+        return True
+
     def __init__(self, req, task):
         super().__init__(req, task)
         self.task = task
@@ -158,6 +179,10 @@ class WagoSkillDiffMonitor(BaseScan):
             setattr(event, key, value)
         update_fields = list(fields.keys()) + ['updated_at']
         event.save(update_fields=update_fields)
+        if 'status' in fields:
+            logger.info('[WagoSkillDiff] phase=event_result kind=%s event=%s status=%s has_error=%s',
+                        type(event).__name__, event.pk, event.status,
+                        bool(getattr(event, 'error_message', '')))
 
     def _bulk_upsert_snapshots(self, model, objs, unique_fields, update_fields, batch_size=None):
         from botend.services.wow_snapshot_store import upsert_changed_snapshots
@@ -327,8 +352,8 @@ class WagoSkillDiffMonitor(BaseScan):
 
         if last_build == current_build:
             self._repair_state_if_needed(st, current_build)
-            self._scan_hotfix_if_needed(st, branch, current_build)
-            return pending_ok
+            hotfix_ok = self._scan_hotfix_if_needed(st, branch, current_build)
+            return hotfix_ok and pending_ok
 
         return pending_ok
 
@@ -392,6 +417,10 @@ class WagoSkillDiffMonitor(BaseScan):
         ok = True
         count = 0
         for event in qs[:max(1, int(limit or 1))]:
+            if self._event_retry_deferred(event):
+                ok = False
+                count += 1
+                continue
             ok = self._process_build_event(st, event) and ok
             count += 1
         return ok if count else True
@@ -455,6 +484,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 st.hotfix_last_run_status = 'failed'
                 st.hotfix_last_event_status = 'source_incomplete'
                 st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+                return False
+        if backfill_interval is None and latest_push > last_push:
+            previous = WowWagoHotfixEvent.objects.filter(
+                branch=branch, locale=hotfix_locale, region_id=region_id,
+                to_push=latest_push,
+            ).first()
+            if (previous and (last_push <= 0 or previous.from_push == last_push)
+                    and self._event_retry_deferred(previous, now=now)):
                 return False
         st.hotfix_last_run_at = now
         st.hotfix_last_run_status = ('running' if latest_push > last_push else 'success') if latest_push > 0 else 'no_data'

@@ -1,5 +1,6 @@
 """按首领和难度复用 WCL 日志统计；个人资料变化不再使缓存失效。"""
 import sys
+import time
 
 from botend.models import SpecRaidRanking
 from botend.services import spec_stats_service as stats
@@ -85,18 +86,27 @@ def _fingerprint(rows, facts, boss_name, class_name, spec_name, context=None):
         'metadata': dependencies})
 
 
-def raid_fingerprints(scopes, *, selected_ids=None, source_cutoff=None, prepared_inputs=None):
+def raid_fingerprints(scopes, *, selected_ids=None, source_cutoff=None, prepared_inputs=None,
+                      phase_timings=None):
     """同一次发布共享中央展示元数据查询，不读取人物资料。"""
     context = {}
     return [raid_fingerprint(*scope, _context=context,
         selected_ids=selected_ids[f'{scope[-1]}:{scope[1]}'] if selected_ids is not None else None,
-        source_cutoff=source_cutoff, _prepared_inputs=prepared_inputs) for scope in scopes]
+        source_cutoff=source_cutoff, _prepared_inputs=prepared_inputs,
+        phase_timings=phase_timings) for scope in scopes]
 
 
 def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, difficulty,
-                     *, _context=None, selected_ids=None, source_cutoff=None, _prepared_inputs=None):
+                     *, _context=None, selected_ids=None, source_cutoff=None, _prepared_inputs=None,
+                     phase_timings=None):
+    started = time.monotonic()
     rows, facts = _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff)
+    if phase_timings is not None:
+        phase_timings['raid_input'] += time.monotonic() - started
+    started = time.monotonic()
     fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name, _context)
+    if phase_timings is not None:
+        phase_timings['raid_fingerprint'] += time.monotonic() - started
     if _prepared_inputs is not None:
         scope = f'raid:{class_name}:{spec_name}:{difficulty}:{boss_id}'
         # Expected hits need no inputs. Reserve the same bounded buffer for
@@ -109,26 +119,47 @@ def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, diffi
 
 
 def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty,
-               *, fingerprint=None, selected_ids=None, source_cutoff=None, prepared_inputs=None):
+               *, fingerprint=None, selected_ids=None, source_cutoff=None, prepared_inputs=None,
+               phase_timings=None):
     """优先消费本轮指纹对应的同一份输入；只有旧指纹时仍重查，避免错标数据。"""
     scope = f'raid:{class_name}:{spec_name}:{difficulty}:{boss_id}'
     prepared = (prepared_inputs.take((season_id, boss_id, boss_name, class_name, spec_name, difficulty),
                                      selected_ids, source_cutoff) if prepared_inputs is not None else None)
     checked_fingerprint = fingerprint
+    started = time.monotonic()
     if fingerprint is not None:
         cached = load_work(season_id, scope, fingerprint)
+        if phase_timings is not None:
+            phase_timings['raid_work_read'] += time.monotonic() - started
         if cached is not None:
             return cached, fingerprint, True
     if prepared is not None and prepared[2] == fingerprint:
         rows, facts, fingerprint = prepared
     else:
+        started = time.monotonic()
         rows, facts = _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff)
+        if phase_timings is not None:
+            phase_timings['raid_input'] += time.monotonic() - started
+        started = time.monotonic()
         fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name)
+        if phase_timings is not None:
+            phase_timings['raid_fingerprint'] += time.monotonic() - started
     if fingerprint != checked_fingerprint:
+        started = time.monotonic()
         cached = load_work(season_id, scope, fingerprint)
+        if phase_timings is not None:
+            phase_timings['raid_work_read'] += time.monotonic() - started
         if cached is not None:
             return cached, fingerprint, True
+    started = time.monotonic()
     enriched = combatants.enrich_dungeon_records(rows, class_name, spec_name, facts=facts)
+    if phase_timings is not None:
+        phase_timings['log_enrichment'] += time.monotonic() - started
     result = stats.SpecStatsService._compute_raid_records(
-        rows, season_id, boss_id, boss_name, class_name, spec_name, full=True, enriched_records=enriched)
-    return save_work(season_id, scope, fingerprint, result), fingerprint, False
+        rows, season_id, boss_id, boss_name, class_name, spec_name, full=True,
+        enriched_records=enriched, phase_timings=phase_timings)
+    started = time.monotonic()
+    saved = save_work(season_id, scope, fingerprint, result)
+    if phase_timings is not None:
+        phase_timings['raid_work_write'] += time.monotonic() - started
+    return saved, fingerprint, False
