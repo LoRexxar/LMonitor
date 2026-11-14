@@ -9,7 +9,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
   try {
     const row = {id:17, name:'[Icy Veins] ![icon](https://example.test/icon.png) 原始名称', display_name:'[Icy Veins] 可读名称 · 单体', spec:'warrior_fury', talent:'FROZEN_CODE', hero_talent_names:['山丘领主'], can_edit:true};
     const before = JSON.stringify(row), requests = [];
-    const c = vm.createContext({window:dom.window, document:dom.window.document, console,
+    const c = vm.createContext({window:dom.window, document:dom.window.document, console, AbortController,
       escapeHtml:value=>String(value ?? '').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;'),
       getCSRFToken:()=>'', openSimcWorkbenchDialog:()=>{}, closeSimcWorkbenchDialog:()=>{},
       showMessage:(message,kind)=>{assert.notEqual(kind,'error',message);},
@@ -17,6 +17,8 @@ const plain = value => JSON.parse(JSON.stringify(value));
       fetch:async(url,options={})=>{requests.push({url,...options}); return {ok:true,json:async()=>({success:true,data:[row]}),text:async()=>JSON.stringify({success:true})};}});
     const source = readSource('static/dashboard/js/main.js');
     vm.runInContext(betweenMarkers(source,'let simcTalentStringEditId = null;','function mountTalentThumbnail('), c);
+    vm.runInContext(betweenMarkers(source,'let simcResolvedBaseTemplateId = 0;','function renderSimcBattlenetLoadState('), c);
+    vm.runInContext(`simcResolvedCanonicalSpec = ${JSON.stringify(row.spec)};`, c);
     vm.runInContext(betweenMarkers(source,'async function loadSimcTalentStringCandidates(','function currentSimcScenario('), c);
     c.loadSimcTalentStrings();
     await new Promise(resolve=>setImmediate(resolve));
@@ -34,7 +36,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
     assert.deepEqual(JSON.parse(saved.body),{id:row.id,name:row.name,spec:row.spec,talent:row.talent});
     assert.equal(JSON.stringify(row),before);
     delete row.display_name;
-    await c.loadSimcTalentStringCandidates(row.spec);
+    await c.loadSimcTalentStringCandidates(row.spec, {force:true});
     assert.equal(select.options[1].textContent,`${row.name} · 山丘领主`);
     console.log('PASS talent list/picker use display label; editor PUT retains original name/code/id; old payload fallback');
   } finally {dom.window.close();}

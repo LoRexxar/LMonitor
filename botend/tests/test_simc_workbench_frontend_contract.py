@@ -1017,7 +1017,9 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('await showSimcTaskCreatedDialog()', create_body)
         self.assertNotIn("if (button) button.disabled = false", create_body)
         self.assertIn('button.disabled = true', submit_body)
-        self.assertIn('button.disabled = false', submit_body)
+        # Completing a submission releases its own lock, not an active history hydration lock.
+        self.assertIn('simcHomeSubmissionPending = false', submit_body)
+        self.assertIn('button.disabled = Boolean(simcRerunSubmitLock)', submit_body)
         self.assertIn('任务已新建', dialog_body)
         self.assertIn('前往任务列表', dialog_body)
         self.assertIn('showDashboardSection(SIMC_DASHBOARD_SECTIONS.history)', dialog_body)
