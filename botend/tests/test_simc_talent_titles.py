@@ -48,18 +48,21 @@ class TalentDisplayTitleTests(TestCase):
         with self.assertNumQueries(2):
             self.assertIs(apply_talent_display_names(rows), rows)
         expected = [
-            ('750b3e9f', '天赋与构筑', 'Frostfire Mythic+ Talents'),
+            ('750b3e9f', '', 'Frostfire Mythic+ Talents'),
             ('2394bacb', '大秘境', 'Frostfire Mythic+ Talents'),
-            ('5b9e9bb2', '天赋与构筑', 'Defensive Mythic+ Build'),
+            ('5b9e9bb2', '', 'Defensive Mythic+ Build'),
             ('4654546c', '大秘境', 'Defensive Mythic+ Build'),
-            ('af58c38d', '天赋与构筑', 'Outlaw Single Target - Trickster'),
-            ('6d775aa0', '天赋与构筑', 'Outlaw AoE - Trickster'),
+            ('af58c38d', '', 'Outlaw Single Target - Trickster'),
+            ('6d775aa0', '', 'Outlaw AoE - Trickster'),
         ]
         for row, old, (short, chapter, label) in zip(rows, before, expected):
             with self.subTest(short=short):
                 title = row.display_name
-                for value in ('[Icy Veins]', chapter, label, row.hero_talent_names[0]):
+                for value in ('[Icy Veins]', label, row.hero_talent_names[0]):
                     self.assertIn(value, title)
+                if chapter:
+                    self.assertIn(chapter, title)
+                self.assertNotIn('天赋与构筑', title)
                 self.assertNotIn(short, title)
                 for value in ('Fatebound', '![]', 'https://', '.webp'):
                     self.assertNotIn(value, title)
@@ -171,7 +174,7 @@ class TalentDisplayTitleTests(TestCase):
         title = talent_display_name(row)
         self.assertNotIn('Fatebound', title)
         self.assertIn('欺诈者', title)
-        self.assertIn('天赋与构筑', title)
+        self.assertNotIn('天赋与构筑', title)
         self.assertNotIn('af58c38d', title)
         self.assertEqual(title, talent_display_name(row))
 
@@ -205,6 +208,7 @@ class ChineseTalentDisplayTitleTests(TestCase):
         self.assertIn('狂徒 范围伤害', titles[2])
         for title, hero in zip(titles, ('霜火', '欺诈者', '欺诈者')):
             self.assertEqual(title.count(hero), 1)
+            self.assertNotIn('天赋与构筑', title)
             self.assertNotRegex(title, 'Frostfire|Trickster|Fatebound|宝库')
         self.assertEqual([{k: v for k, v in r.items() if k != 'display_name'} for r in rows], before)
         payloads = [{k: r[k] for k in ('name', 'spec', 'talent', 'hero_talent_names')} for r in before]

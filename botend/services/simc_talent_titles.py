@@ -449,14 +449,15 @@ def _project(resource, identity, guide):
             if _conflicts(description, heroes):
                 description = ''
             label = description or translated or next(iter(candidates), '天赋构筑')
-    # The chapter distinguishes provenance; repeated hero headings and generated
-    # block numbers add no useful build meaning to a selector title.
+    # Keep meaningful chapter context, not generic guide navigation headings.
+    # Repeated hero headings and generated block numbers add no build meaning.
     path = list(dict.fromkeys(part for part in chosen.get('translated', chosen)['path']
                               if not _conflicts(part, heroes)))[:1]
     # Keep legacy source-only fallbacks intact; localized titles carry heroes once.
     if 'translated' in chosen:
         label = _without_heroes(label, heroes)
         path = [_without_heroes(part, heroes) for part in path]
+    path = [part for part in path if part.strip().casefold() not in _BUILD_CHAPTERS | _GENERIC_LABELS]
     pieces = list(dict.fromkeys(piece for piece in [*heroes, label, *path] if piece))
     return '[Icy Veins] ' + ' · '.join(pieces)
 
