@@ -338,6 +338,64 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
     return records
 
 
+def reference_snapshot_names(game_version, reference_ids, *, registry=apps, using='default'):
+    """Read exact typed identities from central snapshots, without copying names.
+
+    Explicit manual/native references retain precedence at the caller. Only zhCN
+    rows certify spell Chinese; an enUS row can supply the same-branch English
+    label, never a Chinese name left over from a different locale import.
+    """
+    if not reference_ids.get('spell') and not reference_ids.get('item'):
+        return []
+    version = (version_for(game_version, registry, using)
+               if game_version in ('retail', 'ptr', 'beta')
+               else current_reference_version(registry, using))
+    if not version:
+        return []
+    branches = _spell_snapshot_branches(version)
+    records = []
+
+    def record(obj, kind, identity, english, chinese, evidence):
+        return dict(id=f'{obj._meta.model_name}:{obj.pk}', model=obj._meta.object_name,
+                    pk=obj.pk, game_version=version_label(version, game_version),
+                    kind=kind, object_id=identity, reference_id=identity,
+                    name_en=english, name_zh=chinese, icon=obj.icon, evidence=evidence,
+                    aliases=[], class_name='', spec_name='', node_id=None,
+                    spell_id=identity if kind == 'spell' else None,
+                    display_spell_id=None, talent_id=None, tree_type='',
+                    supplemental=False, description='', description_zh='')
+
+    spell_ids = sorted(set(reference_ids.get('spell', ())))
+    for start in range(0, len(spell_ids), 200):
+        snapshots = list(registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
+            spell_id__in=spell_ids[start:start + 200], branch__in=branches,
+            locale__in=['zhCN', 'enUS']).only('id', 'spell_id', 'branch', 'locale',
+                                           'name', 'name_zh', 'icon', 'snapshot_build'))
+        lookup = {(obj.branch, obj.locale, obj.spell_id): obj for obj in snapshots}
+        for identity in spell_ids[start:start + 200]:
+            for branch in branches:
+                obj = lookup.get((branch, 'zhCN', identity))
+                if obj is None:
+                    continue
+                chinese = obj.name_zh if re.search(r'[\u3400-\u9fff]', obj.name_zh) else obj.name
+                if not re.search(r'[\u3400-\u9fff]', chinese):
+                    continue
+                english_obj = lookup.get((branch, 'enUS', identity))
+                english = english_obj.name if english_obj else obj.name
+                if re.search(r'[\u3400-\u9fff]', english):
+                    english = ''
+                records.append(record(obj, 'spell', identity, english, chinese,
+                                      f'WowSpellSnapshot:{branch}:zhCN:{obj.snapshot_build}'))
+                break
+    item_ids = sorted(set(reference_ids.get('item', ())))
+    for start in range(0, len(item_ids), 200):
+        for obj in registry.get_model('botend', 'WowItemSnapshot')._base_manager.using(using).filter(
+                item_id__in=item_ids[start:start + 200]).only('id', 'item_id', 'name', 'name_zh', 'icon'):
+            if re.search(r'[\u3400-\u9fff]', obj.name_zh):
+                records.append(record(obj, 'item', obj.item_id, obj.name, obj.name_zh, 'WowItemSnapshot'))
+    return records
+
+
 def macro_reference_version(game_version, source_text, registry=apps, using='default'):
     """Match names_for's branch selection, including documents without tokens."""
     if game_version in ('retail', 'ptr', 'beta'):

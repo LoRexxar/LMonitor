@@ -89,6 +89,7 @@ class Command(CentralTalentCommand):
                 entries_db2[int(row['ID'])] = {
                     'def_id': int(row['TraitDefinitionID']),
                     'max_ranks': int(row.get('MaxRanks', 1) or 1),
+                    'subtree_id': int(row.get('TraitSubTreeID') or 0),
                 }
         self.stdout.write(f'  TraitNodeEntry: {len(entries_db2)}')
 
@@ -282,6 +283,15 @@ class Command(CentralTalentCommand):
                             # 不能归类为 hero_anchor，否则模拟器会直接过滤掉这些节点。
                             if def_id == 0:
                                 tree_type = 'hero_anchor'
+                                # A selector Entry points to TraitSubTree, not to a
+                                # same-number Spell. Preserve the legacy storage
+                                # key below, but never use it as display identity.
+                                from botend.constants.hero_talents import HERO_SUBTREE_ID_TO_NAME
+                                anchor_subtree = entries_db2[entry_id]['subtree_id']
+                                label = subtrees.get(anchor_subtree, {}).get('name', '')
+                                name = HERO_SUBTREE_ID_TO_NAME.get(anchor_subtree, '')
+                                if any('\u3400' <= char <= '\u9fff' for char in label):
+                                    name_zh = label
                             if def_id in defs:
                                 d = defs[def_id]
                                 display_spell_id = d['visible_spell_id'] or d['spell_id'] or d['override_spell_id'] or None

@@ -479,7 +479,7 @@ def prepare_talent_version(bundle, branch, build, heartbeat):
                 files.append((path.name, hashlib.file_digest(handle, 'sha256').hexdigest()))
         fallback_path = directory / 'display_fallback.json'
         fallback = json.loads(fallback_path.read_text(encoding='utf-8')) if fallback_path.exists() else {}
-        fingerprint = content_digest(['talent-parse-v1', branch, build, str(directory), files,
+        fingerprint = content_digest(['talent-parse-v2-entry-subtree-names', branch, build, str(directory), files,
             json.loads((directory / 'manifest.json').read_text(encoding='utf-8')),
             {key: {field: value for field, value in row.items() if not field.startswith('_cache_')}
              for key, row in fallback.items()}])

@@ -315,7 +315,13 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
     if not refs:
         return {}
     # 显式引用由 (kind, ID) 唯一标识，不受攻略职业/专精上下文影响。
-    records = names_for(game_version, reference_ids={kind: {r['id'] for r in refs.values() if r['kind'] == kind} for kind in ('spell', 'item', 'talent')})
+    reference_ids = {kind: {r['id'] for r in refs.values() if r['kind'] == kind}
+                     for kind in ('spell', 'item', 'talent')}
+    records = names_for(game_version, reference_ids=reference_ids)
+    from botend.services.wow_localization import reference_snapshot_names
+    # Native/manual names remain first; central spell/item facts need no
+    # duplicate localization row merely to make a guide reference readable.
+    snapshot_records = reference_snapshot_names(game_version, reference_ids)
     source_refs = source_refs or {}
     from botend.services.wow_spell_display import node_spell_id
     selected_rows = {}
@@ -332,16 +338,24 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
                 [r for r in talent_records if r.get('node_id') == ref['id']],
                 [r for r in talent_records if ref['id'] in r['aliases']],
             )
-            candidates = next((tier for tier in candidate_tiers if tier), [])
         else:
-            candidates = [r for r in records if r['kind'] == ref['kind'] and r['object_id'] == ref['id']]
-        if not candidates and ref['kind'] == 'talent' and source_name:
-            candidates = [r for r in records if r['kind'] == 'talent' and r['name_en'].casefold() == source_name.casefold()]
-            if len({r['name_zh'] for r in candidates}) > 1:
-                candidates = []
-        if not candidates and ref['kind'] == 'spell':
-            candidates = [r for r in records if r['kind'] == 'talent' and ref['id'] in (r.get('spell_id'), r.get('display_spell_id'))]
-        # 相同 ID 在历史版本改名时，只在来源名精确匹配的候选中选择。
+            candidate_tiers = [
+                [r for r in records if r['kind'] == ref['kind'] and r['object_id'] == ref['id']],
+            ]
+            if ref['kind'] == 'spell':
+                candidate_tiers.append([r for r in records if r['kind'] == 'talent'
+                    and ref['id'] in (r.get('spell_id'), r.get('display_spell_id'))])
+            candidate_tiers.append([r for r in snapshot_records
+                if r['kind'] == ref['kind'] and r['object_id'] == ref['id']])
+        # Validate names before choosing a tier. An English-only legacy field
+        # must not hide real Chinese, and source labels cannot promote a lower
+        # tier over a usable manual/native identity. Retain metadata-only rows
+        # for an honest unresolved tooltip when no tier has a Chinese label.
+        usable_tiers = [[r for r in tier if re.search(r'[\u3400-\u9fff]', r.get('name_zh') or '')]
+                        for tier in candidate_tiers]
+        candidates = next((tier for tier in usable_tiers if tier),
+                          next((tier for tier in candidate_tiers if tier), []))
+        # 相同 ID 在同来源层内改名时，只在来源名精确匹配的候选中选择。
         matched = [r for r in candidates if source_name and reference_names_match(source_name, r['name_en'])]
         selected = next(iter(matched or candidates), None)
         from types import SimpleNamespace

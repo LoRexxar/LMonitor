@@ -178,6 +178,13 @@ class Command(CentralTalentCommand):
         dz = defs_zh.get(def_id, TraitDefData())
         de = defs_en.get(def_id, TraitDefData())
 
+        # A definition-free hero selector has no Spell identity. Its label
+        # belongs to TraitNodeEntry.TraitSubTreeID and is loaded by backfill.
+        # In particular, legacy spell_id == Entry.ID is only a storage key.
+        if obj.tree_type == 'hero_anchor' and not def_id:
+            return dict(name='', name_zh='', description_raw='',
+                        description_spell_id=0, primary_spell_id=0)
+
         spell_ids = []
         for sid in (
             dz.visible_spell_id,
@@ -187,8 +194,7 @@ class Command(CentralTalentCommand):
             dz.override_spell_id,
             de.override_spell_id,
             self._to_int(obj.display_spell_id),
-            self._to_int(obj.spell_id),
-            entry_id,
+            self._to_int(obj.spell_id) if self._to_int(obj.spell_id) != entry_id else 0,
         ):
             if sid and sid not in spell_ids:
                 spell_ids.append(sid)
