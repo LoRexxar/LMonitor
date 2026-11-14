@@ -874,7 +874,9 @@ def load_item_tooltip_metadata(requests):
             projected = item_display_metadata(
                 item_id, snapshot, variant=variant, primary_stat=primary_stat,
                 strict_variant=True, data_branch=data_branch,
-                is_ptr=(data_branch == 'ptr') if data_branch in ('retail', 'ptr') else None,
+                # An unmapped reference has no exact branch/build identity to
+                # project. Keep ID-level names/icons, then erase all variant facts.
+                is_ptr=(data_branch == 'ptr') if variant is not None and data_branch in ('retail', 'ptr') else None,
             )
             projected.update(variant_status='exact' if variant is not None else 'unresolved',
                              variant_reason=reason, data_branch=data_branch)

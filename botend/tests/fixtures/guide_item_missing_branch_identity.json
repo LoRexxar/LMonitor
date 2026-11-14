@@ -1,0 +1,484 @@
+{
+  "provenance": "Read-only production central identity store; retail guide references item with only historical PTR identity",
+  "item_id": 281235,
+  "name": "Voidweaver's Leggings",
+  "name_zh": "虚空编织者护腿",
+  "identity_store": {
+    "12.1.5.69594": {
+      "fact": {
+        "name": "Voidweaver's Vestments",
+        "source": {
+          "evidence": [
+            {
+              "url": "https://wago.tools/db2/Item?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235",
+              "rows": [
+                {
+                  "ID": 281235,
+                  "ClassID": 4,
+                  "Material": 7,
+                  "SubclassID": 1,
+                  "OrderSource": 0,
+                  "SheatheType": 0,
+                  "InventoryType": 20,
+                  "IconFileDataID": 0,
+                  "ContentTuningID": 0,
+                  "ItemSquishEraID": 2,
+                  "CraftingQualityID": 0,
+                  "ItemGroupSoundsID": 7,
+                  "Field_12_0_0_63534_010": 0,
+                  "Sound_override_subclassID": -1,
+                  "ModifiedCraftingReagentItemID": 0,
+                  "RecraftReagentCountPercentage": 0
+                }
+              ],
+              "table": "Item",
+              "locale": "enUS",
+              "filters": {
+                "build": "12.1.5.69594",
+                "filter": {
+                  "ID": "exact:281235"
+                },
+                "locale": "enUS"
+              },
+              "game_build": "12.1.5.69594",
+              "pagination": {
+                "to": 1,
+                "from": 1,
+                "path": "https://wago.tools/db2/Item",
+                "links": [
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "&laquo; Previous",
+                    "active": false
+                  },
+                  {
+                    "url": "https://wago.tools/db2/Item?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                    "page": 1,
+                    "label": "1",
+                    "active": true
+                  },
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "Next &raquo;",
+                    "active": false
+                  }
+                ],
+                "total": 1,
+                "per_page": 25,
+                "last_page": 1,
+                "current_page": 1,
+                "last_page_url": "https://wago.tools/db2/Item?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                "next_page_url": null,
+                "prev_page_url": null,
+                "first_page_url": "https://wago.tools/db2/Item?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235&page=1"
+              }
+            },
+            {
+              "url": "https://wago.tools/db2/ItemSparse?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235",
+              "rows": [
+                {
+                  "ID": 281235,
+                  "LockID": 0,
+                  "PageID": 0,
+                  "Bonding": 1,
+                  "Flags_0": 0,
+                  "Flags_1": 8192,
+                  "Flags_2": 0,
+                  "Flags_3": 0,
+                  "Flags_4": 0,
+                  "ItemSet": 0,
+                  "BuyPrice": 0,
+                  "Material": 7,
+                  "MaxCount": 0,
+                  "BagFamily": 0,
+                  "ItemDelay": 0,
+                  "ItemLevel": 219,
+                  "ItemRange": 0,
+                  "SellPrice": 0,
+                  "Stackable": 1,
+                  "ArtifactID": 0,
+                  "DamageType": 0,
+                  "LanguageID": 0,
+                  "DmgVariance": 0,
+                  "ExpansionID": 11,
+                  "SheatheType": 0,
+                  "SpellWeight": 0,
+                  "ZoneBound_0": 0,
+                  "ZoneBound_1": 0,
+                  "Display_lang": "Voidweaver's Vestments",
+                  "MinFactionID": 0,
+                  "SocketType_0": 0,
+                  "SocketType_1": 0,
+                  "SocketType_2": 0,
+                  "StartQuestID": 0,
+                  "Display1_lang": "",
+                  "Display2_lang": "",
+                  "Display3_lang": "",
+                  "InstanceBound": 0,
+                  "InventoryType": 20,
+                  "LimitCategory": 0,
+                  "MinReputation": 0,
+                  "PriceVariance": 1,
+                  "RequiredLevel": 90,
+                  "RequiredSkill": 0,
+                  "AllowableClass": -1,
+                  "ContainerSlots": 0,
+                  "Gem_properties": 0,
+                  "PageMaterialID": 0,
+                  "ContentTuningID": 0,
+                  "ItemSquishEraID": 2,
+                  "QualityModifier": 0,
+                  "RequiredAbility": 0,
+                  "RequiredHoliday": 0,
+                  "RequiredPVPRank": 0,
+                  "TotemCategoryID": 0,
+                  "AllowableRaces_0": -1,
+                  "AllowableRaces_1": -1,
+                  "Description_lang": "",
+                  "OverallQualityID": 4,
+                  "PriceRandomValue": 1.02960002422,
+                  "RequiredPVPMedal": 0,
+                  "VendorStackCount": 1,
+                  "RequiredSkillRank": 0,
+                  "DurationInInventory": 0,
+                  "SpellWeightCategory": 0,
+                  "StatPercentEditor_0": 5259,
+                  "StatPercentEditor_1": 7889,
+                  "StatPercentEditor_2": 4877,
+                  "StatPercentEditor_3": 2123,
+                  "StatPercentEditor_4": 0,
+                  "StatPercentEditor_5": 0,
+                  "StatPercentEditor_6": 0,
+                  "StatPercentEditor_7": 0,
+                  "StatPercentEditor_8": 0,
+                  "StatPercentEditor_9": 0,
+                  "ItemNameDescriptionID": 0,
+                  "OppositeFactionItemID": 0,
+                  "ItemLevelOffsetCurveID": 0,
+                  "RequiredTransmogHoliday": 0,
+                  "ItemLevelOffsetItemLevel": 0,
+                  "StatModifier_bonusStat_0": 5,
+                  "StatModifier_bonusStat_1": 7,
+                  "StatModifier_bonusStat_2": 49,
+                  "StatModifier_bonusStat_3": 32,
+                  "StatModifier_bonusStat_4": -1,
+                  "StatModifier_bonusStat_5": -1,
+                  "StatModifier_bonusStat_6": -1,
+                  "StatModifier_bonusStat_7": -1,
+                  "StatModifier_bonusStat_8": -1,
+                  "StatModifier_bonusStat_9": -1,
+                  "StatPercentageOfSocket_0": 0,
+                  "StatPercentageOfSocket_1": 0,
+                  "StatPercentageOfSocket_2": 0,
+                  "StatPercentageOfSocket_3": 0,
+                  "StatPercentageOfSocket_4": 0,
+                  "StatPercentageOfSocket_5": 0,
+                  "StatPercentageOfSocket_6": 0,
+                  "StatPercentageOfSocket_7": 0,
+                  "StatPercentageOfSocket_8": 0,
+                  "StatPercentageOfSocket_9": 0,
+                  "Socket_match_enchantment_ID": 0,
+                  "ModifiedCraftingReagentItemID": 0,
+                  "PlayerLevelToItemLevelCurveID": 0
+                }
+              ],
+              "table": "ItemSparse",
+              "locale": "enUS",
+              "filters": {
+                "build": "12.1.5.69594",
+                "filter": {
+                  "ID": "exact:281235"
+                },
+                "locale": "enUS"
+              },
+              "game_build": "12.1.5.69594",
+              "pagination": {
+                "to": 1,
+                "from": 1,
+                "path": "https://wago.tools/db2/ItemSparse",
+                "links": [
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "&laquo; Previous",
+                    "active": false
+                  },
+                  {
+                    "url": "https://wago.tools/db2/ItemSparse?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                    "page": 1,
+                    "label": "1",
+                    "active": true
+                  },
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "Next &raquo;",
+                    "active": false
+                  }
+                ],
+                "total": 1,
+                "per_page": 25,
+                "last_page": 1,
+                "current_page": 1,
+                "last_page_url": "https://wago.tools/db2/ItemSparse?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                "next_page_url": null,
+                "prev_page_url": null,
+                "first_page_url": "https://wago.tools/db2/ItemSparse?build=12.1.5.69594&locale=enUS&filter%5BID%5D=exact%3A281235&page=1"
+              }
+            }
+          ],
+          "provider": "wago_db2"
+        },
+        "item_id": 281235,
+        "slot_key": "chest",
+        "game_build": "12.1.5.69594",
+        "item_class_id": 4,
+        "inventory_type": 20,
+        "schema_version": 1,
+        "item_subclass_id": 1,
+        "allowable_class_mask": -1
+      },
+      "is_ptr": true
+    },
+    "12.1.5.70077": {
+      "fact": {
+        "name": "Voidweaver's Leggings",
+        "source": {
+          "evidence": [
+            {
+              "url": "https://wago.tools/db2/Item?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235",
+              "rows": [
+                {
+                  "ID": 281235,
+                  "ClassID": 4,
+                  "Material": 7,
+                  "SubclassID": 1,
+                  "OrderSource": 0,
+                  "SheatheType": 0,
+                  "InventoryType": 7,
+                  "IconFileDataID": 0,
+                  "ContentTuningID": 0,
+                  "ItemSquishEraID": 2,
+                  "CraftingQualityID": 0,
+                  "ItemGroupSoundsID": 7,
+                  "Field_12_0_0_63534_010": 0,
+                  "Sound_override_subclassID": -1,
+                  "ModifiedCraftingReagentItemID": 0,
+                  "RecraftReagentCountPercentage": 0
+                }
+              ],
+              "table": "Item",
+              "locale": "enUS",
+              "filters": {
+                "build": "12.1.5.70077",
+                "filter": {
+                  "ID": "exact:281235"
+                },
+                "locale": "enUS"
+              },
+              "game_build": "12.1.5.70077",
+              "pagination": {
+                "to": 1,
+                "from": 1,
+                "path": "https://wago.tools/db2/Item",
+                "links": [
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "&laquo; Previous",
+                    "active": false
+                  },
+                  {
+                    "url": "https://wago.tools/db2/Item?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                    "page": 1,
+                    "label": "1",
+                    "active": true
+                  },
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "Next &raquo;",
+                    "active": false
+                  }
+                ],
+                "total": 1,
+                "per_page": 25,
+                "last_page": 1,
+                "current_page": 1,
+                "last_page_url": "https://wago.tools/db2/Item?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                "next_page_url": null,
+                "prev_page_url": null,
+                "first_page_url": "https://wago.tools/db2/Item?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235&page=1"
+              }
+            },
+            {
+              "url": "https://wago.tools/db2/ItemSparse?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235",
+              "rows": [
+                {
+                  "ID": 281235,
+                  "LockID": 0,
+                  "PageID": 0,
+                  "Bonding": 1,
+                  "Flags_0": 0,
+                  "Flags_1": 8192,
+                  "Flags_2": 0,
+                  "Flags_3": 0,
+                  "Flags_4": 0,
+                  "ItemSet": 0,
+                  "BuyPrice": 0,
+                  "Material": 7,
+                  "MaxCount": 0,
+                  "BagFamily": 0,
+                  "ItemDelay": 0,
+                  "ItemLevel": 219,
+                  "ItemRange": 0,
+                  "SellPrice": 0,
+                  "Stackable": 1,
+                  "ArtifactID": 0,
+                  "DamageType": 0,
+                  "LanguageID": 0,
+                  "DmgVariance": 0,
+                  "ExpansionID": 11,
+                  "SheatheType": 0,
+                  "SpellWeight": 0,
+                  "ZoneBound_0": 0,
+                  "ZoneBound_1": 0,
+                  "Display_lang": "Voidweaver's Leggings",
+                  "MinFactionID": 0,
+                  "SocketType_0": 0,
+                  "SocketType_1": 0,
+                  "SocketType_2": 0,
+                  "StartQuestID": 0,
+                  "Display1_lang": "",
+                  "Display2_lang": "",
+                  "Display3_lang": "",
+                  "InstanceBound": 0,
+                  "InventoryType": 7,
+                  "LimitCategory": 0,
+                  "MinReputation": 0,
+                  "PriceVariance": 1,
+                  "RequiredLevel": 90,
+                  "RequiredSkill": 0,
+                  "AllowableClass": -1,
+                  "ContainerSlots": 0,
+                  "Gem_properties": 0,
+                  "PageMaterialID": 0,
+                  "ContentTuningID": 0,
+                  "ItemSquishEraID": 2,
+                  "QualityModifier": 0,
+                  "RequiredAbility": 0,
+                  "RequiredHoliday": 0,
+                  "RequiredPVPRank": 0,
+                  "TotemCategoryID": 0,
+                  "AllowableRaces_0": -1,
+                  "AllowableRaces_1": -1,
+                  "Description_lang": "",
+                  "OverallQualityID": 4,
+                  "PriceRandomValue": 1.02960002422,
+                  "RequiredPVPMedal": 0,
+                  "VendorStackCount": 1,
+                  "RequiredSkillRank": 0,
+                  "DurationInInventory": 0,
+                  "SpellWeightCategory": 0,
+                  "StatPercentEditor_0": 5259,
+                  "StatPercentEditor_1": 7889,
+                  "StatPercentEditor_2": 4877,
+                  "StatPercentEditor_3": 2123,
+                  "StatPercentEditor_4": 0,
+                  "StatPercentEditor_5": 0,
+                  "StatPercentEditor_6": 0,
+                  "StatPercentEditor_7": 0,
+                  "StatPercentEditor_8": 0,
+                  "StatPercentEditor_9": 0,
+                  "ItemNameDescriptionID": 0,
+                  "OppositeFactionItemID": 0,
+                  "ItemLevelOffsetCurveID": 0,
+                  "RequiredTransmogHoliday": 0,
+                  "ItemLevelOffsetItemLevel": 0,
+                  "StatModifier_bonusStat_0": 5,
+                  "StatModifier_bonusStat_1": 7,
+                  "StatModifier_bonusStat_2": 49,
+                  "StatModifier_bonusStat_3": 32,
+                  "StatModifier_bonusStat_4": -1,
+                  "StatModifier_bonusStat_5": -1,
+                  "StatModifier_bonusStat_6": -1,
+                  "StatModifier_bonusStat_7": -1,
+                  "StatModifier_bonusStat_8": -1,
+                  "StatModifier_bonusStat_9": -1,
+                  "StatPercentageOfSocket_0": 0,
+                  "StatPercentageOfSocket_1": 0,
+                  "StatPercentageOfSocket_2": 0,
+                  "StatPercentageOfSocket_3": 0,
+                  "StatPercentageOfSocket_4": 0,
+                  "StatPercentageOfSocket_5": 0,
+                  "StatPercentageOfSocket_6": 0,
+                  "StatPercentageOfSocket_7": 0,
+                  "StatPercentageOfSocket_8": 0,
+                  "StatPercentageOfSocket_9": 0,
+                  "Socket_match_enchantment_ID": 0,
+                  "ModifiedCraftingReagentItemID": 0,
+                  "PlayerLevelToItemLevelCurveID": 0
+                }
+              ],
+              "table": "ItemSparse",
+              "locale": "enUS",
+              "filters": {
+                "build": "12.1.5.70077",
+                "filter": {
+                  "ID": "exact:281235"
+                },
+                "locale": "enUS"
+              },
+              "game_build": "12.1.5.70077",
+              "pagination": {
+                "to": 1,
+                "from": 1,
+                "path": "https://wago.tools/db2/ItemSparse",
+                "links": [
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "&laquo; Previous",
+                    "active": false
+                  },
+                  {
+                    "url": "https://wago.tools/db2/ItemSparse?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                    "page": 1,
+                    "label": "1",
+                    "active": true
+                  },
+                  {
+                    "url": null,
+                    "page": null,
+                    "label": "Next &raquo;",
+                    "active": false
+                  }
+                ],
+                "total": 1,
+                "per_page": 25,
+                "last_page": 1,
+                "current_page": 1,
+                "last_page_url": "https://wago.tools/db2/ItemSparse?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235&page=1",
+                "next_page_url": null,
+                "prev_page_url": null,
+                "first_page_url": "https://wago.tools/db2/ItemSparse?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A281235&page=1"
+              }
+            }
+          ],
+          "provider": "wago_db2"
+        },
+        "item_id": 281235,
+        "slot_key": "legs",
+        "game_build": "12.1.5.70077",
+        "item_class_id": 4,
+        "inventory_type": 7,
+        "schema_version": 1,
+        "item_subclass_id": 1,
+        "allowable_class_mask": -1
+      },
+      "is_ptr": true
+    }
+  }
+}

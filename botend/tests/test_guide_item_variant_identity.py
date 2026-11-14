@@ -113,6 +113,24 @@ class GuideItemVariantIdentityTests(TestCase):
         converter.prepare()
         self.assertEqual(converter.refs[token(code)]['variant_format'], 'lmonitor-item-header-v9')
 
+    def test_unmapped_variant_missing_retail_identity_keeps_name_without_crashing(self):
+        import json
+        from pathlib import Path
+        from botend.services.wow_item_identity import META_KEY
+        data = json.loads((Path(__file__).parent / 'fixtures/guide_item_missing_branch_identity.json').read_text())
+        item_id = data['item_id']
+        WowItemSnapshot.objects.create(item_id=item_id, name=data['name'], name_zh=data['name_zh'],
+            metadata={META_KEY: data['identity_store']})
+        full_token = token(RAW334, item_id)
+        refs = resolve_references([{'html': full_token}], '12.1.5',
+            source_refs={full_token: source(RAW334, item_id)})
+        ref = refs[full_token]
+        self.assertEqual(ref['name'], data['name_zh'])
+        self.assertEqual(ref['variant_status'], 'unresolved')
+        self.assertEqual(ref['variant_reason'], 'no_exact_variant')
+        self.assertIn('未精确映射', ref['tooltip_text'])
+        self.assertNotIn('智力', ref['tooltip_text'])
+
     def test_invalid_header_v9_never_claims_exact_orm_variant(self):
         for code in ('JAADBIgWCKgTBA', 'JAADBAgWCKgTBABBBB', 'IAADBAgWCKgTBA'):
             with self.subTest(code=code):
