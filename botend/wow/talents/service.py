@@ -621,6 +621,11 @@ class TalentBuildCodeService:
                                 payload['spell_id'] = selected_option.get('spell_id')
                             if selected_option.get('talent_id'):
                                 payload['talent_id'] = selected_option.get('talent_id')
+                            # The outer node starts with the first option's display
+                            # metadata. Move all display fields together with the ID;
+                            # missing selected-option text must not inherit its peer.
+                            for field in ('name', 'name_zh', 'icon', 'description', 'description_zh'):
+                                payload[field] = selected_option.get(field) or ''
                 else:
                     # build code 可用但节点未解码 → 明确标为未选中
                     payload['points'] = 0

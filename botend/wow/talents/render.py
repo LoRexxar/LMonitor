@@ -129,6 +129,8 @@ def _build_render_collections(tree_set, layout, build_state, build_code):
                 node_payload.update(layout_node.to_dict())
             else:
                 node_payload['selected'] = bool(node_key and node_key in selected_nodes) or node.selected or node.points > 0
+            if node_payload.get('is_choice_node'):
+                node_payload['selected_choice_index'] = _selected_choice_index(node_payload)
             tree_nodes.append(node_payload)
             render_nodes.append(node_payload)
 
@@ -168,6 +170,24 @@ def _build_render_collections(tree_set, layout, build_state, build_code):
         })
 
     return render_nodes, render_trees
+
+
+def _selected_choice_index(node):
+    """Display-only selection; never use the TraitNode shared by both options."""
+    if not node.get('selected'):
+        return None
+    options = node.get('choice_options') or []
+    index = node.get('choice_selection')
+    if index is not None:
+        return index if isinstance(index, int) and 0 <= index < len(options) else None
+    # Older structured player data may identify the selected spell without an
+    # import-string index. Preserve that path only when the match is unique.
+    spell_id = node.get('display_spell_id') or node.get('spell_id')
+    if not spell_id:
+        return None
+    matches = [i for i, option in enumerate(options)
+               if (option.get('display_spell_id') or option.get('spell_id')) == spell_id]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _build_node_key(node):

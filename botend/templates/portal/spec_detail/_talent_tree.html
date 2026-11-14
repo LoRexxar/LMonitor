@@ -84,7 +84,7 @@
                             <div class="talent-choice-popup">
                                 {% for option in node.choice_options %}
                                 <span
-                                    class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
+                                    class="talent-choice-popup-option{% if node.selected_choice_index == forloop.counter0 %} is-active{% endif %}"
                                     onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
                                     data-option-name="{{ option.name|default:'未命名' }}"
                                     data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
