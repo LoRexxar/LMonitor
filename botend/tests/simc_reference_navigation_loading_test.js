@@ -1,0 +1,36 @@
+const assert = require('node:assert/strict');
+const {test} = require('node:test');
+const {JSDOM} = require('jsdom');
+const {readSource} = require('./vm_harness');
+
+test('reference selection immediately reports loading, preserves GET values and recovers from bfcache', t => {
+  const dom = new JSDOM(`<main class="simc-reference"><div id="reference-navigation-status" hidden role="status" aria-live="polite"><strong data-reference-loading-label></strong><p data-reference-loading-detail></p><a data-reference-loading-retry hidden>重新加载</a></div><div class="reference-workbench"><nav data-reference-tabs><a data-reference-tab href="#reference-talents">天赋</a><a data-reference-tab href="#reference-apl">APL</a></nav><section id="reference-talents" data-reference-panel><form method="get"><input name="spec" value="mage_fire"><input name="profile" value="7"><input type="checkbox" checked name="hero" value="1"><input type="checkbox" checked name="hero" value="2"><select id="reference-talent" name="talent"><option value="10">旧天赋</option><option value="11" selected>新天赋方案</option></select><button type="submit">查看</button></form></section><section id="reference-apl" data-reference-panel></section></div><div id="reference-copy-status"></div></main>`, {runScripts:'outside-only',url:'https://example.test/portal/simc-reference/?spec=mage_fire'});
+  t.after(() => dom.window.close());
+  const w = dom.window;const timers = new Map();let seq=0;
+  w.matchMedia=()=>({matches:false,addEventListener(){}});
+  w.setTimeout=fn=>{timers.set(++seq,fn);return seq;};w.clearTimeout=id=>timers.delete(id);
+  const form=w.document.querySelector('form');
+  form.addEventListener('submit',e=>e.preventDefault());
+  form.requestSubmit=()=>form.dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+  w.eval(readSource('static/portal/js/simc-reference.js'));
+  w.document.querySelector('#reference-talent').dispatchEvent(new w.Event('change',{bubbles:true}));
+  const status=w.document.querySelector('#reference-navigation-status');
+  assert.equal(status.hidden,false);
+  assert.match(status.textContent,/正在加载.*新天赋方案/);
+  assert.equal(w.document.querySelector('.reference-workbench').getAttribute('aria-busy'),'true');
+  const values=new w.URLSearchParams(new w.FormData(form));
+  assert.deepEqual(values.getAll('hero'),['1','2']);
+  assert.equal(values.get('talent'),'11');assert.equal(values.get('profile'),'7');
+  assert.equal(values.get('view'),'reference-talents');
+  for(const fn of [...timers.values()]) fn();
+  const retry=status.querySelector('[data-reference-loading-retry]');
+  assert.equal(retry.hidden,false);
+  const url=new URL(retry.href);
+  assert.deepEqual(url.searchParams.getAll('hero'),['1','2']);
+  assert.equal(url.searchParams.get('talent'),'11');assert.equal(url.hash,'#reference-talents');
+  w.dispatchEvent(new w.PageTransitionEvent('pageshow', {persisted:false}));
+  assert.equal(status.hidden,false,'late initial load must not erase pending navigation feedback');
+  w.dispatchEvent(new w.PageTransitionEvent('pageshow', {persisted:true}));
+  assert.equal(status.hidden,true);
+  assert.equal(w.document.querySelector('.reference-workbench').hasAttribute('aria-busy'),false);
+});

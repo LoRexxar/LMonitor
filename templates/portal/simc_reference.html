@@ -11,7 +11,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}">
-    <link rel="stylesheet" href="{% static 'portal/css/simc-reference.css' %}?v=20261112_framed_results">
+    <link rel="stylesheet" href="{% static 'portal/css/simc-reference.css' %}?v=20261114_selection_loading">
     <link rel="stylesheet" href="{% static 'portal/css/player-talent-tree.css' %}?v=20261110_shared">
     <script defer src="{% static 'portal/js/player-talent-tree.js' %}?v=20261110_shared"></script>
     <link rel="stylesheet" href="{% static 'shared/css/simc-reference-rankings.css' %}?v=20261113_roles_icons">
@@ -26,6 +26,10 @@
         <p>从天赋构筑、装备选择到技能优先级，完整了解一份模拟的配置。</p>
     </div></header>
 
+    <div id="reference-navigation-status" class="reference-navigation-status" role="status" aria-live="polite" hidden>
+        <span class="reference-loading-spinner" aria-hidden="true"></span>
+        <div><strong data-reference-loading-label></strong><p data-reference-loading-detail></p><a data-reference-loading-retry hidden>重新加载</a></div>
+    </div>
     <div class="reference-workbench">
     <div class="reference-workspace-heading">
     <div class="reference-spec-heading">
@@ -181,6 +185,6 @@
     <footer class="reference-footer">当前共享模拟资料 · 历史模拟请以该任务保存的输入为准。</footer>
 </main>
 <script src="{% static 'shared/js/wow-item-tooltip.js' %}"></script>
-<script src="{% static 'portal/js/simc-reference.js' %}?v=20261112_framed_results"></script>
+<script src="{% static 'portal/js/simc-reference.js' %}?v=20261114_selection_loading"></script>
 </body>
 </html>

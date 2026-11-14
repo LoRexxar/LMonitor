@@ -58,6 +58,40 @@
             document.querySelector('.simc-reference').style.setProperty('--reference-header-height', `${header.getBoundingClientRect().height}px`);
         }).observe(header);
     }
+    const navigationStatus = document.getElementById('reference-navigation-status');
+    const workbench = document.querySelector('.reference-workbench');
+    let navigationTimer;
+    const resetNavigationStatus = () => {
+        clearTimeout(navigationTimer);
+        if (navigationStatus) navigationStatus.hidden = true;
+        workbench?.removeAttribute('aria-busy');
+    };
+    window.addEventListener('pageshow', event => {
+        if (event.persisted) resetNavigationStatus();
+    });
+    window.addEventListener('pagehide', () => clearTimeout(navigationTimer));
+    const showNavigationStatus = form => {
+        if (!navigationStatus) return;
+        clearTimeout(navigationTimer);
+        const selected = form.querySelector('select')?.selectedOptions[0]?.textContent.trim();
+        navigationStatus.querySelector('[data-reference-loading-label]').textContent = selected
+            ? `正在加载：${selected}` : '正在应用英雄天赋筛选…';
+        const detail = navigationStatus.querySelector('[data-reference-loading-detail]');
+        detail.textContent = '正在读取所选配置，请稍候。';
+        const retry = navigationStatus.querySelector('[data-reference-loading-retry]');
+        const destination = new URL(form.action, location.href);
+        destination.search = new URLSearchParams(new FormData(form)).toString();
+        retry.href = destination.href;
+        retry.hidden = true;
+        navigationStatus.hidden = false;
+        workbench?.setAttribute('aria-busy', 'true');
+        // Leave successful form controls enabled: native GET serialization
+        // happens after submit listeners and must retain every selected value.
+        navigationTimer = setTimeout(() => {
+            detail.textContent = '加载时间较长，可继续等待或重新加载。';
+            retry.hidden = false;
+        }, 10000);
+    };
     document.querySelectorAll('.simc-reference form').forEach(form => {
         form.addEventListener('change', event => {
             if (event.target.matches('select, input[type="checkbox"]')) form.requestSubmit();
@@ -72,6 +106,7 @@
             }
             view.value = activeSection.id;
             form.action = `#${activeSection.id}`;
+            showNavigationStatus(form);
         });
         const submit = form.querySelector('button[type="submit"]');
         if (submit) submit.hidden = true;

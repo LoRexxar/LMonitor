@@ -15,8 +15,8 @@ from botend.services.simc_reference_heroes import (
 )
 
 
-def reference_catalog(*, public_only=True):
-    """一次读取轻量目录；不将所有专精的装备正文或 APL 装入页面。"""
+def reference_catalog(*, public_only=True, project_talent_titles=True):
+    """读取目录；页面可延后标题投影，管理调用默认仍返回完整展示名称。"""
     groups, by_key = [], {}
     for class_name, specs in CLASS_SPEC_MAP.items():
         group = {'name': CLASS_CN[class_name], 'specs': []}
@@ -56,7 +56,7 @@ def reference_catalog(*, public_only=True):
             querysets[kind] = querysets[kind].filter(pk__in=published.values_list(f'{kind}__pk', flat=True))
     for kind, queryset in querysets.items():
         resources = list(queryset.order_by('name', 'id'))
-        if kind == 'talents':
+        if kind == 'talents' and project_talent_titles:
             apply_talent_display_names(resources)
         for resource in resources:
             key = canonical_simc_profile_key(resource['spec'], resource.get('class_name', ''))
@@ -80,13 +80,14 @@ def _select(rows, raw_id, preferred_id=None):
 
 def reference_context(params):
     from botend.services.simc_reference_simulations import public_results
-    groups, specs = reference_catalog()
+    groups, specs = reference_catalog(project_talent_titles=False)
     key = params.get('spec') or next(
         (key for key, row in specs.items() if row['has_data']), next(iter(specs)),
     )
     if key not in specs:
         raise Http404('专精不存在')
     spec = dict(specs[key])
+    apply_talent_display_names(spec['talents'])
     heroes = hero_selection(params, spec)
     stable_key = f'simc_upstream:{key}'
     profile_default = next((r['id'] for r in spec['profiles'] if r['system_key'] == stable_key), None)
