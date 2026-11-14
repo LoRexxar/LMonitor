@@ -18,8 +18,7 @@ from django.db.models.functions import SHA256
 from markdown_it import MarkdownIt
 
 from botend.constants.hero_talents import (
-    HERO_SUBTREE_NAME_ZH, normalize_hero_subtree_names_zh,
-    normalize_hero_subtree_title_zh,
+    HERO_SUBTREE_NAME_ZH, _LEGACY_HERO_SUBTREE_NAME_ZH, normalize_hero_subtree_names_zh,
 )
 from botend.constants.wow import SPEC_IDENTITY_MAP, canonical_class_spec
 from botend.guide_models import ClassGuide
@@ -33,11 +32,28 @@ _KEY = re.compile(r'guide:(icy-veins|maxroll):([1-9][0-9]*):([a-z][a-z0-9_]*):([
 _GENERIC_LABELS = {'', '天赋构筑', '天赋', 'talents', 'talent build', 'build'}
 _BUILD_CHAPTERS = {'天赋与构筑', '天赋构筑', 'talents', 'talents and builds', 'talent builds'}
 _MARKDOWN = MarkdownIt('commonmark', {'html': True})
+_STRUCTURE = MarkdownIt('commonmark', {'html': True}).disable('inline')
 _GUIDE_CACHE = OrderedDict()
 _GUIDE_CACHE_LOCK = RLock()
 _GUIDE_CACHE_LIMIT = 256
 _SOURCE_HOSTS = {'icy-veins.com': 'icy-veins', 'www.icy-veins.com': 'icy-veins',
                  'maxroll.gg': 'maxroll', 'www.maxroll.gg': 'maxroll'}
+# These are generic encounter/build terms, not a second game-name glossary.
+_TITLE_PHRASES = (
+    (re.compile(r'(?<![A-Za-z0-9_])(?:Mythic\+|M\+)(?![A-Za-z0-9_])', re.I), '大秘境'),
+    (re.compile(r'(?<![A-Za-z0-9_])AoE(?![A-Za-z0-9_])', re.I), '范围伤害'),
+)
+_HERO_ALIASES = {**HERO_SUBTREE_NAME_ZH, **_LEGACY_HERO_SUBTREE_NAME_ZH,
+                 **{name: name for name in HERO_SUBTREE_NAME_ZH.values()}}
+_ENGLISH_HERO = '|'.join(re.escape(name) for name in sorted(HERO_SUBTREE_NAME_ZH, key=len, reverse=True))
+_CHINESE_HERO = '|'.join(re.escape(name) for name in sorted(
+    {*HERO_SUBTREE_NAME_ZH.values(), *_LEGACY_HERO_SUBTREE_NAME_ZH}, key=len, reverse=True))
+# Chinese captions often join a hero and a build term without spaces. Accept
+# those explicit suffixes, not arbitrary entity substrings (e.g. 陵寝哨兵).
+_HERO_TOKEN = re.compile(
+    rf'(?<![A-Za-z0-9_])(?:{_ENGLISH_HERO})(?![A-Za-z0-9_])'
+    rf'|(?:(?<![\u4e00-\u9fff])|(?<=适用于))(?:{_CHINESE_HERO})'
+    r'(?=$|[^\u4e00-\u9fff]|单体|单目标|多目标|团本|团队副本|大秘境|地下城|地下堡|天赋|构筑|构建)')
 
 
 def _load_guides(guide_ids):
@@ -47,12 +63,13 @@ def _load_guides(guide_ids):
     associate a second read's changed content with the first read's old digest.
     """
     guides, missing = {}, []
-    query = ClassGuide.objects.filter(pk__in=guide_ids).annotate(title_source_hash=SHA256('source_markdown'))
+    query = ClassGuide.objects.filter(pk__in=guide_ids).annotate(
+        title_source_hash=SHA256('source_markdown'), title_content_hash=SHA256('content_markdown'))
 
     def key(row):
-        return (row['id'], row['spec_id'], row['source_url'], row['guide_type'], row['title_source_hash'])
+        return (row['id'], row['spec_id'], row['source_url'], row['guide_type'], row['title_source_hash'], row['title_content_hash'])
 
-    for row in query.values('id', 'spec_id', 'source_url', 'guide_type', 'title_source_hash'):
+    for row in query.values('id', 'spec_id', 'source_url', 'guide_type', 'title_source_hash', 'title_content_hash'):
         if urlsplit(row['source_url']).hostname not in _SOURCE_HOSTS:
             continue
         with _GUIDE_CACHE_LOCK:
@@ -62,11 +79,17 @@ def _load_guides(guide_ids):
                 guides[row['id']] = cached
             else:
                 missing.append(row['id'])
-    for row in query.filter(pk__in=missing).values('id', 'spec_id', 'source_url', 'guide_type', 'source_markdown', 'title_source_hash') if missing else ():
+    for row in query.filter(pk__in=missing).values('id', 'spec_id', 'source_url', 'guide_type', 'source_markdown', 'content_markdown', 'title_source_hash', 'title_content_hash') if missing else ():
         try:
             if urlsplit(row['source_url']).hostname not in _SOURCE_HOSTS:
                 continue
-            occurrences = _occurrences(row['source_markdown'])
+            source_tokens = _STRUCTURE.parse(row['source_markdown'])
+            occurrences = _occurrences(row['source_markdown'], tokens=source_tokens)
+            if row['content_markdown']:
+                content_tokens = _STRUCTURE.parse(row['content_markdown'])
+                _pair_content(occurrences, _occurrences(row['content_markdown'], tokens=content_tokens),
+                              row['source_markdown'], row['content_markdown'],
+                              source_tokens=source_tokens, content_tokens=content_tokens)
             source = _SOURCE_HOSTS[urlsplit(row['source_url']).hostname]
             value = (SPEC_IDENTITY_MAP.get(row['spec_id']), occurrences, source,
                      TYPE_LABELS.get(row['guide_type'], ''),
@@ -109,16 +132,18 @@ def _identity(resource):
 
 
 def _hero_mentions(text):
-    # The central normalizer includes legacy Chinese aliases as well as English.
-    normalized = normalize_hero_subtree_title_zh(text)
-    return {hero for hero in HERO_SUBTREE_NAME_ZH.values() if hero in normalized}
+    return {_HERO_ALIASES[match[0]] for match in _HERO_TOKEN.finditer(text)}
+
+
+def _normalize_heroes(text):
+    return _HERO_TOKEN.sub(lambda match: _HERO_ALIASES[match[0]], text)
 
 
 def _conflicts(text, heroes):
     return bool(heroes and (_hero_mentions(text) - set(heroes)))
 
 
-def _occurrences(markdown):
+def _occurrences(markdown, *, tokens=None):
     """Read Markdown headings/fences, compiling only actual talent components.
 
     The Markdown tokenizer owns fence boundaries (so code examples are not
@@ -127,32 +152,165 @@ def _occurrences(markdown):
     """
     occurrences, headings = {}, []
     lines = markdown.splitlines()
-    tokens = _MARKDOWN.parse(markdown)
+    if tokens is None:
+        tokens = _STRUCTURE.parse(markdown)
+    heading_titles = {index: _plain(tokens[index + 1].content)
+                      for index, token in enumerate(tokens) if token.type == 'heading_open'}
+
+    def talent_header(token):
+        if token.type != 'fence' or token.info.strip() != 'json' or not token.map:
+            return None
+        header = token.map[0] - 1
+        while header >= 0 and not lines[header].strip():
+            header -= 1
+        if header >= 0 and re.match(r'^:::talents(?:\s|$)', lines[header]):
+            return header
+        return None
+
+    # Explanations and code components can live in separate repetitions of the
+    # same numbered chapter. Match their section + scheme, never nearest h4.
+    descriptions, chapter, scheme = {}, '', ''
+    for index, token in enumerate(tokens):
+        if talent_header(token) is not None:
+            # A code-only repetition cannot borrow later talent discussion.
+            scheme = ''
+        if token.type != 'heading_open':
+            continue
+        level, title = int(token.tag[1:]), heading_titles[index]
+        if level <= 2:
+            chapter, scheme = title, ''
+        elif level == 3:
+            scheme = title if re.fullmatch(r'天赋方案\s+[0-9]+-[0-9]+', title) else ''
+        elif level == 4 and scheme:
+            if title:
+                descriptions.setdefault((chapter, scheme), []).append(title)
+            # Only the first h4 in each h3 block describes the scheme. Distinct
+            # first descriptions in repeated blocks remain ambiguous below.
+            scheme = ''
     for index, token in enumerate(tokens):
         if token.type == 'heading_open':
             level = int(token.tag[1:])
-            title = _plain(tokens[index + 1].content)
+            title = heading_titles[index]
             headings = [(depth, text) for depth, text in headings if depth < level]
             if title:
                 headings.append((level, title))
         elif token.type == 'fence' and token.info.strip() == 'json' and token.map:
             start, end = token.map
-            header = start - 1
-            while header >= 0 and not lines[header].strip():
-                header -= 1
-            if header < 0 or not re.match(r'^:::talents(?:\s|$)', lines[header]):
+            header = talent_header(token)
+            if header is None:
                 continue
             # Include the original fence bytes rather than reserialize its data.
             source = '\n'.join(lines[header:end]) + '\n:::'
             for block in compile_markdown(source):
                 code = block.get('data', {}).get('code')
                 if block['type'] == 'talents' and code:
+                    section = next((text for depth, text in headings if depth == 2), '')
+                    scheme_title = next((text for depth, text in headings if depth == 3), '')
+                    labels = set(descriptions.get((section, scheme_title), ()))
                     occurrences.setdefault(code, []).append({
+                        'description_label': next(iter(labels)) if len(labels) == 1 else '',
                         'label': _plain(block.get('title')),
                         'path': tuple(title for _, title in headings),
                         'order': start,
                     })
     return occurrences
+
+
+def _link_translations(source_markdown, content_markdown, *, source_tokens=None, content_tokens=None):
+    """Derive names from same-guide, same-href link text, never URL slugs."""
+    def links(markdown, tokens):
+        result = {}
+        for token in (_STRUCTURE.parse(markdown) if tokens is None else tokens):
+            if token.type == 'inline' and ('[' in token.content or '<a ' in token.content):
+                html = _MARKDOWN.renderInline(token.content)
+            elif token.type == 'html_block' and '<a ' in token.content:
+                html = token.content
+            else:
+                continue
+            for link in BeautifulSoup(html, 'html.parser').find_all('a', href=True):
+                text = ' '.join(link.get_text().split())
+                if text:
+                    result.setdefault(link['href'], set()).add(text)
+        return result
+
+    original, translated = links(source_markdown, source_tokens), links(content_markdown, content_tokens)
+    candidates = {}
+    for href, names in original.items():
+        # Apostrophes inside an attested English spelling may be omitted by a
+        # caption. No other punctuation, suffix or URL-derived aliases qualify.
+        keys = {re.sub(r"(?<=[A-Za-z])['’](?=[A-Za-z])", '', name).casefold() for name in names}
+        if len(keys) != 1 or not all(re.fullmatch(r"[A-Za-z][A-Za-z0-9 '’&()-]*", name) for name in names):
+            continue
+        targets = translated.get(href, set())
+        if targets:
+            candidates.setdefault(next(iter(keys)), set()).update(targets)
+    return {name: next(iter(targets)) for name, targets in candidates.items()
+            if len(targets) == 1 and re.search(r'[\u4e00-\u9fff]', next(iter(targets)))
+            and not re.search(r'[A-Za-z]', next(iter(targets)))}
+
+
+def _translate_link_text(text, translations):
+    if not translations or not re.search(r'[\u4e00-\u9fff]', text):
+        return text
+    # Match complete English phrases; normalizing only apostrophes cannot turn
+    # an entity suffix or a URL slug into an attested name.
+    return re.sub(r"(?<![A-Za-z0-9_])[A-Za-z][A-Za-z0-9]*(?:['’][A-Za-z]+)*(?:[ &()-]+[A-Za-z][A-Za-z0-9]*(?:['’][A-Za-z]+)*)*(?![A-Za-z0-9_])",
+                  lambda match: translations.get(re.sub(r"(?<=[A-Za-z])['’](?=[A-Za-z])", '', match[0]).casefold(), match[0]), text)
+
+
+def _pair_content(source, content, source_markdown='', content_markdown='', *, source_tokens=None, content_tokens=None):
+    """Pair exact code occurrences only after the whole code sequence agrees."""
+    def sequence(items):
+        return [code for _, code in sorted(
+            (item['order'], code) for code, matches in items.items() for item in matches)]
+    if sequence(source) != sequence(content):
+        return
+    translations = {}
+    for code, matches in source.items():
+        for original, translated in zip(matches, content[code]):
+            original['translated'] = translated
+            pairs = [(original['label'], translated['label'])]
+            if len(original['path']) == len(translated['path']):
+                pairs.extend(zip(original['path'], translated['path']))
+            for english, chinese in pairs:
+                if re.search(r'[\u4e00-\u9fff]', chinese):
+                    translations.setdefault(english, set()).add(chinese)
+    trusted = {key: next(iter(values)) for key, values in translations.items() if len(values) == 1}
+    link_translations = {}
+    if source_markdown and content_markdown and any(
+            re.search('[A-Za-z]', _without_heroes(part, HERO_SUBTREE_NAME_ZH.values()))
+            for matches in content.values() for item in matches
+            for part in (item['label'], item['description_label'], *item['path'])
+            if re.search(r'[\u4e00-\u9fff]', part)):
+        link_translations = _link_translations(source_markdown, content_markdown,
+                                               source_tokens=source_tokens, content_tokens=content_tokens)
+    for matches in source.values():
+        for item in matches:
+            item['translations'] = trusted
+            translated = item['translated']
+            for key in ('label', 'description_label'):
+                translated[key] = _translate_link_text(translated[key], link_translations)
+            translated['path'] = tuple(_translate_link_text(part, link_translations) for part in translated['path'])
+
+
+def _without_heroes(text, heroes):
+    removed = False
+
+    def replace(match):
+        nonlocal removed
+        hero = _HERO_ALIASES[match[0]]
+        if hero in heroes:
+            removed = True
+            return ''
+        return hero
+
+    text = _HERO_TOKEN.sub(replace, text)
+    for pattern, translation in _TITLE_PHRASES:
+        text = pattern.sub(translation, text)
+    if removed:
+        text = text.strip(' ·-/：:—–')
+        text = re.sub(r'[\s，,：:]*适用于\s*$', '', text).rstrip(' ·-/：:—–')
+    return ' '.join(text.split())
 
 
 def _maxroll_contexts(occurrences):
@@ -162,17 +320,16 @@ def _maxroll_contexts(occurrences):
     and source headings over copy-pasted component captions. Number only distinct
     codes in their chosen source-block order, never repeated occurrences.
     """
-    def context(occurrence):
+    def context(occurrence, translated=False):
+        if translated:
+            occurrence = occurrence.get('translated', occurrence)
         parts = []
         for part in occurrence['path']:
             if part.casefold() in _BUILD_CHAPTERS:
                 continue
             # Known hero names are redundant with frozen metadata; do not join
             # potentially conflicting source hero names onto that metadata.
-            part = normalize_hero_subtree_title_zh(part)
-            for hero in HERO_SUBTREE_NAME_ZH.values():
-                part = part.replace(hero, '')
-            part = part.strip(' ·-/')
+            part = _without_heroes(part, HERO_SUBTREE_NAME_ZH.values()).strip(' ·-/—–')
             if part and part.casefold() not in _GENERIC_LABELS:
                 parts.append(part)
         if parts:
@@ -189,7 +346,7 @@ def _maxroll_contexts(occurrences):
         chosen = min(matches, key=lambda item: (
             not any(part.casefold() in _BUILD_CHAPTERS for part in item['path']),
             not bool(context(item)), item['order']))
-        selected[code] = (chosen, context(chosen))
+        selected[code] = (chosen, context(chosen, translated=True))
     groups = {}
     for code, (chosen, label) in sorted(selected.items(), key=lambda item: item[1][0]['order']):
         groups.setdefault(label, []).append(code)
@@ -211,7 +368,7 @@ def _project(resource, identity, guide):
         old = re.sub(r'\s*·\s*[0-9a-f]{8}(?:[0-9a-f]{56})?\s*$', '', old)
         old = ' · '.join(part.strip() for part in old.split('·') if part.strip())
     if not old.startswith('[Icy Veins]'):
-        old = normalize_hero_subtree_title_zh(old)
+        old = _normalize_heroes(old)
     if not identity or not guide:
         return old
     guide_identity, occurrences, source, category, contexts = guide
@@ -239,18 +396,37 @@ def _project(resource, identity, guide):
         not any(part.casefold() in _BUILD_CHAPTERS for part in item[1]['path']),
         item[0],
     ))[1]
-    if usable_label(chosen):
-        label = chosen['label']
+    if usable_label(chosen) and not _conflicts(chosen.get('translated', chosen)['label'], heroes):
+        label = chosen.get('translated', chosen)['label']
     else:
         # Preserve old semantic text, not its duplicated source/hero/hash shell.
         parts = old.removeprefix('[Icy Veins]').strip().split(' · ')
         parts = [part for part in parts if part and part != identity[2][:8]
                  and part not in heroes and not _conflicts(part, heroes)]
         label = ' · '.join(parts) or '天赋构筑'
+        if 'translated' in chosen:
+            # Exact, unambiguous bilingual evidence may translate a legacy label.
+            translated = chosen['translations'].get(label)
+            if translated and _conflicts(translated, heroes):
+                translated = None
+            candidates = [part for part in reversed(chosen['translated']['path'])
+                          if re.search(r'[\u4e00-\u9fff]', part)
+                          and part.casefold() not in _BUILD_CHAPTERS
+                          and not re.fullmatch(r'天赋方案 [0-9-]+', part)
+                          and not _conflicts(part, heroes)]
+            description = chosen['translated'].get('description_label', '')
+            if _conflicts(description, heroes):
+                description = ''
+            label = description or translated or next(iter(candidates), '天赋构筑')
     # The chapter distinguishes provenance; repeated hero headings and generated
     # block numbers add no useful build meaning to a selector title.
-    path = list(dict.fromkeys(part for part in chosen['path'] if not _conflicts(part, heroes)))[:1]
-    pieces = list(dict.fromkeys([*heroes, label, *path]))
+    path = list(dict.fromkeys(part for part in chosen.get('translated', chosen)['path']
+                              if not _conflicts(part, heroes)))[:1]
+    # Keep legacy source-only fallbacks intact; localized titles carry heroes once.
+    if 'translated' in chosen:
+        label = _without_heroes(label, heroes)
+        path = [_without_heroes(part, heroes) for part in path]
+    pieces = list(dict.fromkeys(piece for piece in [*heroes, label, *path] if piece))
     return '[Icy Veins] ' + ' · '.join(pieces)
 
 
@@ -268,12 +444,25 @@ def apply_talent_display_names(resources):
             guides = _load_guides(guide_ids)
         except Exception:
             logger.warning('Unable to load talent title provenance', exc_info=True)
+    projected, verified = [], []
     for resource, identity in zip(resources, identities):
-        title = _project(resource, identity, guides.get(identity[0]) if identity else None)
+        guide = guides.get(identity[0]) if identity else None
+        row = {'display_name': _project(resource, identity, guide),
+               'spec': _get(resource, 'spec'), 'system_key': _get(resource, 'system_key')}
+        projected.append(row)
+        if (identity and guide and guide[0] == identity[1] and guide[2] == identity[3]
+                and _get(resource, 'talent') in guide[1]):
+            verified.append(row)
+    try:
+        from botend.services.simc_talent_title_terms import localize_imported_title_terms
+        localize_imported_title_terms(verified)
+    except Exception:
+        logger.warning('Unable to resolve central talent title terms', exc_info=True)
+    for resource, row in zip(resources, projected):
         if isinstance(resource, dict):
-            resource['display_name'] = title
+            resource['display_name'] = row['display_name']
         else:
-            resource.display_name = title
+            resource.display_name = row['display_name']
     return resources
 
 
