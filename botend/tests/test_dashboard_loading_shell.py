@@ -34,6 +34,12 @@ class DashboardLoadingShellTests(TestCase):
                 self.assertEqual(shells[0].get('aria-live'), 'polite')
                 self.assertNotIn('hidden', shells[0])
                 self.assertNotIn('hidden', shells[0].get('class', '').split())
+                # Before hydration, unrelated default table UI must not flash
+                # beneath the loading shell on every dashboard route.
+                active_sections = [attrs for _, attrs in elements
+                                   if 'content-section' in attrs.get('class', '').split()
+                                   and 'active' in attrs.get('class', '').split()]
+                self.assertEqual(active_sections, [])
                 self.assertContains(response, '长时间未响应？重新加载')
                 self.assertContains(response, 'id="simc-talent-string-pagination"')
 
