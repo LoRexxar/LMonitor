@@ -1,0 +1,350 @@
+{
+  "resources": [
+    {
+      "id": 505,
+      "name": "[Maxroll] 疾咒师 · Frost Mage cleave talents in Raids · 755cc434",
+      "spec": "mage_frost",
+      "talent": "CAEAAAAAAAAAAAAAAAAAAAAAAYmNjlZmZWYmZiZMzMzMzMLmZGmxMQAAgZmZWWmZaDAAAAAAWAYbZMjZwsNMmZsAAAwMbAzwYAzghB",
+      "hero_talent_names": [
+        "疾咒师"
+      ],
+      "system_key": "guide:maxroll:161:mage_frost:755cc4346cad093bc4432962d05b8f63c0540a38efc2acd9a3bf2e5173815628"
+    },
+    {
+      "id": 506,
+      "name": "[Maxroll] 疾咒师 · Frost Mage cleave talents in Raids · e21bd55b",
+      "spec": "mage_frost",
+      "talent": "CAEAAAAAAAAAAAAAAAAAAAAAAYmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB",
+      "hero_talent_names": [
+        "疾咒师"
+      ],
+      "system_key": "guide:maxroll:161:mage_frost:e21bd55b62cad8e22769f69cc631b6401f911c0c2e145f0fed4a4af65f083ab2"
+    },
+    {
+      "id": 544,
+      "name": "[Maxroll] 利爪德鲁伊 · Feral Druid raid adds spawn · a5dafa8b",
+      "spec": "druid_feral",
+      "talent": "CcGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAzMz2DYmZmxY2M2GbzYm5BmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZGQgFYmZAWYwAAAYmNMA",
+      "hero_talent_names": [
+        "利爪德鲁伊"
+      ],
+      "system_key": "guide:maxroll:155:druid_feral:a5dafa8b77cbca82da01b1e1e6cdc10b053d10d05f8e8ea8e49b6a5d641c5fe0"
+    },
+    {
+      "id": 545,
+      "name": "[Maxroll] 利爪德鲁伊 · Feral Druid raid adds spawn · 34fb18e7",
+      "spec": "druid_feral",
+      "talent": "CcGAAAAAAAAAAAAAAAAAAAAAAAAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA",
+      "hero_talent_names": [
+        "利爪德鲁伊"
+      ],
+      "system_key": "guide:maxroll:155:druid_feral:34fb18e7beb63e341dff92be27f2463a91016bd44f80524ff19021b91d2f78fd"
+    },
+    {
+      "id": 629,
+      "name": "[Maxroll] 欺诈者 · Outlaw Rogue Single-Target talents in Raids · 3b219e08",
+      "spec": "rogue_outlaw",
+      "talent": "CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD",
+      "hero_talent_names": [
+        "欺诈者"
+      ],
+      "system_key": "guide:maxroll:176:rogue_outlaw:3b219e08efecf0d27654cab1a99cc8854f65cdd1ce3136cd679c565275125b89"
+    },
+    {
+      "id": 630,
+      "name": "[Maxroll] 命缚者 ·  · b03fe1f5",
+      "spec": "rogue_outlaw",
+      "talent": "CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAw22MzMMzMzsYmZ2GAAAAGDYgNYGjGzGgtJswAgZmZwA",
+      "hero_talent_names": [
+        "命缚者"
+      ],
+      "system_key": "guide:maxroll:176:rogue_outlaw:b03fe1f58985eef69a8845fe530d6690c33256487e712363efb6ee5c09656975"
+    },
+    {
+      "id": 631,
+      "name": "[Maxroll] 欺诈者 · Outlaw Rogue Single-Target talents in Raids · 92f771e2",
+      "spec": "rogue_outlaw",
+      "talent": "CQQAAAAAAAAAAAAAAAAAAAAAAAgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD",
+      "hero_talent_names": [
+        "欺诈者"
+      ],
+      "system_key": "guide:maxroll:177:rogue_outlaw:92f771e25825d6d1b0e2dfe01a8c2ae4410ba785b49cf4c66b7cbda741fc5b28"
+    }
+  ],
+  "guides": [
+    {
+      "id": 155,
+      "spec_id": 103,
+      "class_name": "Druid",
+      "spec_name": "Feral",
+      "guide_type": "raid",
+      "source_url": "https://maxroll.gg/wow/class-guides/feral-druid-raid-guide"
+    },
+    {
+      "id": 161,
+      "spec_id": 64,
+      "class_name": "Mage",
+      "spec_name": "Frost",
+      "guide_type": "raid",
+      "source_url": "https://maxroll.gg/wow/class-guides/frost-mage-raid-guide"
+    },
+    {
+      "id": 176,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "guide_type": "mythic-plus",
+      "source_url": "https://maxroll.gg/wow/class-guides/outlaw-rogue-mythic-plus-guide"
+    },
+    {
+      "id": 177,
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "guide_type": "raid",
+      "source_url": "https://maxroll.gg/wow/class-guides/outlaw-rogue-raid-guide"
+    }
+  ],
+  "occurrences": [
+    {
+      "guide_id": 155,
+      "heading_path": [
+        "Talents",
+        "[[talent:123297]] Cleave"
+      ],
+      "raw_block": ":::talents [[talent:123297]] **<mark><mark><mark>Feral Druid</mark></mark></mark>** raid adds spawn\n```json\n{\n  \"source_code\": \"CeGA4vV1lPvoFlyB-BZ6YBsKYDAAAAAAzMz2DYmZmxY2M2GbzYm5BmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZGQgFYmZAWYwAAAYmNM\",\n  \"code\": \"CeGA4vV1lPvoFlyB+BZ6YBsKYDAAAAAAzMz2DYmZmxY2M2GbzYm5BmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZGQgFYmZAWYwAAAYmNM\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 155,
+      "heading_path": [
+        "Talents",
+        "[[talent:123296]] Cleave"
+      ],
+      "raw_block": ":::talents [[talent:123296]] **<mark><mark><mark>Feral Druid</mark></mark></mark>** raid adds spawn\n```json\n{\n  \"source_code\": \"CeGA4vV1lPvoFlyB-BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\",\n  \"code\": \"CeGA4vV1lPvoFlyB+BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 155,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Lost Explorers"
+      ],
+      "raw_block": ":::talents **<mark>Feral Druid</mark>**\n```json\n{\n  \"source_code\": \"CeGA4vV1lPvoFlyB-BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\",\n  \"code\": \"CeGA4vV1lPvoFlyB+BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 155,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Twin Fangs"
+      ],
+      "raw_block": ":::talents **<mark>Feral Druid</mark>**\n```json\n{\n  \"source_code\": \"CeGA4vV1lPvoFlyB-BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\",\n  \"code\": \"CeGA4vV1lPvoFlyB+BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 155,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Ula'tek"
+      ],
+      "raw_block": ":::talents **<mark>Feral Druid</mark>**\n```json\n{\n  \"source_code\": \"CeGA4vV1lPvoFlyB-BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\",\n  \"code\": \"CeGA4vV1lPvoFlyB+BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 155,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Nymrissa Wavecaller"
+      ],
+      "raw_block": ":::talents **<mark>Feral Druid</mark>**\n```json\n{\n  \"source_code\": \"CeGA4vV1lPvoFlyB-BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\",\n  \"code\": \"CeGA4vV1lPvoFlyB+BZ6YBsKYDAAAAAgZMzGzMzMzY2MPw2YbGzMmZAAAAYJYYYMzomxsYmZmxYmZAAAAAAAMAAAAamlZZmZmZbmtmlZW2gZmBYhBDAgZGMzGGA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "Talents",
+        "[[talent:123339]] Cleave"
+      ],
+      "raw_block": ":::talents [[talent:123339]] **<mark>Frost Mage</mark>** cleave talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "Talents",
+        "[[talent:123339]] AoE"
+      ],
+      "raw_block": ":::talents [[talent:123339]] **<mark>Frost Mage</mark>** cleave talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZGmxMQAAgZmZWWmZaDAAAAAAWAYbZMjZwsNMmZsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZGmxMQAAgZmZWWmZaDAAAAAAWAYbZMjZwsNMmZsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Nek'Zali"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Nek'Zali talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Entombed Sentinels"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Entombed Sentinels talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Lost Explorers"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Lost Explorers talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Vashnik"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Vashnik talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Twin Fangs"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Twin Fangs talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Coiled Altar"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Coiled Altar talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Ula'tek"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Ula'tek talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 161,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Nymrissa Wavecaller"
+      ],
+      "raw_block": ":::talents **<mark>Frost Mage</mark>** Nymrissa Wavecaller talents in Raids\n```json\n{\n  \"source_code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\",\n  \"code\": \"CCEAmxqme2NN7ABQRxXf6C8R0ZmNjlZmZWYmZiZMzMzMzMLmZmxMmBCAAMzMzyyMTbAAAAAAwGAbLjZMDmthxMsAAAwMbAzwYAzghB\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Talents",
+        "<s>[[talent:123374]] [[spell:381989]]</s>"
+      ],
+      "raw_block": ":::talents\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAw22MzMMzMzsYmZ2GAAAAGDYgNYGjGzGgtJswAgZmZwA\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAw22MzMMzMzsYmZ2GAAAAGDYgNYGjGzGgtJswAgZmZwA\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Talents",
+        "[[talent:123372]]"
+      ],
+      "raw_block": ":::talents [[talent:123372]] **<mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark>Outlaw Rogue</mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark>** Single-Target talents in Raids\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Altar of Fangs"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark>Outlaw Rogue</mark></mark></mark></mark>** Mythic+ Build in Altar of Fangs\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Den of Nalorakk"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in Altar of Fangs\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Murder Row"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in Murder Row\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "The Blinding Vale"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in The Blinding Vale\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Voidscar Arena"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in Algeth'ar AVoidscar Arena\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Kings' Rest"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in Kings' Rest\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Ruby Life Pools"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in Ruby Life Pools\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 176,
+      "heading_path": [
+        "Dungeons",
+        "Temple of Sethraliss"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark> Rogue</mark></mark></mark></mark>** Mythic+ Build in Temple of Sethraliss\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZMzsNzMjZmZmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 177,
+      "heading_path": [
+        "Talents",
+        "RECOMMENDED - [[talent:123372]] ST"
+      ],
+      "raw_block": ":::talents [[talent:123372]] **<mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark><mark>Outlaw Rogue</mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark></mark>** Single-Target talents in Raids\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 177,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Entombed Sentinels"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark><mark><mark><mark><mark><mark><mark><mark>Outlaw</mark></mark></mark></mark></mark></mark></mark> Rogue</mark></mark></mark>** Entombed Sentinels Talents\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 177,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Sszorak"
+      ],
+      "raw_block": ":::talents **<mark><mark>Outlaw Rogue</mark></mark>** Sszorak Talents\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    },
+    {
+      "guide_id": 177,
+      "heading_path": [
+        "The Venomous Abyss",
+        "Coiled Altar"
+      ],
+      "raw_block": ":::talents **<mark><mark><mark>Outlaw Rogue</mark></mark></mark>** Coiled Altar Talents\n```json\n{\n  \"source_code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\",\n  \"code\": \"CSQAxSGv8NzbxeTO653C6Eg9HDgx2MmZmZmZmtZmZmZMmFwMmWGsNDAAAAAY22mZmhZmZmFzMz2AAAAwYAwYWMMkBmFWoF2YAmZwAD\"\n}\n```\n:::"
+    }
+  ]
+}

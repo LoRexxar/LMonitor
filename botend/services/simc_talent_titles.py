@@ -1,6 +1,6 @@
 """Read-only SimC talent title projection; stored names and frozen inputs stay intact.
 
-Only a verified Icy Veins system key and an exact code occurrence in the current
+Only a verified Icy Veins or Maxroll system key and an exact code occurrence in the current
 source Markdown may add provenance. No title/code catalogue or persistent cache
 is maintained here: changing a guide takes effect on the next projection.
 """
@@ -25,16 +25,19 @@ from botend.constants.wow import SPEC_IDENTITY_MAP, canonical_class_spec
 from botend.guide_models import ClassGuide
 from botend.models import SimcTalentString
 from botend.services.class_guide_markdown import compile_markdown
+from botend.services.class_guide_tags import TYPE_LABELS
 from botend.services.simc_player_config import canonical_simc_spec_identity
 
 logger = logging.getLogger(__name__)
-_KEY = re.compile(r'guide:icy-veins:([1-9][0-9]*):([a-z][a-z0-9_]*):([0-9a-f]{64})')
+_KEY = re.compile(r'guide:(icy-veins|maxroll):([1-9][0-9]*):([a-z][a-z0-9_]*):([0-9a-f]{64})')
 _GENERIC_LABELS = {'', '天赋构筑', '天赋', 'talents', 'talent build', 'build'}
 _BUILD_CHAPTERS = {'天赋与构筑', '天赋构筑', 'talents', 'talents and builds', 'talent builds'}
 _MARKDOWN = MarkdownIt('commonmark', {'html': True})
 _GUIDE_CACHE = OrderedDict()
 _GUIDE_CACHE_LOCK = RLock()
-_GUIDE_CACHE_LIMIT = 64
+_GUIDE_CACHE_LIMIT = 256
+_SOURCE_HOSTS = {'icy-veins.com': 'icy-veins', 'www.icy-veins.com': 'icy-veins',
+                 'maxroll.gg': 'maxroll', 'www.maxroll.gg': 'maxroll'}
 
 
 def _load_guides(guide_ids):
@@ -47,10 +50,10 @@ def _load_guides(guide_ids):
     query = ClassGuide.objects.filter(pk__in=guide_ids).annotate(title_source_hash=SHA256('source_markdown'))
 
     def key(row):
-        return (row['id'], row['spec_id'], row['source_url'], row['title_source_hash'])
+        return (row['id'], row['spec_id'], row['source_url'], row['guide_type'], row['title_source_hash'])
 
-    for row in query.values('id', 'spec_id', 'source_url', 'title_source_hash'):
-        if urlsplit(row['source_url']).hostname not in {'icy-veins.com', 'www.icy-veins.com'}:
+    for row in query.values('id', 'spec_id', 'source_url', 'guide_type', 'title_source_hash'):
+        if urlsplit(row['source_url']).hostname not in _SOURCE_HOSTS:
             continue
         with _GUIDE_CACHE_LOCK:
             cached = _GUIDE_CACHE.get(key(row))
@@ -59,11 +62,15 @@ def _load_guides(guide_ids):
                 guides[row['id']] = cached
             else:
                 missing.append(row['id'])
-    for row in query.filter(pk__in=missing).values('id', 'spec_id', 'source_url', 'source_markdown', 'title_source_hash') if missing else ():
+    for row in query.filter(pk__in=missing).values('id', 'spec_id', 'source_url', 'guide_type', 'source_markdown', 'title_source_hash') if missing else ():
         try:
-            if urlsplit(row['source_url']).hostname not in {'icy-veins.com', 'www.icy-veins.com'}:
+            if urlsplit(row['source_url']).hostname not in _SOURCE_HOSTS:
                 continue
-            value = (SPEC_IDENTITY_MAP.get(row['spec_id']), _occurrences(row['source_markdown']))
+            occurrences = _occurrences(row['source_markdown'])
+            source = _SOURCE_HOSTS[urlsplit(row['source_url']).hostname]
+            value = (SPEC_IDENTITY_MAP.get(row['spec_id']), occurrences, source,
+                     TYPE_LABELS.get(row['guide_type'], ''),
+                     _maxroll_contexts(occurrences) if source == 'maxroll' else {})
             guides[row['id']] = value
             with _GUIDE_CACHE_LOCK:
                 _GUIDE_CACHE[key(row)] = value
@@ -81,7 +88,7 @@ def _get(resource, key, default=None):
 
 def _plain(value):
     """Use the Markdown parser for balanced URLs, then discard images/HTML."""
-    soup = BeautifulSoup(_MARKDOWN.renderInline(str(value or '')), 'html.parser')
+    soup = BeautifulSoup(_MARKDOWN.renderInline(re.sub(r'\[\[[a-zA-Z_]+:[^\]]*\]\]', '', str(value or ''))), 'html.parser')
     for node in soup(['img', 'script', 'style']):
         node.decompose()
     return ' '.join(soup.get_text().split())
@@ -91,14 +98,14 @@ def _identity(resource):
     key = _get(resource, 'system_key')
     match = _KEY.fullmatch(key) if isinstance(key, str) else None
     code, spec = _get(resource, 'talent'), _get(resource, 'spec')
-    if not match or not isinstance(code, str) or not code or match[2] != spec:
+    if not match or not isinstance(code, str) or not code or match[3] != spec:
         return None
-    if hashlib.sha256(code.encode('utf-8')).hexdigest() != match[3]:
+    if hashlib.sha256(code.encode('utf-8')).hexdigest() != match[4]:
         return None
     identity = canonical_class_spec(*canonical_simc_spec_identity(spec))
     if identity is None:
         return None
-    return int(match[1]), identity, match[3]
+    return int(match[2]), identity, match[4], match[1]
 
 
 def _hero_mentions(text):
@@ -143,23 +150,81 @@ def _occurrences(markdown):
                     occurrences.setdefault(code, []).append({
                         'label': _plain(block.get('title')),
                         'path': tuple(title for _, title in headings),
+                        'order': start,
                     })
     return occurrences
 
 
+def _maxroll_contexts(occurrences):
+    """Resolve once per guide, independent of callers, resource IDs and hashes.
+
+    Reference-only subheadings do not identify a hero. Prefer the build chapter
+    and source headings over copy-pasted component captions. Number only distinct
+    codes in their chosen source-block order, never repeated occurrences.
+    """
+    def context(occurrence):
+        parts = []
+        for part in occurrence['path']:
+            if part.casefold() in _BUILD_CHAPTERS:
+                continue
+            # Known hero names are redundant with frozen metadata; do not join
+            # potentially conflicting source hero names onto that metadata.
+            part = normalize_hero_subtree_title_zh(part)
+            for hero in HERO_SUBTREE_NAME_ZH.values():
+                part = part.replace(hero, '')
+            part = part.strip(' ·-/')
+            if part and part.casefold() not in _GENERIC_LABELS:
+                parts.append(part)
+        if parts:
+            return ' / '.join(dict.fromkeys(parts))
+        # A heading containing only a reference is intentionally unresolved;
+        # its caption can be copied from the wrong hero/scenario. Use ordinal.
+        if not occurrence['path'] and not _hero_mentions(occurrence['label']):
+            label = occurrence['label']
+            return label if label.casefold() not in _GENERIC_LABELS else ''
+        return ''
+
+    selected = {}
+    for code, matches in occurrences.items():
+        chosen = min(matches, key=lambda item: (
+            not any(part.casefold() in _BUILD_CHAPTERS for part in item['path']),
+            not bool(context(item)), item['order']))
+        selected[code] = (chosen, context(chosen))
+    groups = {}
+    for code, (chosen, label) in sorted(selected.items(), key=lambda item: item[1][0]['order']):
+        groups.setdefault(label, []).append(code)
+    result = {}
+    for label, codes in groups.items():
+        for index, code in enumerate(codes, 1):
+            pieces = [label]
+            if not label or len(codes) > 1:
+                pieces.append(f'方案{index}')
+            result[code] = ' · '.join(piece for piece in pieces if piece)
+    return result
+
+
 def _project(resource, identity, guide):
     old = _plain(_get(resource, 'name'))
+    if '[Icy Veins]' in old or '[Maxroll]' in old:
+        # Import fingerprints are technical identities, not user-facing titles.
+        # Also covers old frozen/aggregate labels without a surviving source.
+        old = re.sub(r'\s*·\s*[0-9a-f]{8}(?:[0-9a-f]{56})?\s*$', '', old)
+        old = ' · '.join(part.strip() for part in old.split('·') if part.strip())
     if not old.startswith('[Icy Veins]'):
         old = normalize_hero_subtree_title_zh(old)
     if not identity or not guide:
         return old
-    guide_identity, occurrences = guide
-    if guide_identity != identity[1]:
+    guide_identity, occurrences, source, category, contexts = guide
+    if guide_identity != identity[1] or source != identity[3]:
         return old
     matches = occurrences.get(_get(resource, 'talent'), ())
     if not matches:
         return old
     heroes = normalize_hero_subtree_names_zh(_get(resource, 'hero_talent_names', []))
+    if source == 'maxroll':
+        context = contexts[_get(resource, 'talent')]
+        pieces = list(dict.fromkeys(piece for piece in [*heroes, category, context] if piece))
+        return '[Maxroll] ' + ' · '.join(pieces)
 
     def usable_label(occurrence):
         label = occurrence['label']
@@ -185,7 +250,7 @@ def _project(resource, identity, guide):
     # The chapter distinguishes provenance; repeated hero headings and generated
     # block numbers add no useful build meaning to a selector title.
     path = list(dict.fromkeys(part for part in chosen['path'] if not _conflicts(part, heroes)))[:1]
-    pieces = list(dict.fromkeys([*heroes, label, *path, identity[2][:8]]))
+    pieces = list(dict.fromkeys([*heroes, label, *path]))
     return '[Icy Veins] ' + ' · '.join(pieces)
 
 
@@ -250,18 +315,25 @@ def frozen_talent_display_names(payloads, resource_ids=None):
         valid.append((index, resource_id))
     if valid:
         try:
-            sources = SimcTalentString.objects.filter(filters, system_key__startswith='guide:icy-veins:').order_by('pk').values(
+            sources = SimcTalentString.objects.filter(filters, Q(system_key__startswith='guide:icy-veins:') |
+                                                       Q(system_key__startswith='guide:maxroll:')).order_by('pk').values(
                 'id', 'spec', 'talent', 'system_key')
             by_identity, by_id = {}, {}
             for source in sources:
-                if _identity(source):
+                identity = _identity(source)
+                if identity:
                     by_identity.setdefault((source['spec'], source['talent']), source)
+                    by_identity.setdefault((source['spec'], source['talent'], identity[3]), source)
                     by_id[source['id']] = source
             for index, resource_id in valid:
                 row = rows[index]
-                source = by_id.get(resource_id) if resource_id is not None else by_identity.get((row['spec'], row['talent']))
+                origin = next((key for prefix, key in (('[Icy Veins]', 'icy-veins'), ('[Maxroll]', 'maxroll'))
+                               if str(row.get('name') or '').startswith(prefix)), None)
+                lookup = (row['spec'], row['talent'], origin) if origin else (row['spec'], row['talent'])
+                source = by_id.get(resource_id) if resource_id is not None else by_identity.get(lookup)
                 # Python exact equality also fences case-insensitive DB collations.
-                if source and source['spec'] == row['spec'] and source['talent'] == row['talent']:
+                if (source and source['spec'] == row['spec'] and source['talent'] == row['talent']
+                        and (not origin or _identity(source)[3] == origin)):
                     row['system_key'] = source['system_key']
         except Exception:
             logger.warning('Unable to load frozen talent title provenance', exc_info=True)

@@ -58,8 +58,9 @@ class TalentDisplayTitleTests(TestCase):
         for row, old, (short, chapter, label) in zip(rows, before, expected):
             with self.subTest(short=short):
                 title = row.display_name
-                for value in ('[Icy Veins]', short, chapter, label, row.hero_talent_names[0]):
+                for value in ('[Icy Veins]', chapter, label, row.hero_talent_names[0]):
                     self.assertIn(value, title)
+                self.assertNotIn(short, title)
                 for value in ('Fatebound', '![]', 'https://', '.webp'):
                     self.assertNotIn(value, title)
                 self.assertEqual({k: v for k, v in row.__dict__.items() if k != 'display_name'}, old)
@@ -76,8 +77,13 @@ class TalentDisplayTitleTests(TestCase):
         original = copy.deepcopy(row)
         with self.assertNumQueries(0):
             title = talent_display_name(row)
-        self.assertEqual(title, '[Icy Veins] Readable build · deadbeef')
+        self.assertEqual(title, '[Icy Veins] Readable build')
         self.assertEqual(row, original)
+        self.assertEqual(talent_display_name({'name': '[Maxroll] 欺诈者 · Raid Build · 79f99009'}),
+                         '[Maxroll] 欺诈者 · Raid Build')
+        self.assertEqual(talent_display_name({'name': 'Personal · deadbeef'}), 'Personal · deadbeef')
+        self.assertEqual(frozen_talent_display_name({'name': 'Profile · [Maxroll] Raid Build · 79f99009'}),
+                         'Profile · [Maxroll] Raid Build')
 
     def test_frozen_payload_uses_only_matching_identity_and_never_current_name(self):
         row = self.resources[4]
@@ -94,7 +100,7 @@ class TalentDisplayTitleTests(TestCase):
         current.save(update_fields=['talent'])
         with self.assertNumQueries(1):
             title = frozen_talent_display_name(payload, current.pk)
-        self.assertEqual(title, payload['name'])
+        self.assertEqual(title, payload['name'].rsplit(' · ', 1)[0])
         self.assertEqual(payload, original)
         # No ID is also supported: exact spec/code lookup, not name matching.
         with self.assertNumQueries(2):
@@ -118,7 +124,7 @@ class TalentDisplayTitleTests(TestCase):
         # Swapped resource IDs must not decorate a historical code with its peer.
         with self.assertNumQueries(1):
             swapped = frozen_talent_display_names(payloads[4:], list(reversed(self.ids[4:])))
-        self.assertEqual(swapped, [payload['name'] for payload in payloads[4:]])
+        self.assertEqual(swapped, [payload['name'].rsplit(' · ', 1)[0] for payload in payloads[4:]])
 
     def test_bad_provenance_missing_code_or_broken_guide_falls_back(self):
         row = copy.deepcopy(self.resources[0])
@@ -166,5 +172,79 @@ class TalentDisplayTitleTests(TestCase):
         self.assertNotIn('Fatebound', title)
         self.assertIn('欺诈者', title)
         self.assertIn('天赋与构筑', title)
-        self.assertIn('af58c38d', title)
+        self.assertNotIn('af58c38d', title)
         self.assertEqual(title, talent_display_name(row))
+
+
+class MaxrollTalentDisplayTitleTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        evidence = json.loads((Path(__file__).parent / 'fixtures' / 'simc_talent_titles_maxroll.json').read_text())
+        cls.resources = evidence['resources']
+        for guide in evidence['guides']:
+            parts = ['\n\n'.join('#' * (i + 2) + ' ' + title for i, title in enumerate(o['heading_path']))
+                     + '\n\n' + o['raw_block'] for o in evidence['occurrences'] if o['guide_id'] == guide['id']]
+            ClassGuide.objects.create(**guide, title='Evidence', slug=f"maxroll-{guide['id']}",
+                                      source_markdown='\n\n'.join(parts))
+        for row in cls.resources:
+            SimcTalentString.objects.create(**row)
+
+    def setUp(self):
+        from botend.services.simc_talent_titles import _GUIDE_CACHE
+        _GUIDE_CACHE.clear()
+
+    def test_real_contexts_frozen_order_and_immutability(self):
+        rows = copy.deepcopy(self.resources)
+        before = copy.deepcopy(rows)
+        with self.assertNumQueries(2):
+            apply_talent_display_names(rows)
+        titles = {r['id']: r['display_name'] for r in rows}
+        self.assertIn('AoE', titles[505])
+        self.assertNotIn('cleave', titles[505].lower())
+        self.assertIn('Cleave', titles[506])
+        self.assertIn('方案1', titles[544])
+        self.assertIn('方案2', titles[545])
+        self.assertIn('大秘境', titles[629])
+        self.assertNotIn('Raids', titles[629])
+        self.assertIn('团本', titles[631])
+        self.assertIn('命缚者', titles[630])
+        self.assertIn('方案', titles[630])
+        for row in rows:
+            self.assertNotRegex(row['display_name'], r'\[\[|<|https://|·\s*·|·$|[0-9a-f]{8}$')
+            self.assertEqual({k: v for k, v in row.items() if k != 'display_name'}, before[rows.index(row)])
+        with self.assertNumQueries(1):
+            reversed_rows = apply_talent_display_names(list(reversed(copy.deepcopy(before))))
+        self.assertEqual(titles, {r['id']: r['display_name'] for r in reversed_rows})
+        payloads = [{k: r[k] for k in ('name', 'spec', 'talent', 'hero_talent_names')} for r in before]
+        frozen_before = copy.deepcopy(payloads)
+        with self.assertNumQueries(2):
+            self.assertEqual(frozen_talent_display_names(payloads), list(titles.values()))
+        self.assertEqual(payloads, frozen_before)
+
+    def test_frozen_source_is_not_switched_by_an_identical_code(self):
+        row = copy.deepcopy(self.resources[0])
+        expected = talent_display_name(row)
+        other = dict(row, id=1, name=row['name'].replace('[Maxroll]', '[Icy Veins]'),
+                     system_key=row['system_key'].replace('guide:maxroll:', 'guide:icy-veins:'))
+        SimcTalentString.objects.create(**other)
+        payload = {k: row[k] for k in ('name', 'spec', 'talent', 'hero_talent_names')}
+        self.assertEqual(frozen_talent_display_name(payload), expected)
+        self.assertEqual(frozen_talent_display_name(payload, resource_id=1),
+                         row['name'].rsplit(' · ', 1)[0])
+
+    def test_metadata_and_provenance_fences(self):
+        row = copy.deepcopy(self.resources[0])
+        first = talent_display_name(row)
+        guide_id = int(row['system_key'].split(':')[2])
+        ClassGuide.objects.filter(pk=guide_id).update(guide_type='mythic-plus')
+        self.assertIn('大秘境', talent_display_name(row))
+        self.assertNotEqual(first, talent_display_name(row))
+        for changes in ({'source_url': 'https://maxroll.gg.evil.test/wow'},
+                        {'source_url': 'https://www.icy-veins.com/wow'},
+                        {'source_url': 'https://maxroll.gg/wow', 'spec_id': 260,
+                         'class_name': 'Rogue', 'spec_name': 'Outlaw'}):
+            ClassGuide.objects.filter(pk=guide_id).update(**changes)
+            self.assertEqual(talent_display_name(row), row['name'].rsplit(' · ', 1)[0])
+        for field, value in [('talent', row['talent'] + 'A'), ('spec', 'mage_fire')]:
+            with self.assertNumQueries(0):
+                self.assertEqual(talent_display_name(dict(row, **{field: value})), row['name'].rsplit(' · ', 1)[0])

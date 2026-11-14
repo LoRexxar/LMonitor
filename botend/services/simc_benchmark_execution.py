@@ -2305,7 +2305,7 @@ def _project_profile_labels(labels, payloads):
     for label, name, title, payload in zip(clean_labels, clean_names, titles, payloads):
         if (not payload or not payload.get('spec') or not payload.get('talent')
                 or not title or title == name
-                or not str(payload.get('name') or '').startswith('[Icy Veins]')):
+                or not str(payload.get('name') or '').startswith(('[Icy Veins]', '[Maxroll]'))):
             output.append(label)
         elif name and name in label:
             output.append(label.replace(name, title, 1))
