@@ -162,15 +162,22 @@ class GuideFlowTests(TestCase):
         refs = resolve_references(
             [{'id': 'item', 'type': 'html', 'html': f'<p>{token}</p>'}],
             '12.1.0', 'warlock', 'affliction',
+            source_refs={token: {
+                'kind': 'item', 'id': 158368, 'variant': 'BgQAAkQACKgTBA',
+                'variant_format': 'maxroll-item-raw-v9',
+                'source_name': "Sethraliss' Defiled Relic",
+            }},
         )
         rendered = BeautifulSoup(render_references(token, refs), 'html.parser')
         trigger = rendered.select_one('.guide-ref[data-wow-item-tooltip]')
 
-        # 普通描述与变体特效同时保留，装等、属性和特效仍必须来自具体变体。
+        # 精确来源变体保留属性与特效，不借基础快照的参考变体描述。
         self.assertEqual(
             refs[token]['tooltip_text'],
-            '物品等级 334\n+179 智力\n+655 急速\n+592 全能\n使用：用腐烂伤口诅咒目标。\n这件遗物残留着古老的气息。',
+            '物品等级 334\n+179 智力\n+655 急速\n+592 全能\n使用：用腐烂伤口诅咒目标。',
         )
+        self.assertEqual(refs[token]['variant_status'], 'exact')
+        self.assertEqual(item.description_zh, '这件遗物残留着古老的气息。')
         self.assertEqual(refs[token]['tooltip_source'], 'item_variant_snapshot')
         self.assertIsNotNone(trigger)
         self.assertEqual(trigger['data-wow-item-tooltip'], refs[token]['tooltip_text'])

@@ -92,7 +92,7 @@ def _article(guide, row):
     """正文仅编译一次；原文审核属于管理端，不参与公开内容发布。"""
     blocks = guide.blocks
     refs = resolve_references(blocks, guide.game_version, guide.class_name, guide.spec_name,
-                              (guide.check_data or {}).get('source_refs'))
+                              (guide.check_data or {}).get('source_refs'), source_url=guide.source_url)
     blocks = render_blocks(blocks, refs, guide)
     from botend.services.class_guide_presentation import guide_reading_structure
     chapters, toc_tree = guide_reading_structure(blocks)

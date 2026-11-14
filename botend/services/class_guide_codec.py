@@ -1,5 +1,6 @@
 """解析来源组件的低位优先编码和 Snappy 数据，保留装备变体与循环分支。"""
 
+import copy
 import html
 import re
 import struct
@@ -64,11 +65,14 @@ def snappy(data):
 
 
 class Reader:
-    def __init__(self, code):
+    def __init__(self, code, *, raw_version=None):
         self.data = decode_alphabet(code)
         self.pos = 0
         self.compressed = False
-        self.version = self.read(8)
+        # Raw item links start at bit 0. Component/Icy headers remain separate.
+        if raw_version is not None and raw_version != 9:
+            raise ValueError('不支持的原始物品协议版本')
+        self.version = self.read(8) if raw_version is None else raw_version
         if not 1 <= self.version <= 9:
             raise ValueError('不支持的来源组件协议版本')
 
@@ -198,6 +202,118 @@ class Reader:
         return {'type': 'spell', 'id': object_id & 0x7fffff}
 
 
+ITEM_RAW_V9 = 'maxroll-item-raw-v9'
+ITEM_HEADER_V9 = 'lmonitor-item-header-v9'
+
+
+def decode_item_variant_raw_v9(code, item_id):
+    """Official itemDecodeLink: no version byte, supplied item identity."""
+    reader = Reader(code, raw_version=9)
+    if int.from_bytes(reader.data[:4], 'little') >> 19:
+        raise ValueError('物品编码含未知标记')
+    item = reader.item(item_id)
+    # Official trim() omits trailing zero bytes; do not reject that padding.
+    if int.from_bytes(reader.data, 'little') >> reader.pos:
+        raise ValueError('物品编码存在未消费的数据')
+    return item
+
+
+def decode_item_variant_header(code, item_id):
+    """Versioned v9 identity emitted by the Icy adapter, not a generic header."""
+    reader = Reader(code)
+    if reader.version != 9:
+        raise ValueError('不支持的物品协议版本')
+    if int.from_bytes(reader.data[1:5], 'little') >> 19:
+        raise ValueError('物品编码含未知标记')
+    item = reader.item(item_id)
+    # Like the raw format, official trimming can omit trailing zero bytes.
+    if int.from_bytes(reader.data, 'little') >> reader.pos:
+        raise ValueError('物品编码存在未消费的数据')
+    return item
+
+
+def encode_item_variant_raw_v9(item):
+    """Lossless v9 item identity for decoded component refs (not name identity)."""
+    value, count = 0, 0
+
+    def put(number, width):
+        nonlocal value, count
+        if type(number) is not int or not 0 <= number < (1 << width):
+            raise ValueError('物品编码字段超出范围')
+        value |= number << count
+        count += width
+
+    def varint(number):
+        if type(number) is not int or not 0 <= number < (1 << 32):
+            raise ValueError('物品上下文整数无效')
+        while number >= 128:
+            put(128 | (number & 127), 8)
+            number >>= 7
+        put(number, 8)
+
+    arrays = [(key, item.get(key) or [], width, shift, maximum) for key, width, shift, maximum in
+              [('modItems', 20, 1, 7), ('modSpells', 24, 4, 7),
+               ('gems', 20, 7, 7), ('bonuses', 16, 11, 15)]]
+    flags = 0
+    for key, rows, width, shift, maximum in arrays:
+        if not isinstance(rows, list) or len(rows) > maximum:
+            raise ValueError('物品编码数组超出范围')
+        flags |= len(rows) << shift
+    scalars = [('specialization', 16, 0), ('level', 8, 10), ('context', 8, 15),
+               ('itemLevel', 16, 16), ('customContext', 0, 17), ('inheritStats', 20, 18)]
+    for key, width, bit in scalars:
+        present = item.get(key) is not None if key in ('inheritStats', 'customContext') else bool(item.get(key))
+        if present:
+            flags |= 1 << bit
+    put(flags, 32)
+    if flags & 1:
+        put(item['specialization'], 16)
+    for key, rows, width, shift, maximum in arrays[:3]:
+        for number in rows:
+            put(number, width)
+    if flags & (1 << 10):
+        put(item['level'], 8)
+    for number in arrays[3][1]:
+        put(number, 16)
+    for key, width, bit in scalars[2:4]:
+        if flags & (1 << bit):
+            put(item[key], width)
+    if flags & (1 << 17):
+        context = item['customContext']
+        fields = [('difficulty', 8, 16), ('itemLevel', 16, 32), ('playerClass', 8, 64),
+                  ('playerLevel', 8, 128), ('playerGender', 8, 256), ('specializationIndex', 8, 512)]
+        context_flags = (1 if context.get('spells') else 0) | (2 if context.get('auras') else 0)
+        if context.get('auras') and context.get('auras') == context.get('spells'):
+            context_flags = (context_flags & ~2) | 4
+        context_flags |= 8 if context.get('traitEntryRank') else 0
+        context_flags |= 1024 if context.get('charData') else 0
+        for key, width, bit in fields:
+            if context.get(key) is not None:
+                context_flags |= bit
+        put(context_flags, 16)
+        for key, bit in [('spells', 1), ('auras', 2)]:
+            if context_flags & bit:
+                varint(len(context[key]))
+                for number in context[key]:
+                    put(number, 24)
+        if context_flags & 8:
+            varint(len(context['traitEntryRank']))
+            for key, rank in context['traitEntryRank'].items():
+                put(int(key), 24); put(rank, 8)
+        for key, width, bit in fields:
+            if context_flags & bit:
+                put(context[key], width)
+        if context_flags & 1024:
+            varint(len(context['charData']))
+            for key, number in context['charData'].items():
+                varint(int(key)); varint(number)
+    if flags & (1 << 18):
+        put(item['inheritStats'], 20)
+    data = value.to_bytes((count + 7) // 8, 'little').rstrip(b'\0')
+    alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+    return ''.join(alphabet[(value >> offset) & 63] for offset in range(0, len(data) * 8, 6))
+
+
 def decode_component(kind, code):
     r = Reader(code)
     if kind in ('paperdoll', 'simulation'):
@@ -214,6 +330,12 @@ def decode_component(kind, code):
         for index in range(19):
             if mask & (1 << index):
                 items[str(index)] = r.reference() if r.version >= 7 else {'type': 'item', 'item': r.item()}
+                ref = items[str(index)]
+                if ref.get('type') == 'item':
+                    if r.version >= 4:
+                        ref['item']['specialization'] = specialization
+                    elif ref['item'].get('specialization') is not None:
+                        specialization = ref['item']['specialization']
         return {'specialization': specialization, 'items': items}
     if kind == 'rotation':
         def entries(depth=0):
@@ -254,12 +376,19 @@ SLOTS = ['头部', '项链', '肩部', '衬衣', '胸部', '腰部', '腿部', '
 STATS = {3: '敏捷', 4: '力量', 5: '智力', 7: '耐力', 32: '暴击', 36: '急速', 40: '全能', 49: '精通', 61: '速度', 62: '吸血', 63: '闪避', 71: '主属性'}
 
 
-def ref_text(ref):
+def ref_text(ref, references=None):
     if not ref:
         return ''
     kind = ref.get('type')
     if kind == 'item':
-        return '[[item:{}]]'.format(ref['item']['id'])
+        item = ref['item']
+        variant = encode_item_variant_raw_v9(item)
+        token = '[[item:{}{}]]'.format(item['id'], '@' + variant if variant else '')
+        if references is not None:
+            references[token] = {'kind': 'item', 'id': item['id'], 'variant': variant,
+                                 'variant_format': ITEM_RAW_V9, 'source_item': copy.deepcopy(item),
+                                 'source_name': ref.get('name') or ''}
+        return token
     if kind == 'spell':
         if not ref.get('id'):
             return html.escape(ref.get('name', ''))
@@ -267,7 +396,10 @@ def ref_text(ref):
     return html.escape(ref.get('name') or '{} {}'.format({'race': '种族', 'class': '职业', 'spec': '专精', 'currency': '货币', 'keystoneAffix': '词缀'}.get(kind, kind), ref.get('id', '')))
 
 
-def component_html(kind, data):
+def component_html(kind, data, references=None):
+    def text(ref):
+        return ref_text(ref, references)
+
     if kind == 'priority':
         relations = {0: ' ', 1: ' ＞ ', 2: ' ＝ ', 3: ' ≥ ', 4: ' ≫ '}
         parts = []
@@ -281,19 +413,19 @@ def component_html(kind, data):
         rows = []
         for slot, ref in data['items'].items():
             item = ref.get('item', {})
-            extras = ['[[item:{}]]'.format(i) for i in item.get('gems', []) + item.get('modItems', [])]
+            extras = [text({'type': 'item', 'item': {'id': i}}) for i in item.get('gems', []) + item.get('modItems', [])]
             extras += ['[[spell:{}]]'.format(i) for i in item.get('modSpells', [])]
-            rows.append('<tr><th>{}</th><td>{}</td><td>{}</td></tr>'.format(SLOTS[int(slot)], ref_text(ref), ' · '.join(extras)))
+            rows.append('<tr><th>{}</th><td>{}</td><td>{}</td></tr>'.format(SLOTS[int(slot)], text(ref), ' · '.join(extras)))
         return '<table><thead><tr><th>部位</th><th>推荐装备</th><th>宝石与强化</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table>'
     if kind == 'rotation':
         def entries(rows):
-            return '<ol>' + ''.join('<li>{} {} {}{}{}</li>'.format(ref_text(r), html.escape(r.get('label', '')),
-                ' · '.join(ref_text(x) for x in r.get('extra', [])), entries(r['branch']) if r.get('branch') else '',
+            return '<ol>' + ''.join('<li>{} {} {}{}{}</li>'.format(text(r), html.escape(r.get('label', '')),
+                ' · '.join(text(x) for x in r.get('extra', [])), entries(r['branch']) if r.get('branch') else '',
                 '<p>随后回到主循环</p>' if r.get('rejoin') else '') for r in rows) + '</ol>'
         return entries(data['entries'])
     if kind == 'timeline':
-        rows = [(r.get('time', 0), ref_text(r), label) for key, label in [('upper', '上轨'), ('lower', '下轨')] for r in data[key]]
+        rows = [(r.get('time', 0), text(r), label) for key, label in [('upper', '上轨'), ('lower', '下轨')] for r in data[key]]
         return '<p>总时长：{} 秒</p><table><thead><tr><th>时间</th><th>动作</th><th>轨道</th></tr></thead><tbody>'.format(data['duration']) + ''.join('<tr><td>{} 秒</td><td>{}</td><td>{}</td></tr>'.format(*r) for r in sorted(rows)) + '</tbody></table>'
     if kind == 'simulation':
-        return '<table><thead><tr><th>方案</th><th>模拟数值</th></tr></thead><tbody>' + ''.join('<tr><td>{} {}</td><td>{:,.2f}</td></tr>'.format(ref_text(r['item']), ref_text(r.get('item2')), r['value']) for r in data['lines']) + '</tbody></table>'
+        return '<table><thead><tr><th>方案</th><th>模拟数值</th></tr></thead><tbody>' + ''.join('<tr><td>{} {}</td><td>{:,.2f}</td></tr>'.format(text(r['item']), text(r.get('item2')), r['value']) for r in data['lines']) + '</tbody></table>'
     return ''

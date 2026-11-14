@@ -13,7 +13,7 @@ from urllib3.util.retry import Retry
 
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, canonical_class_spec
 from botend.services.class_guide_content import clean_html, validate_blocks
-from botend.services.class_guide_codec import decode_component, component_html
+from botend.services.class_guide_codec import decode_component, component_html, ITEM_RAW_V9
 from botend.services.class_guide_authors import extract_author_profile
 from botend.services.class_guide_sections import expand_tab_sections
 
@@ -270,7 +270,13 @@ def convert(post):
                         try:
                             decoded = decode_component(match[1], unquote(match[2]))
                             block['data'].update(decoded=decoded, converted=True)
-                            block['html'] = component_html(match[1], decoded)
+                            component_refs = {}
+                            block['html'] = component_html(match[1], decoded, component_refs)
+                            for token, ref in component_refs.items():
+                                ref['source_url'] = url
+                                refs[token] = {**ref, **refs.get(token, {}),
+                                               'variant_format': ITEM_RAW_V9, 'source_item': ref['source_item']}
+                            block['data']['source_refs'] = component_refs
                         except (ValueError, IndexError, UnicodeError) as exc:
                             unsupported.append({'id': block['id'], 'type': match[1], 'reason': str(exc)})
                     caption = BeautifulSoup(source_html, 'html.parser').find('figcaption')
@@ -285,4 +291,7 @@ def convert(post):
             result.append(block)
         return result
     blocks = validate_blocks(expand_tab_sections(visit(post['gutenbergBlock'])))
+    for ref in refs.values():
+        if ref['kind'] == 'item' and ref.get('variant'):
+            ref['variant_format'] = ITEM_RAW_V9
     return blocks, {'source_block_counts': dict(counts), 'unsupported': unsupported, 'source_refs': refs}

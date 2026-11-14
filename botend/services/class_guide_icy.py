@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from botend.constants.wow import SPEC_IDENTITY_MAP
 
 from botend.services.class_guide_content import clean_html, safe_url, validate_blocks, walk_blocks
+from botend.services.class_guide_codec import ITEM_HEADER_V9
 from botend.services.class_guide_markdown import blocks_to_markdown, compile_markdown
 from botend.services.class_guide_macros import localize_macro, macro_name_map, macro_source_repairs
 
@@ -140,6 +141,8 @@ class IcyPageConverter:
             target = wrapper if wrapper and len(wrapper.select('[data-iv-tooltip],[data-wowhead]')) == 1 else node
             record = {'kind': kind, 'id': int(object_id), 'variant': suffix.removeprefix('@'),
                       'source_name': name, 'source_branch': branch, 'source_parameters': params}
+            if kind == 'item' and suffix:
+                record['variant_format'] = ITEM_HEADER_V9
             existing = self.refs.setdefault(token, record)
             origin = {'branch': branch, 'parameters': params}
             origins = existing.setdefault('source_contexts', [])

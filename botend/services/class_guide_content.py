@@ -305,7 +305,40 @@ def _spell_snapshot_metadata(game_version, spell_ids, *, class_name='', spec_nam
     return result
 
 
-def resolve_references(blocks, game_version, class_name='', spec_name='', source_refs=None):
+def _item_variant_format(ref, source, source_url):
+    """Choose a wire format only from persisted adapter/source provenance."""
+    from botend.services.class_guide_codec import ITEM_RAW_V9, ITEM_HEADER_V9
+    if not isinstance(source, dict) or not source:
+        return ''
+    if (source.get('kind') != 'item' or source.get('id') != ref['id']
+            or source.get('variant') != ref['variant']):
+        return ''
+    if 'variant_format' in source:
+        marker = source['variant_format']
+        return marker if marker in (ITEM_RAW_V9, ITEM_HEADER_V9) else ''
+
+    def origin(url):
+        parsed = urlparse(str(url or ''))
+        if parsed.scheme != 'https' or parsed.username or parsed.password:
+            return ''
+        if parsed.hostname in ('maxroll.gg', 'backend.maxroll.gg') and parsed.path.startswith('/wow/'):
+            return ITEM_RAW_V9
+        if parsed.hostname in ('icy-veins.com', 'www.icy-veins.com') and parsed.path.startswith('/wow/'):
+            return ITEM_HEADER_V9
+        return ''
+
+    # Imported Icy sections can live inside an originally Maxroll guide.
+    # Per-reference persisted origins are more specific than the guide URL.
+    urls = [source['source_url']] if source.get('source_url') else []
+    urls += [row['source_url'] for row in source.get('source_occurrences', [])
+             if isinstance(row, dict) and row.get('source_url')]
+    if urls:
+        formats = {origin(url) for url in urls}
+        return next(iter(formats)) if len(formats) == 1 and '' not in formats else ''
+    return origin(source_url)
+
+
+def resolve_references(blocks, game_version, class_name='', spec_name='', source_refs=None, *, source_url=''):
     """批量解析引用；不会把缺失的官方中文自动猜译成已校验词条。"""
     content = BeautifulSoup('\n'.join(b.get('title', '') + b.get('html', '') for b in walk_blocks(blocks)), 'html.parser')
     for code in content.select('pre, code'):
@@ -322,7 +355,10 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
     # Native/manual names remain first; central spell/item facts need no
     # duplicate localization row merely to make a guide reference readable.
     snapshot_records = reference_snapshot_names(game_version, reference_ids)
-    source_refs = source_refs or {}
+    component_refs = {}
+    for block in walk_blocks(blocks):
+        component_refs.update((block.get('data') or {}).get('source_refs') or {})
+    source_refs = {**component_refs, **(source_refs or {})}
     from botend.services.wow_spell_display import node_spell_id
     selected_rows = {}
     spell_ids = set()
@@ -389,7 +425,10 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
     spell_metadata = _spell_snapshot_metadata(game_version, spell_ids, class_name=class_name,
                                                spec_name=spec_name, reader=talent_reader)
     if item_ids:
-        from botend.services.class_guide_codec import Reader
+        from botend.services.class_guide_codec import (
+            ITEM_RAW_V9, decode_item_variant_raw_v9, decode_item_variant_header,
+        )
+        from botend.constants.wow import SPEC_IDENTITY_MAP
         from botend.services.wow_item_display import load_item_display_metadata, load_item_tooltip_metadata
 
         item_tooltips = load_item_display_metadata(item_ids)
@@ -398,17 +437,49 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             if ref['kind'] == 'item' and ref.get('variant')
         ]
         variant_requests = []
+        requested_tokens = []
         for token in variant_tokens:
             ref = refs[token]
-            request = {'item_id': ref['id'], 'allow_default_variant': True}
+            source_ref = source_refs.get(token) or {}
+            wire_format = _item_variant_format(ref, source_ref, source_url)
+            # Never fall through to a base tooltip containing reference stats.
+            item_tooltips[token] = {'variant_status': 'unresolved', 'variant_reason': 'unknown_variant_format',
+                'tooltip': '来源装备变体未精确映射；缺少可信格式或完整变体证据。'}
+            if not wire_format:
+                continue
+            parameters = [source_ref.get('source_parameters') or {}]
+            parameters += [row.get('parameters') or {} for row in source_ref.get('source_contexts', [])
+                           if isinstance(row, dict)]
+            if any(set(params) - {'item', 'bonus', 'level', 'ilvl'} for params in parameters):
+                item_tooltips[token]['variant_reason'] = 'unsupported_source_context'
+                continue
             try:
-                decoded = Reader(ref['variant']).item(ref['id'])
+                decoder = decode_item_variant_raw_v9 if wire_format == ITEM_RAW_V9 else decode_item_variant_header
+                decoded = decoder(ref['variant'], ref['id'])
             except (TypeError, ValueError):
-                decoded = {}
-            request['item_level'] = decoded.get('itemLevel')
-            request['bonus_ids'] = decoded.get('bonuses') or []
+                item_tooltips[token]['variant_reason'] = 'invalid_variant_payload'
+                continue
+            branches = {source_ref['source_branch']} if source_ref.get('source_branch') else set()
+            branches.update(row['branch'] for row in source_ref.get('source_contexts', [])
+                            if isinstance(row, dict) and row.get('branch'))
+            branch_map = {'wow': 'retail', 'wowt': 'ptr', 'wowx': 'beta'}
+            if branches and (len(branches) != 1 or not branches <= branch_map.keys()):
+                item_tooltips[token]['variant_reason'] = 'ambiguous_source_branch'
+                continue
+            branch = branch_map[next(iter(branches))] if branches else (game_version if game_version in ('retail', 'ptr', 'beta') else 'retail')
+            request = {'item_id': ref['id'], 'strict_variant': True, 'data_branch': branch,
+                       'item_level': decoded.get('itemLevel'), 'bonus_ids': decoded.get('bonuses'),
+                       'source_item': decoded}
+            if decoded.get('specialization'):
+                identity = SPEC_IDENTITY_MAP.get(decoded['specialization'])
+                if not identity:
+                    item_tooltips[token]['variant_reason'] = 'unsupported_source_context'
+                    continue
+                request.update(class_name=identity[0], spec_name=identity[1])
+            ref.update(variant_format=wire_format, source_item=decoded)
             variant_requests.append(request)
-        for token, metadata in zip(variant_tokens, load_item_tooltip_metadata(variant_requests)):
+            requested_tokens.append(token)
+        for token, metadata in zip(requested_tokens, load_item_tooltip_metadata(variant_requests)):
             item_tooltips[token] = metadata
     else:
         item_tooltips = {}
@@ -436,11 +507,20 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             metadata = item_tooltips.get(token) or item_tooltips.get(ref['id']) or {}
             tooltip = metadata.get('tooltip', '')
             fallback_icon = metadata.get('icon_url', '')
+            if ref.get('variant'):
+                ref.update(variant_status=metadata.get('variant_status', 'unresolved'),
+                           variant_reason=metadata.get('variant_reason', ''),
+                           variant_id=metadata.get('variant_id'))
             source = (
                 'item_variant_snapshot'
                 if tooltip and metadata.get('variant_id') else
                 'item_snapshot' if tooltip else ''
             )
+            if ref.get('variant') and ref.get('variant_status') != 'exact':
+                source = 'item_variant_unmapped'
+                if (not ref['resolved'] and ref.get('source_name')
+                        and not re.search(r'[\u3400-\u9fff]', (source_refs.get(token) or {}).get('source_name_zh') or '')):
+                    ref.update(name=ref['source_name'], tooltip_title=ref['source_name'])
         # Raw Blizzard templates are source facts, never user-facing Tooltip
         # content. If projection cannot resolve one, use the honest local
         # reference fallback below instead of leaking client syntax.

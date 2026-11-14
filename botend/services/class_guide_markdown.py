@@ -132,6 +132,8 @@ def _blocks_to_markdown(blocks):
             config = {k: data[k] for k in ('source_code', 'code', 'talent_version') if data.get(k)}
             if not config and data.get('decoded'):
                 config['decoded'] = data['decoded']
+            if data.get('source_refs'):
+                config['source_refs'] = data['source_refs']
             # 组件数据收在正文内的一段扩展围栏；不依赖侧栏记录或数据库块编号。
             content = '\n\n'.join(p for p in [body, _blocks_to_markdown(block.get('children', [])).strip()] if p)
             parts.append(':::' + kind + (' ' + title if title else '') + '\n```json\n' + json.dumps(config, ensure_ascii=False, indent=2) + '\n```\n' + (content + '\n' if content else '') + ':::')
@@ -265,7 +267,9 @@ def compile_markdown(source, *, _expand_tabs=True):
                     elif isinstance(data.get('decoded'), dict):
                         data['converted'] = True
                     if data.get('decoded') and not children:
-                        block['html'] = clean_html(component_html('paperdoll' if kind == 'gear' else kind, data['decoded']))
+                        component_refs = {}
+                        block['html'] = clean_html(component_html('paperdoll' if kind == 'gear' else kind, data['decoded'], component_refs))
+                        data['source_refs'] = component_refs
                 result.append(block)
                 continue
             pending.append(line); index += 1

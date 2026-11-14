@@ -68,9 +68,12 @@ def save_article(guide_id, title, blocks=None, *, content_markdown=None, expecte
     content_markdown = normalize_tab_markdown(content_markdown)
     if 'source_markdown' in extra:
         extra['source_markdown'] = normalize_tab_markdown(extra['source_markdown'])
-    compile_markdown(content_markdown)
+    compiled = compile_markdown(content_markdown)
     checks = copy.deepcopy(extra.get('check_data', {}))
     checks = {key: checks[key] for key in ('source_refs', 'untranslated', 'source_block_counts', 'unsupported') if key in checks}
+    for block in walk_blocks(compiled):
+        for token, ref in (block.get('data', {}).get('source_refs') or {}).items():
+            checks.setdefault('source_refs', {}).setdefault(token, ref)
     fields = {**extra, 'title': title, 'content_markdown': content_markdown,
               'check_data': checks, 'updated_at': timezone.now()}
     if imported:
@@ -91,7 +94,8 @@ def has_manual_content(guide):
 def check_article(guide, blocks=None):
     blocks = guide.blocks if blocks is None else blocks
     previous = guide.check_data or {}
-    refs = resolve_references(blocks, guide.game_version, guide.class_name, guide.spec_name, previous.get('source_refs'))
+    refs = resolve_references(blocks, guide.game_version, guide.class_name, guide.spec_name,
+                              previous.get('source_refs'), source_url=guide.source_url)
     unsupported = [b['id'] for b in walk_blocks(blocks)
                    if b['type'] == 'unsupported' or (b['type'] in {'talents', 'gear', 'rotation', 'priority', 'timeline', 'simulation'} and not b.get('data', {}).get('converted'))]
     untranslated = previous.get('untranslated', [])

@@ -454,7 +454,7 @@ def item_display_metadata(
     item_id, snapshot=None, *, item_level=0, variant=None, stats=None, effects=None,
     sources=None, icon_size='small', primary_stat='',
     game_build='', is_ptr=None, frozen_identity=None, legacy_identity=False,
-    strict_difficulty=False, data_branch='',
+    strict_difficulty=False, data_branch='', strict_variant=False,
 ):
     """返回三个装备入口共同消费的稳定展示契约。"""
     from botend.services.wow_item_identity import (
@@ -514,16 +514,16 @@ def item_display_metadata(
     shared_effects, effects_status = resolve_effects(
         central_snapshot, variant, branch=effect_branch, raw_effects=effects, item_id=normalized_id,
         known_empty=native_journal and not variant.effects_data,
-        allow_reference=not frozen_identity and variant is None and (
+        allow_reference=not strict_variant and not frozen_identity and variant is None and (
             not strict_difficulty or data_branch in ('retail', 'ptr', 'beta')),
     )
     effects = shared_effects
-    if strict_difficulty and native_journal:
+    if strict_variant or (strict_difficulty and native_journal):
         # Base descriptions describe a reference variant, not this exact drop.
         # Keep central names/icons, but never borrow its upgrade track or layout.
         description = description_zh = ''
         has_chinese_description = False
-    tier_sources = None if strict_difficulty and native_journal else tier_set_sources(
+    tier_sources = None if strict_variant or (strict_difficulty and native_journal) else tier_set_sources(
         {**(snapshot.metadata or {}), **variant_metadata} if snapshot else variant_metadata,
         snapshot.slot_key if snapshot else '',
     )
@@ -559,7 +559,7 @@ def item_display_metadata(
         description=description, description_zh=description_zh, effects=_rows(effects),
         stats=normalized_stats, metadata=variant_metadata, names=(name, name_zh),
         enhancement=bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
-        recover_description_effects=not strict_difficulty and (
+        recover_description_effects=not strict_variant and not strict_difficulty and (
             not has_structured_projection
             or bool(snapshot and snapshot.catalog_type in ENHANCEMENTS)
         ),
@@ -783,6 +783,43 @@ def _select_ordinary_item_variant(variants, *, item_level=0, bonus_ids=(),
     return variant, data_branch
 
 
+def _strict_item_variant(candidates, context):
+    """Opt-in source identity match. No normalization, scoring or branch inference."""
+    branch = context.get('data_branch')
+    level = context.get('item_level')
+    bonuses = context.get('bonus_ids')
+    if (branch not in ('retail', 'ptr', 'beta') or type(level) is not int or level <= 0
+            or not isinstance(bonuses, (list, tuple))
+            or any(type(v) is not int or v <= 0 for v in bonuses)
+            or len(bonuses) != len(set(bonuses))):
+        return None, 'incomplete_variant_identity'
+    source_item = context.get('source_item') or {}
+    if (any(source_item.get(key) for key in ('modItems', 'modSpells', 'gems', 'context'))
+            or source_item.get('customContext') is not None or source_item.get('inheritStats') is not None):
+        # The central variant schema has no proven complete identity for these.
+        return None, 'unsupported_source_context'
+    matching = []
+    for row in candidates:
+        metadata = row.metadata if isinstance(row.metadata, dict) else {}
+        stored = row.bonus_ids
+        if (row.data_branch != branch or metadata.get('data_branch', branch) != branch
+                or 'difficulty_drop' in metadata or row.item_level != level
+                or not isinstance(stored, list)
+                or any(type(v) is not int or v <= 0 for v in stored)
+                or len(stored) != len(set(stored)) or set(stored) != set(bonuses)):
+            continue
+        matching.append(row)
+    if not matching:
+        return None, 'no_exact_variant'
+    # Agreeing duplicate evidence can fold; any fact/build conflict is unknown.
+    def facts(row):
+        return (row.stats_json, row.effects_data, row.metadata, row.source_json,
+                row.game_build, row.variant_type)
+    if any(facts(row) != facts(matching[0]) for row in matching[1:]):
+        return None, 'conflicting_exact_variants'
+    return min(matching, key=lambda row: row.pk), ''
+
+
 def load_item_tooltip_metadata(requests):
     """按输入顺序批量匹配活动目录的具体装备变体。"""
     requests = list(requests or [])
@@ -831,6 +868,23 @@ def load_item_tooltip_metadata(requests):
             raise ValidationError('装备来源分支无效')
         snapshot = snapshots.get(item_id)
         identity = context.get('item_identity')
+        if context.get('strict_variant') is True:
+            variant, reason = _strict_item_variant(variants_by_item.get(item_id, []), context)
+            data_branch = context.get('data_branch') or ''
+            projected = item_display_metadata(
+                item_id, snapshot, variant=variant, primary_stat=primary_stat,
+                strict_variant=True, data_branch=data_branch,
+                is_ptr=(data_branch == 'ptr') if data_branch in ('retail', 'ptr') else None,
+            )
+            projected.update(variant_status='exact' if variant is not None else 'unresolved',
+                             variant_reason=reason, data_branch=data_branch)
+            if variant is None:
+                note = '来源装备变体未精确映射；不展示其它装等或奖励组合的属性。'
+                projected.update(variant_id=None, variant_key='', item_level=None, stats={},
+                                 stat_lines=[], effects=[], effect_details=[], sources=[],
+                                 tooltip_complete=False, tooltip=note, display_description=note)
+            result.append(projected)
+            continue
         strict_difficulty = any(key in context for key in DIFFICULTY_CONTEXT_FIELDS)
         if strict_difficulty:
             data_branch = context.get('data_branch')

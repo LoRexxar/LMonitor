@@ -200,6 +200,7 @@ class IcyContentConversionTests(SimpleTestCase):
     def test_source_translation_is_readable_without_claiming_official_resolution(self):
         blocks = [{'id': 'sample', 'type': 'html', 'html': '<p>[[spell:123]]</p>', 'children': []}]
         with patch('botend.services.class_guide_content.names_for', return_value=[]), \
+             patch('botend.services.wow_localization.reference_snapshot_names', return_value=[]), \
              patch('botend.services.class_guide_content._spell_snapshot_metadata', return_value={}), \
              patch('botend.services.wow_spell_display.SpellDisplayReader'):
             result = resolve_references(blocks, '12.1.5', source_refs={
