@@ -65,7 +65,9 @@ async function finishSource(h, label = 'CURRENT') {
     apl.resolve({ok:true,json:async()=>({success:true,default_template_id:3,data:[{id:5,name:'APL',is_default:true}]})});
     await tick();
     const candidate = h.requests.filter(r=>r.url.startsWith('/api/simc-talent-string-candidates/')).at(-1);
-    h.requests.filter(r=>r.url==='/api/simc-profile/').at(-1).resolve(response([]));
+    const profile = h.requests.filter(r=>r.url.startsWith('/api/simc-profile/')).at(-1);
+    assert.equal(new URL(profile.url, 'https://example.test').searchParams.get('spec'), h.el('simc-sim-spec').value);
+    profile.resolve(response([]));
     await tick();
     assert.equal(h.el('simc-sim-submit-btn').disabled,true,'history lock remains until candidates succeed');
     candidate.resolve(response([{id:8,name:label}]));
@@ -96,7 +98,7 @@ test('late old hydration cannot unlock a newer history lock',async t=>{
     h.requests[0].resolve({ok:true,json:async()=>({success:true,default_template_id:3,data:[{id:5,is_default:true}]})});
     await tick();
     const oldCandidate=h.requests.find(r=>r.url.startsWith('/api/simc-talent-string-candidates/'));
-    h.requests.find(r=>r.url==='/api/simc-profile/').resolve(response([]));
+    h.requests.find(r=>r.url.startsWith('/api/simc-profile/')).resolve(response([]));
     await tick();
     h.el('simc-sim-spec').value='rogue_outlaw';
     const newer=startHistory(h,{spec:'rogue_outlaw',talent_string_id:8},43);
@@ -134,7 +136,7 @@ for(const early of [false,true,'error']) test(`history reuses ${early==='error'?
     await tick();h.requests.find(r=>r.url.startsWith('/api/simc-apl-candidates/')).resolve({ok:true,json:async()=>({success:true,default_template_id:3,data:[{id:5,name:'APL',is_default:true}]})});
     await tick();
     const candidate=h.requests.find(r=>r.url.startsWith('/api/simc-talent-string-candidates/'));
-    const profile=h.requests.find(r=>r.url==='/api/simc-profile/');
+    const profile=h.requests.find(r=>r.url.startsWith('/api/simc-profile/'));
     assert.ok(profile,'profile request must start without waiting for talents');
     if(early) {candidate.resolve(response([{id:7,name:'HISTORY'}],early!=='error'));await tick();}
     profile.resolve(response([]));await tick();

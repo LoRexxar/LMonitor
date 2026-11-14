@@ -355,7 +355,10 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("if (!backend_id) throw new Error('请选择 SimC 后端')", SIMC_MAIN)
         self.assertIn('const references = { base_template_id, selected_apl_id, backend_id,', SIMC_MAIN)
         self.assertIn('backend_id: references.backend_id', SIMC_MAIN)
-        self.assertIn('loadSimcBackendOptions().catch', SIMC_MAIN)
+        catalog_start = SIMC_MAIN.index('async function loadSimcImportCatalogs(')
+        catalog_end = SIMC_MAIN.index('function bindSimcWorkbenchSimulationControls(', catalog_start)
+        self.assertIn('loadSimcBackendOptions', SIMC_MAIN[catalog_start:catalog_end])
+        self.assertIn('Promise.allSettled', SIMC_MAIN[catalog_start:catalog_end])
 
     def test_home_creation_flow_uses_backend_defaults_filters_profiles_and_opens_history(self):
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
@@ -612,7 +615,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-simc-l1-panel="workflow"', HTML)
         self.assertIn('data-simc-l1-panel="history"', HTML)
         self.assertIn('data-simc-l1-panel="advanced"', HTML)
-        self.assertIn("switchSimcWorkbenchL1Tab('workflow')", MAIN)
+        self.assertIn("switchSimcWorkbenchL1Tab(simcPage || 'workflow')", MAIN)
         workflow_panel_start = HTML.index('data-simc-l1-panel="workflow"')
         workflow_end = HTML.index('<!-- End L1 Panel: 模拟工作流 -->')
         self.assertIn('id="simc-workbench-import-panel"', HTML[workflow_panel_start:workflow_end])
@@ -963,11 +966,13 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         """Navigation must use single unified L1 switching function."""
         self.assertIn("function switchSimcWorkbenchL1Tab(", MAIN)
         self.assertNotIn("window.switchSimcWorkbenchTab", JS)
-        self.assertIn("switchSimcWorkbenchL1Tab('workflow')", MAIN)
+        self.assertIn("switchSimcWorkbenchL1Tab(simcPage || 'workflow')", MAIN)
         init_start = MAIN.index("function initSimcWorkbench(")
-        init_end = MAIN.index("function switchSimcWorkbenchL1Tab(")
+        init_end = MAIN.index("function ensureSimcPanelControls(")
         init_body = MAIN[init_start:init_end]
-        self.assertIn("switchSimcWorkbenchL1Tab('workflow')", init_body)
+        self.assertNotIn("switchSimcWorkbenchL1Tab('workflow');", init_body)
+        self.assertNotIn("bindSimcWorkbenchSimulationControls();", init_body)
+        self.assertIn("switchSimcWorkbenchL1Tab('workflow', this.dataset.simcWorkflowEntry", init_body)
 
     def test_primary_page_switch_updates_dashboard_section_and_sidebar_state(self):
         switch_start = MAIN.index("function switchSimcWorkbenchL1Tab(")
@@ -1048,11 +1053,12 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertEqual(len(forbidden_contexts), 0, f"Found switchSimcWorkbenchTab without L1 coordination: {forbidden_contexts[:3]}")
 
     def test_navigation_model_entry_must_open_advanced_first(self):
-        """Model entry buttons must switch to advanced L1 before opening specific panel."""
+        """Open the requested advanced panel without first loading default backend."""
         model_entry_start = MAIN.index("'.simc-model-entry'")
         model_entry_end = MAIN.index("});", model_entry_start) + 3
         model_entry_section = MAIN[model_entry_start:model_entry_end]
-        self.assertIn("switchSimcWorkbenchL1Tab('advanced')", model_entry_section)
+        self.assertIn("switchSimcWorkbenchTab(targetTab)", model_entry_section)
+        self.assertNotIn("switchSimcWorkbenchL1Tab('advanced');", model_entry_section)
 
     def test_navigation_simc_workbench_js_has_no_global_navigation(self):
         """simc-workbench.js must not call global L1 navigation functions."""
@@ -1314,7 +1320,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         self.assertIn('专精（可选，留空自动识别）', editor)
 
     def test_talent_string_list_has_copy_code_action(self):
-        list_start = MAIN.index('function loadSimcTalentStrings()')
+        list_start = MAIN.index('function loadSimcTalentStrings(')
         list_end = MAIN.index('function simcTalentStringOpenEditor(', list_start)
         listing = MAIN[list_start:list_end]
         self.assertIn('data-talent-string-action="copy-code"', listing)
@@ -1329,7 +1335,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         loader_end = MAIN.index('window.loadSimcSpecOptions', loader_start)
         loader = MAIN[loader_start:loader_end]
         self.assertIn("document.getElementById('simc-talent-string-spec-filter')", loader)
-        list_start = MAIN.index('function loadSimcTalentStrings()')
+        list_start = MAIN.index('function loadSimcTalentStrings(')
         list_end = MAIN.index('function simcTalentStringOpenEditor(', list_start)
         listing = MAIN[list_start:list_end]
         self.assertIn('row.label ||', listing)

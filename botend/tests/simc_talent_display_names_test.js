@@ -9,7 +9,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
   try {
     const row = {id:17, name:'[Icy Veins] ![icon](https://example.test/icon.png) 原始名称', display_name:'[Icy Veins] 可读名称 · 单体', spec:'warrior_fury', talent:'FROZEN_CODE', hero_talent_names:['山丘领主'], can_edit:true};
     const before = JSON.stringify(row), requests = [];
-    const c = vm.createContext({window:dom.window, document:dom.window.document, console, AbortController,
+    const c = vm.createContext({window:dom.window, document:dom.window.document, console, AbortController, URLSearchParams,
       escapeHtml:value=>String(value ?? '').replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;'),
       getCSRFToken:()=>'', openSimcWorkbenchDialog:()=>{}, closeSimcWorkbenchDialog:()=>{},
       showMessage:(message,kind)=>{assert.notEqual(kind,'error',message);},

@@ -3779,6 +3779,20 @@ class SimcProfileAPIView(View):
                         is_active=True,
                     ).order_by('user_id', 'class_name', 'spec', '-id')
                 
+                spec = str(request.GET.get('spec') or '').strip().lower()
+                if spec:
+                    if spec not in SIMC_SPEC_VALUES:
+                        return JsonResponse({'success': False, 'error': '必须选择有效的专精'}, status=400)
+                    # Resolve only distinct identity metadata, never full player
+                    # payloads. The central resolver owns legacy aliases and
+                    # conflicting class/spec handling; fetch matching rows in SQL.
+                    identities = profiles.order_by().values_list('spec', 'class_name').distinct()
+                    matching = models.Q(pk__in=[])
+                    for stored_spec, stored_class in identities:
+                        if canonical_simc_profile_key(stored_spec, stored_class) == spec:
+                            matching |= models.Q(spec=stored_spec, class_name=stored_class)
+                    profiles = profiles.filter(matching)
+
                 profile_list = []
                 for profile in profiles:
                     is_system = (
@@ -4950,8 +4964,28 @@ class SimcTalentStringAPIView(View):
         spec = str(request.GET.get('spec') or '').strip().lower()
         if spec:
             rows = rows.filter(spec=spec)
-        rows = apply_talent_display_names(list(rows.order_by('spec', 'name', 'id')))
-        return JsonResponse({'success': True, 'data': [self._row(row, request) for row in rows]})
+        try:
+            page = int(request.GET.get('page', 1))
+            page_size = int(request.GET.get('page_size', 25))
+            if page < 1 or page_size < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            return JsonResponse({'success': False, 'error': '分页参数必须为正整数'}, status=400)
+        page_size = min(page_size, 100)
+        total = rows.count()
+        offset = (page - 1) * page_size
+        # Slice in SQL before projecting guide-backed titles; even huge empty
+        # page numbers must not become an overflowing database OFFSET.
+        rows = list(rows.order_by('spec', 'name', 'id')[offset:offset + page_size]) if offset < total else []
+        rows = apply_talent_display_names(rows)
+        return JsonResponse({
+            'success': True,
+            'data': [self._row(row, request) for row in rows],
+            'pagination': {
+                'page': page, 'page_size': page_size, 'total': total,
+                'total_pages': (total + page_size - 1) // page_size,
+            },
+        })
 
     def post(self, request):
         try:

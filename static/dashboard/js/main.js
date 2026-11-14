@@ -48,8 +48,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化用户菜单
     initUserMenu();
     initSystemAlerts();
-    initSimcBackendUploadTool();
-    initSimcSkillDamagePanel();
     initSimcWorkbench();
 
     // 显示服务端选择的第一个可访问页面
@@ -343,12 +341,15 @@ function activateDashboardLocation() {
                 .find(item => item.dataset.section === defaultSection);
         }
     }
-    if (!target) return;
-
     window.requestAnimationFrame(() => {
-        const link = target.querySelector('a');
+        const link = target?.querySelector('a');
         if (link) link.click();
         if (window.openSimcReferenceResource) window.openSimcReferenceResource(params);
+        const active = document.querySelector('.content-section.active');
+        if (active && !active.hidden && window.getComputedStyle(active).display !== 'none') {
+            const loading = document.getElementById('dashboard-page-loading');
+            if (loading) loading.hidden = true;
+        }
     });
 }
 
@@ -364,6 +365,7 @@ function isSimcDashboardSection(sectionId) {
 }
 
 function deactivateSimcWorkbench() {
+    invalidateSimcTalentStringList();
     if (typeof window.simcWorkbenchDeactivatePanel === 'function') {
         window.simcWorkbenchDeactivatePanel('');
     }
@@ -1557,7 +1559,6 @@ function initSimcWorkbench() {
     // Model entry shortcuts in advanced section
     document.querySelectorAll('.simc-model-entry').forEach(btn => {
         btn.addEventListener('click', function() {
-            switchSimcWorkbenchL1Tab('advanced');
             const data = this.dataset;
             const targetTab = data.simcTab;
             if (targetTab) {
@@ -1571,10 +1572,6 @@ function initSimcWorkbench() {
         });
     });
 
-    bindSimcWorkbenchSimulationControls();
-    bindSimcWorkbenchProfilesControls();
-    bindSimcTalentStringControls();
-    bindSimcWorkbenchRulesControls();
 
     document.querySelectorAll('[data-simc-table-shortcut]').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -1613,7 +1610,21 @@ function initSimcWorkbench() {
         }
     });
 
-    switchSimcWorkbenchL1Tab('workflow');
+}
+
+function ensureSimcPanelControls(panelName) {
+    const panel = document.querySelector(`[data-simc-panel="${panelName}"]`);
+    if (!panel) return;
+    if (panel.dataset.controlsInitialized === '1') {
+        if (panelName === 'backend') window.simcRefreshBackendInfo?.();
+        return;
+    }
+    panel.dataset.controlsInitialized = '1';
+    if (panelName === 'import') bindSimcWorkbenchSimulationControls();
+    if (panelName === 'profiles') bindSimcWorkbenchProfilesControls();
+    if (panelName === 'talent-strings') bindSimcTalentStringControls();
+    if (panelName === 'rules') bindSimcWorkbenchRulesControls();
+    if (panelName === 'backend') initSimcBackendUploadTool();
 }
 
 function activateSimcDashboardPage(pageName) {
@@ -1646,6 +1657,8 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
     activateSimcDashboardPage(activeL1Tab);
     const defaultPanels = { workflow: 'import', history: 'tasks', advanced: 'backend' };
     const activeChildPanel = childPanelName || defaultPanels[activeL1Tab];
+    if (activeChildPanel !== 'talent-strings') invalidateSimcTalentStringList();
+    if (activeL1Tab === 'skill-damage') initSimcSkillDamagePanel();
 
     if (typeof window.simcWorkbenchDeactivatePanel === 'function') {
         window.simcWorkbenchDeactivatePanel(activeChildPanel);
@@ -1672,6 +1685,7 @@ function switchSimcWorkbenchL1Tab(l1TabName, childPanelName) {
         panel.classList.toggle('hidden', panel.getAttribute('data-simc-panel') !== activeChildPanel);
     });
 
+    ensureSimcPanelControls(activeChildPanel);
     if (activeChildPanel && typeof window.simcWorkbenchLoadPanel === 'function') {
         window.simcWorkbenchLoadPanel(activeChildPanel);
     }
@@ -1735,7 +1749,24 @@ function switchRuleSubtab(resource) {
 let simcTalentStringEditId = null;
 let simcTalentStringListGeneration = 0;
 let simcTalentStringListController = null;
-function loadSimcTalentStrings() {
+let simcTalentStringPage = 1;
+const simcTalentStringPageSize = 25;
+function invalidateSimcTalentStringList() {
+    ++simcTalentStringListGeneration;
+    simcTalentStringListController?.abort();
+}
+function renderSimcTalentStringPagination(pagination) {
+    const host = document.getElementById('simc-talent-string-pagination');
+    if (!host) return;
+    const page = simcTalentStringPage;
+    const pages = Math.max(1, Number(pagination.total_pages) || 1);
+    host.innerHTML = `<span role="status">共 ${Number(pagination.total) || 0} 条 · 第 ${page} / ${pages} 页</span> <button type="button" data-talent-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页</button> <button type="button" data-talent-page="${page + 1}" ${page >= pages ? 'disabled' : ''}>下一页</button>`;
+    host.querySelectorAll('[data-talent-page]').forEach(button => button.addEventListener('click', () => loadSimcTalentStrings(Number(button.dataset.talentPage))));
+}
+function loadSimcTalentStrings(page = simcTalentStringPage) {
+    if (typeof page !== 'number') page = simcTalentStringPage;
+    simcTalentStringPage = Math.max(1, page);
+    const requestedPage = simcTalentStringPage;
     const list = document.getElementById('simc-talent-string-list');
     if (!list) return;
     const spec = document.getElementById('simc-talent-string-spec-filter')?.value || '';
@@ -1745,21 +1776,32 @@ function loadSimcTalentStrings() {
     const generation = ++simcTalentStringListGeneration;
     const isCurrent = () => generation === simcTalentStringListGeneration
         && !controller.signal.aborted
+        && requestedPage === simcTalentStringPage
         && spec === (document.getElementById('simc-talent-string-spec-filter')?.value || '');
     window.simcTalentStringRows = {};
-    list.innerHTML = '<p class="py-6 text-center text-sm text-slate-400">加载中...</p>';
-    return fetch('/api/simc-talent-string/?spec=' + encodeURIComponent(spec), { signal: controller.signal, headers: { 'X-CSRFToken': getCSRFToken() } })
+    list.setAttribute('aria-busy', 'true');
+    list.innerHTML = '<p role="status" class="py-6 text-center text-sm text-slate-400">加载中...</p>';
+    document.getElementById('simc-talent-string-pagination')?.replaceChildren();
+    return fetch('/api/simc-talent-string/?' + new URLSearchParams({ spec, page: requestedPage, page_size: simcTalentStringPageSize }), { signal: controller.signal, headers: { 'X-CSRFToken': getCSRFToken() } })
         .then(async response => {
             const payload = await response.json();
             if (!isCurrent()) return;
             if (!response.ok) throw new Error(payload.error || '加载失败');
             if (!payload.success) throw new Error(payload.error || '加载失败');
         const rows = payload.data || [];
+        const pagination = payload.pagination || { page: requestedPage, total: rows.length, total_pages: 1 };
+        const lastPage = Math.max(1, Number(pagination.total_pages) || 1);
+        if (requestedPage > lastPage) return loadSimcTalentStrings(lastPage);
+        simcTalentStringPage = Number(pagination.page) || requestedPage;
+        list.setAttribute('aria-busy', 'false');
+        renderSimcTalentStringPagination(pagination);
         list.innerHTML = rows.length ? `<table class="min-w-full text-sm"><thead><tr class="border-b text-left text-xs text-slate-500"><th class="px-3 py-2">名称</th><th class="px-3 py-2">专精</th><th class="px-3 py-2">英雄天赋树</th><th class="px-3 py-2">来源</th><th class="px-3 py-2 text-right">操作</th></tr></thead><tbody>${rows.map(row => { const heroNames = (row.hero_talent_names || []).join('、') || '未解析'; const simulator = row.talent_simulator_url ? `<a href="${escapeHtml(row.talent_simulator_url)}" target="_blank" rel="noopener noreferrer" class="mr-2 text-violet-600">天赋模拟器</a>` : ''; return `<tr class="border-b"><td class="px-3 py-3 font-medium">${escapeHtml(row.display_name || row.name)}</td><td class="px-3 py-3">${escapeHtml(row.label || `${row.spec_label} · ${row.class_label || ''}`.replace(/ · $/, '') || row.spec)}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(heroNames)}</td><td class="px-3 py-3 text-xs text-slate-500">${row.is_system ? '系统资源' : '个人资源'}</td><td class="px-3 py-3 text-right whitespace-nowrap">${simulator}<button type="button" data-talent-string-action="view" data-talent-string-id="${row.id}" class="mr-2 text-slate-600">查看</button><button type="button" data-talent-string-action="copy-code" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">复制字符串</button>${row.can_edit ? `<button type="button" data-talent-string-action="edit" data-talent-string-id="${row.id}" class="mr-2 text-blue-600">编辑</button>` : ''}${row.can_delete ? `<button type="button" data-talent-string-action="delete" data-talent-string-id="${row.id}" class="text-red-600">删除</button>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '<p class="py-6 text-center text-sm text-slate-400">暂无天赋字符串</p>';
             rows.forEach(row => { if (!window.simcTalentStringRows) window.simcTalentStringRows = {}; window.simcTalentStringRows[row.id] = row; });
         }).catch(error => {
             if (!isCurrent()) return;
-            list.innerHTML = `<p class="py-6 text-center text-sm text-red-500">${escapeHtml(error.message)}</p>`;
+            list.setAttribute('aria-busy', 'false');
+            list.innerHTML = `<p role="status" class="py-6 text-center text-sm text-red-500">${escapeHtml(error.message)}</p><button type="button" data-talent-retry>重试</button>`;
+            list.querySelector('[data-talent-retry]').addEventListener('click', () => loadSimcTalentStrings());
         });
 }
 function simcTalentStringOpenEditor(row = null) {
@@ -1823,7 +1865,7 @@ function bindSimcTalentStringControls() {
     }).catch(error => showMessage(error.message, 'error'));
     document.getElementById('simc-talent-string-refresh')?.addEventListener('click', loadSimcTalentStrings);
     document.getElementById('simc-talent-string-add')?.addEventListener('click', () => simcTalentStringOpenEditor());
-    specFilter.addEventListener('change', loadSimcTalentStrings);
+    specFilter.addEventListener('change', () => loadSimcTalentStrings(1));
     document.addEventListener('click', async event => {
         const button = event.target.closest('[data-talent-string-action]'); if (!button) return;
         const id = Number(button.dataset.talentStringId); const row = window.simcTalentStringRows?.[id]; const action = button.dataset.talentStringAction;
@@ -3573,8 +3615,9 @@ async function loadSimcAplCandidates(spec, control = null) {
     }
 }
 
-async function simcWbFetchProfilesForWorkbench(signal = undefined) {
-    const response = await fetch('/api/simc-profile/', signal ? { signal } : {});
+async function simcWbFetchProfilesForWorkbench(signal = undefined, spec = '') {
+    const url = '/api/simc-profile/' + (spec ? '?spec=' + encodeURIComponent(spec) : '');
+    const response = await fetch(url, signal ? { signal } : {});
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '加载 Profile 失败');
     return Array.isArray(payload.data) ? payload.data : [];
@@ -3586,7 +3629,7 @@ async function loadSimcSimProfileSelect(preferredId = 0, control = null) {
     const previous = String(preferredId || select.value || '');
     select.innerHTML = '<option value="">加载中…</option>';
     try {
-        const profiles = await simcWbFetchProfilesForWorkbench(control?.controller?.signal);
+        const profiles = await simcWbFetchProfilesForWorkbench(control?.controller?.signal, String(control?.spec || simcResolvedCanonicalSpec || '').trim().toLowerCase());
         if (!isCurrentSimcResourceControl(control)) return;
         const canonicalSpec = String(control?.spec || simcResolvedCanonicalSpec || '').trim().toLowerCase();
         const matchingProfiles = profiles.filter(profile => (
@@ -4433,8 +4476,36 @@ async function loadSimcRerunFormFromLocation() {
     hydrateSimcRerunDependencies(form, taskId, specReady).catch(error => showMessage(String(error.message || error), 'error'));
 }
 
+async function loadSimcImportCatalogs() {
+    const panel = document.querySelector('[data-simc-panel="import"]');
+    if (!panel || panel.dataset.catalogLoading === '1') return;
+    let status = panel.querySelector('[data-simc-catalog-status]');
+    if (!status) {
+        status = document.createElement('div');
+        status.dataset.simcCatalogStatus = '1';
+        status.setAttribute('role', 'status');
+        panel.prepend(status);
+    }
+    panel.dataset.catalogLoading = '1';
+    panel.setAttribute('aria-busy', 'true');
+    status.textContent = '正在加载模拟配置选项…';
+    const loaders = [loadSimcSpecOptions, loadSimcRaidBuffOptions, loadSimcExtraOptions, loadSimcFightStyleOptions, loadSimcConsumableOptions, loadSimcBackendOptions];
+    const results = await Promise.allSettled(loaders.map(loader => loader()));
+    panel.dataset.catalogLoading = '0';
+    panel.setAttribute('aria-busy', 'false');
+    const errors = results.filter(result => result.status === 'rejected');
+    status.replaceChildren();
+    if (errors.length) {
+        status.textContent = '配置选项加载失败：' + errors.map(result => String(result.reason?.message || result.reason)).join('；');
+        const retry = document.createElement('button');
+        retry.type = 'button';
+        retry.textContent = '重试';
+        retry.addEventListener('click', loadSimcImportCatalogs);
+        status.append(retry);
+    } else status.textContent = '模拟配置选项已加载';
+}
+
 function bindSimcWorkbenchSimulationControls() {
-    loadSimcSpecOptions().catch(error => showMessage(String(error.message || error), 'error'));
     const spec = document.getElementById('simc-sim-spec');
     if (spec && spec.dataset.bound !== '1') {
         spec.dataset.bound = '1';
@@ -4490,21 +4561,7 @@ function bindSimcWorkbenchSimulationControls() {
     const preset = document.getElementById('simc-sim-fight-preset');
     preset?.addEventListener('change', () => applySimcFightPreset(preset.value));
     bindSimcRaidBuffControls();
-    loadSimcRaidBuffOptions().catch(error => {
-        const host = document.getElementById('simc-sim-raid-buffs');
-        if (host) host.textContent = String(error.message || error);
-    });
-    loadSimcExtraOptions().catch(error => {
-        const host = document.getElementById('simc-sim-extra-options');
-        if (host) host.textContent = String(error.message || error);
-    });
-    loadSimcFightStyleOptions().catch(error => {
-        const select = document.getElementById('simc-sim-fight-style');
-        if (select) select.innerHTML = '<option value="">加载战斗模型失败</option>';
-        showMessage(String(error.message || error), 'error');
-    });
-    loadSimcConsumableOptions().catch(error => showMessage(String(error.message || error), 'error'));
-    loadSimcBackendOptions().catch(error => showMessage(String(error.message || error), 'error'));
+    loadSimcImportCatalogs();
     updateSimcHomeMode();
     switchSimcPlayerImportMode({ resolve: false });
     loadSimcRerunFormFromLocation().catch(error => showMessage(String(error.message || error), 'error'));
@@ -4820,6 +4877,7 @@ function fetchTableData(tableName, page = 1) {
 
     // 保存当前表名和页码
     currentTableName = tableName;
+    if (tableName === 'SimcProfile') loadSimcSpecOptions().catch(error => showMessage(error.message, 'error'));
     currentPage = page;
     const requestSeq = ++tableFetchRequestSeq;
     const requestTableName = tableName;
@@ -6416,7 +6474,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
 
 function initSimcSkillDamagePanel() {
     const panel = document.getElementById('simc-skill-damage-panel');
-    if (!panel) return;
+    if (!panel || panel.dataset.initialized === '1') return;
+    panel.dataset.initialized = '1';
     const statusEl = document.getElementById('simc-skill-damage-status');
     const generateBtn = document.getElementById('simc-skill-damage-generate');
     const refreshBtn = document.getElementById('simc-skill-damage-refresh');
@@ -6606,6 +6665,10 @@ function initSimcSkillDamagePanel() {
     };
 
     const loadFullSnapshot = async ({managePolling = true} = {}) => {
+        panel.setAttribute('aria-busy', 'true');
+        statusEl.setAttribute('role', 'status');
+        statusEl.textContent = '正在加载技能伤害快照…';
+        try {
         invalidateList();
         const generation = ++indexGeneration;
         const response = await fetch('/api/simc-skill-damage/?index=1', { method: 'GET' });
@@ -6621,6 +6684,12 @@ function initSimcSkillDamagePanel() {
         if (managePolling) {
             if (running) schedulePoll();
             else stopPolling();
+        }
+        } catch (error) {
+            statusEl.textContent = String(error.message || error) + '，请点击刷新重试';
+            throw error;
+        } finally {
+            panel.setAttribute('aria-busy', 'false');
         }
     };
 
@@ -6833,14 +6902,30 @@ function initSimcBackendUploadTool() {
     };
 
     const fetchBackendInfo = async () => {
+        const section = result.closest('.content-section');
+        const panel = result.closest('[data-simc-panel]');
+        if ((section && !section.classList.contains('active')) || panel?.classList.contains('hidden')) {
+            stopPolling();
+            return;
+        }
+        result.setAttribute('role', 'status');
+        result.setAttribute('aria-busy', 'true');
+        result.textContent = '正在加载后端状态…';
         try {
             const resp = await fetch('/api/simc-backend-binary/', { method: 'GET' });
             const data = await resp.json();
-            if (data && data.success) {
-                renderBackendInfo(data.data || {});
-            }
+            if (!resp.ok || !data?.success) throw new Error(data?.error || '加载后端状态失败');
+            renderBackendInfo(data.data || {});
+            result.textContent = '后端状态已加载';
         } catch (e) {
-            return;
+            result.textContent = String(e.message || e);
+            const retry = document.createElement('button');
+            retry.type = 'button';
+            retry.textContent = '重试';
+            retry.addEventListener('click', fetchBackendInfo);
+            result.append(retry);
+        } finally {
+            result.setAttribute('aria-busy', 'false');
         }
     };
 
@@ -6953,6 +7038,7 @@ function initSimcBackendUploadTool() {
         autoUpdateToggle.addEventListener('click', toggleAutoUpdate);
     }
 
+    window.simcRefreshBackendInfo = fetchBackendInfo;
     fetchBackendInfo();
 }
 
@@ -8530,7 +8616,7 @@ function initSimcProfileFilters() {
     const applyBtn = document.getElementById('simc-profile-filter-apply');
     const resetBtn = document.getElementById('simc-profile-filter-reset');
 
-    if (specInput) loadSimcSpecOptions().catch(error => console.warn('加载 SimC Profile 专精筛选失败:', error));
+    // The legacy table catalog is loaded only when that table is opened.
 
     if (applyBtn) {
         applyBtn.addEventListener('click', function() {
