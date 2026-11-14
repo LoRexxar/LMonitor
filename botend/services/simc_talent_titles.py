@@ -5,11 +5,13 @@ source Markdown may add provenance. No title/code catalogue or persistent cache
 is maintained here: changing a guide takes effect on the next projection.
 """
 import hashlib
+import json
 import logging
 import re
 from collections import OrderedDict
 from collections.abc import Mapping
 from threading import RLock
+from html import unescape
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
@@ -23,7 +25,7 @@ from botend.constants.hero_talents import (
 from botend.constants.wow import SPEC_IDENTITY_MAP, canonical_class_spec
 from botend.guide_models import ClassGuide
 from botend.models import SimcTalentString
-from botend.services.class_guide_markdown import compile_markdown
+from botend.services.class_guide_talents import prepare_talent_data
 from botend.services.class_guide_tags import TYPE_LABELS
 from botend.services.simc_player_config import canonical_simc_spec_identity
 
@@ -62,7 +64,7 @@ def _load_guides(guide_ids):
     A miss reads content and its fingerprint in the same SQL statement. Never
     associate a second read's changed content with the first read's old digest.
     """
-    guides, missing = {}, []
+    guides, missing, prepared_codes = {}, [], {}
     query = ClassGuide.objects.filter(pk__in=guide_ids).annotate(
         title_source_hash=SHA256('source_markdown'), title_content_hash=SHA256('content_markdown'))
 
@@ -84,10 +86,10 @@ def _load_guides(guide_ids):
             if urlsplit(row['source_url']).hostname not in _SOURCE_HOSTS:
                 continue
             source_tokens = _STRUCTURE.parse(row['source_markdown'])
-            occurrences = _occurrences(row['source_markdown'], tokens=source_tokens)
+            occurrences = _occurrences(row['source_markdown'], tokens=source_tokens, prepared_codes=prepared_codes)
             if row['content_markdown']:
                 content_tokens = _STRUCTURE.parse(row['content_markdown'])
-                _pair_content(occurrences, _occurrences(row['content_markdown'], tokens=content_tokens),
+                _pair_content(occurrences, _occurrences(row['content_markdown'], tokens=content_tokens, prepared_codes=prepared_codes),
                               row['source_markdown'], row['content_markdown'],
                               source_tokens=source_tokens, content_tokens=content_tokens)
             source = _SOURCE_HOSTS[urlsplit(row['source_url']).hostname]
@@ -143,14 +145,16 @@ def _conflicts(text, heroes):
     return bool(heroes and (_hero_mentions(text) - set(heroes)))
 
 
-def _occurrences(markdown, *, tokens=None):
+def _occurrences(markdown, *, tokens=None, prepared_codes=None):
     """Read Markdown headings/fences, compiling only actual talent components.
 
     The Markdown tokenizer owns fence boundaries (so code examples are not
-    mistaken for headings). The existing component compiler still owns JSON,
-    code validation and conversion; unrelated prose need not be HTML-rendered.
+    mistaken for headings). The article's shared talent adapter still owns code
+    validation and conversion; title reads never render a decoded talent tree.
     """
     occurrences, headings = {}, []
+    if prepared_codes is None:
+        prepared_codes = {}
     lines = markdown.splitlines()
     if tokens is None:
         tokens = _STRUCTURE.parse(markdown)
@@ -199,29 +203,48 @@ def _occurrences(markdown, *, tokens=None):
             header = talent_header(token)
             if header is None:
                 continue
-            # Include the original fence bytes rather than reserialize its data.
-            source = '\n'.join(lines[header:end]) + '\n:::'
-            for block in compile_markdown(source):
-                code = block.get('data', {}).get('code')
-                if block['type'] == 'talents' and code:
-                    section = next((text for depth, text in headings if depth == 2), '')
-                    scheme_title = next((text for depth, text in headings if depth == 3), '')
-                    labels = set(descriptions.get((section, scheme_title), ()))
-                    occurrences.setdefault(code, []).append({
-                        'description_label': next(iter(labels)) if len(labels) == 1 else '',
-                        'label': _plain(block.get('title')),
-                        'path': tuple(title for _, title in headings),
-                        'order': start,
-                    })
+            # Match the article compiler's JSON fence grammar, then reuse its
+            # exact code adapter without generating unrelated component HTML.
+            if lines[start].strip() != '```json' or lines[end - 1].strip() != '```':
+                continue
+            data = json.loads(token.content)
+            if not isinstance(data, dict):
+                raise ValueError('组件参数必须是 JSON 对象')
+            candidate = str(data.get('code') or data.get('source_code') or '')
+            # The same exact import code recurs in source/translation and tabs.
+            # Reuse only within this batch, never across source-tree updates.
+            if candidate not in prepared_codes:
+                prepared_codes[candidate] = prepare_talent_data(data).get('code')
+            code = prepared_codes[candidate]
+            if code:
+                section = next((text for depth, text in headings if depth == 2), '')
+                scheme_title = next((text for depth, text in headings if depth == 3), '')
+                labels = set(descriptions.get((section, scheme_title), ()))
+                occurrences.setdefault(code, []).append({
+                    'description_label': next(iter(labels)) if len(labels) == 1 else '',
+                    'label': _plain(lines[header][len(':::talents'):].strip()),
+                    'path': tuple(title for _, title in headings),
+                    'order': start,
+                })
     return occurrences
 
 
-def _link_translations(source_markdown, content_markdown, *, source_tokens=None, content_tokens=None):
+def _link_translations(source_markdown, content_markdown, *, source_tokens=None, content_tokens=None, needed_terms=None):
     """Derive names from same-guide, same-href link text, never URL slugs."""
-    def links(markdown, tokens):
+    def links(markdown, tokens, *, terms=None, hrefs=None):
         result = {}
         for token in (_STRUCTURE.parse(markdown) if tokens is None else tokens):
-            if token.type == 'inline' and ('[' in token.content or '<a ' in token.content):
+            text = unescape(token.content)
+            if terms and not any(term in text.casefold().replace("'", '').replace('’', '') for term in terms):
+                continue
+            # The parser may unescape punctuation, encode Unicode/spaces or
+            # normalize host case. Only skip plain ASCII, unencoded candidates;
+            # ambiguous spellings must reach the real link parser.
+            if (hrefs is not None and not any(href.casefold() in text.casefold() for href in hrefs)
+                    and '\\' not in token.content and text.isascii()
+                    and not any('%' in href for href in hrefs)):
+                continue
+            if token.type == 'inline' and ('](' in token.content or '<a ' in token.content):
                 html = _MARKDOWN.renderInline(token.content)
             elif token.type == 'html_block' and '<a ' in token.content:
                 html = token.content
@@ -233,7 +256,14 @@ def _link_translations(source_markdown, content_markdown, *, source_tokens=None,
                     result.setdefault(link['href'], set()).add(text)
         return result
 
-    original, translated = links(source_markdown, source_tokens), links(content_markdown, content_tokens)
+    original = links(source_markdown, source_tokens, terms=needed_terms)
+    if not original:
+        return {}
+    if needed_terms:
+        # Retain every source label for the selected hrefs so filtering cannot
+        # turn an ambiguous link identity into a trusted translation.
+        original = links(source_markdown, source_tokens, hrefs=original)
+    translated = links(content_markdown, content_tokens, hrefs=original)
     candidates = {}
     for href, names in original.items():
         # Apostrophes inside an attested English spelling may be omitted by a
@@ -277,13 +307,14 @@ def _pair_content(source, content, source_markdown='', content_markdown='', *, s
                     translations.setdefault(english, set()).add(chinese)
     trusted = {key: next(iter(values)) for key, values in translations.items() if len(values) == 1}
     link_translations = {}
-    if source_markdown and content_markdown and any(
-            re.search('[A-Za-z]', _without_heroes(part, HERO_SUBTREE_NAME_ZH.values()))
-            for matches in content.values() for item in matches
-            for part in (item['label'], item['description_label'], *item['path'])
-            if re.search(r'[\u4e00-\u9fff]', part)):
+    needed_terms = {term.casefold() for matches in content.values() for item in matches
+                    for part in (item['label'], item['description_label'], *item['path'])
+                    if re.search(r'[\u4e00-\u9fff]', part)
+                    for term in re.findall('[A-Za-z]+', _without_heroes(part, HERO_SUBTREE_NAME_ZH.values()))}
+    if source_markdown and content_markdown and needed_terms:
         link_translations = _link_translations(source_markdown, content_markdown,
-                                               source_tokens=source_tokens, content_tokens=content_tokens)
+                                               source_tokens=source_tokens, content_tokens=content_tokens,
+                                               needed_terms=needed_terms)
     for matches in source.values():
         for item in matches:
             item['translations'] = trusted

@@ -223,6 +223,20 @@ class ChineseTalentDisplayTitleTests(TestCase):
         self.assertEqual(list(SimcTalentString.objects.order_by('pk').values_list('name', flat=True)),
                          [r['name'] for r in before])
 
+    def test_title_read_reuses_code_adapter_without_rendering_components(self):
+        from botend.services import simc_talent_titles as titles
+        from botend.services.class_guide_markdown import compile_markdown
+        row = self.evidence['resources'][0]
+        block = ':::talents Frostfire Single Target\n```json\n' + json.dumps({'code': row['talent']}) + '\n```\n:::'
+        expected = compile_markdown(block)[0]['data']['code']
+        with patch('botend.services.class_guide_markdown.compile_markdown', side_effect=AssertionError('title read rendered a component')), patch.object(
+                titles, 'prepare_talent_data', wraps=titles.prepare_talent_data) as adapter:
+            result = titles._occurrences('## 天赋与构筑\n\n' + block + '\n\n' + block)
+        self.assertEqual(list(result), [expected])
+        self.assertEqual(len(result[expected]), 2)
+        self.assertEqual(adapter.call_count, 1)
+        self.assertTrue(all(item['label'] == 'Frostfire Single Target' for item in result[expected]))
+
     def test_translated_caption_cannot_override_frozen_hero(self):
         from botend.services.simc_talent_titles import _occurrences, _pair_content, _identity, _project
         row = copy.deepcopy(self.evidence['resources'][0])
@@ -296,6 +310,11 @@ class ChineseTalentDisplayTitleTests(TestCase):
         for text in ('Ulatek Raid', '团本 - Ulateks', '团本 - RB'):
             self.assertEqual(_translate_link_text(text, translations), text)
         self.assertEqual(_link_translations(source, content.replace('/encounter', '/other')), {})
+        self.assertEqual(_link_translations(source + '\n\n[Other](<https://example.test/encounter>)',
+                                            content, needed_terms={'ulatek'}), {})
+        escaped_source = '[Ulatek](<https://example.test/a(b)>)\n\n[Other](https://example.test/a\\(b\\))'
+        self.assertEqual(_link_translations(escaped_source, '[乌拉特克](<https://example.test/a(b)>)',
+                                            needed_terms={'ulatek'}), {})
         self.assertEqual(_link_translations(source, content + '\n\n[另一译名](<https://example.test/encounter>)'), {})
         self.assertEqual(_link_translations(source + '\n\n' + source.replace('/encounter', '/other'),
                          content + '\n\n[另一译名](<https://example.test/other>)'), {})
