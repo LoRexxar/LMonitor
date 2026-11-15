@@ -10,7 +10,7 @@ from botend.services.class_guide_links import GuideLinkPolicy
 
 
 NUMBER = re.compile(r'^\d+(?:\.\d+)*\.$')
-CONTINUATION = re.compile(r'^[，。、；：！？）)\]】]|^(?:以及|或者|并且|从而|和|或|来|使|让|以|的|为|移除|获得)')
+CONTINUATION = re.compile(r'^[，。、；：！？（(）)\]】]|^(?:以及|或者|并且|从而|和|或|来|使|让|以|的|为|移除|获得)')
 SOURCE_NAV_HOSTS = {'www.icy-veins.com', 'icy-veins.com', 'raider.io', 'www.raider.io'}
 
 
@@ -23,24 +23,28 @@ def _remove_source_navigation(soup, links):
         if paragraph is None or paragraph.get_text(strip=True) or paragraph.select('.guide-ref'):
             continue
         label = paragraph.find_next_sibling()
+        # Only a group identified by the actual promotional logo is navigation.
+        # Historical converters split prose links into their own paragraphs too.
+        candidate = paragraph.find_next_sibling()
         if (isinstance(label, Tag) and label.name == 'p'
                 and len(label.get_text(strip=True)) < 40
                 and label.get_text(strip=True).endswith(('资源', 'Resources'))
                 and not label.find(['a', 'img']) and not label.select('.guide-ref')):
+            candidate = label.find_next_sibling()
             label.decompose()
         paragraph.decompose()
-    for paragraph in list(soup.find_all('p')):
-        anchors = paragraph.find_all('a', href=True)
-        if (not anchors or paragraph.select('.guide-ref') or paragraph.find_parent('table')
-                or paragraph.find(['code', 'pre'])
-                or any(urlparse(a['href']).hostname not in SOURCE_NAV_HOSTS
-                       or links.href(a['href']) for a in anchors)):
-            continue
-        # 只有链接及标点的段落属于导航；含说明、获取途径或操作正文的段落保留。
-        outside = ''.join(str(part) for part in paragraph.find_all(string=True)
-                          if part.find_parent('a') is None)
-        if not outside.strip(' \t\r\n，、。；：|/·,.;:'):
-            paragraph.decompose()
+        while isinstance(candidate, Tag) and candidate.name == 'p':
+            anchors = candidate.find_all('a', href=True)
+            outside = ''.join(str(part) for part in candidate.find_all(string=True)
+                              if part.find_parent('a') is None)
+            if (not anchors or outside.strip(' \t\r\n，、。；：|/·,.;:')
+                    or candidate.select('.guide-ref') or candidate.find(['code', 'pre', 'img'])
+                    or any(urlparse(a['href']).hostname not in SOURCE_NAV_HOSTS
+                           or links.href(a['href']) for a in anchors)):
+                break
+            following = candidate.find_next_sibling()
+            candidate.decompose()
+            candidate = following
 
 
 def _reference_only(node):
@@ -89,6 +93,14 @@ def _remove_heading_number(rows):
             row.setdefault('data', {})['source_number'] = number or str(last.get('start', 1)) + '.'
             last.decompose()
             previous['html'] = str(soup).strip()
+        else:
+            from botend.services.class_guide_icy_layout import clean_icy_layout
+            tag = soup.new_tag('h' + str(row.get('data', {}).get('level', 3)))
+            tag.append(BeautifulSoup(row.get('title', ''), 'html.parser'))
+            clean_icy_layout(soup, following_heading=tag)
+            if tag.get('data-source-number'):
+                row.setdefault('data', {})['source_number'] = tag['data-source-number']
+            previous['html'] = str(soup).strip()
 
 
 def prepare_guide_presentation(blocks, guide):
@@ -96,6 +108,8 @@ def prepare_guide_presentation(blocks, guide):
     icy = urlparse(guide.source_url or '').hostname in ('www.icy-veins.com', 'icy-veins.com')
     if icy:
         _remove_heading_number(blocks)
+        from botend.services.class_guide_icy_frozen_layout import restore_frozen_layout
+        restore_frozen_layout(blocks, guide)
     links = GuideLinkPolicy(blocks, guide)
     source_ids, in_source = set(), False
     for block in blocks:
@@ -115,6 +129,19 @@ def prepare_guide_presentation(blocks, guide):
                 _merge_reference_paragraphs(soup)
                 if id(block) not in source_ids:
                     _remove_source_navigation(soup, links)
+                from botend.services.class_guide_icy_layout import clean_icy_layout
+                clean_icy_layout(soup)
+                # Identical adjacent pure labels express the same applicability;
+                # never combine different conditions or labels across an action.
+                for label in list(soup.select('p')):
+                    if not label.parent or len(label.find_all('strong', recursive=False)) != 1:
+                        continue
+                    if label.get_text(strip=True) != label.strong.get_text(strip=True) or not label.get_text(strip=True).startswith('适用条件'):
+                        continue
+                    following = label.find_next_sibling()
+                    if (isinstance(following, Tag) and following.name == 'p'
+                            and str(following) == str(label)):
+                        label.decompose()
             links.clean(soup, source_note=id(block) in source_ids,
                         section=links.sections.get(block.get('id')))
             for strong in soup.find_all('strong'):

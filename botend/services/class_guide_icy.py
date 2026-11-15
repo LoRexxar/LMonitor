@@ -13,7 +13,7 @@ from botend.constants.wow import SPEC_IDENTITY_MAP
 
 from botend.services.class_guide_content import clean_html, safe_url, validate_blocks, walk_blocks
 from botend.services.class_guide_codec import ITEM_HEADER_V9
-from botend.services.class_guide_markdown import blocks_to_markdown, compile_markdown
+from botend.services.class_guide_markdown import blocks_to_markdown, compile_markdown, normalize_table_rows
 from botend.services.class_guide_macros import localize_macro, macro_name_map, macro_source_repairs
 
 CHROME = ('.table-of-contents,.content-toc,.cta-block__wrapper-new,.inline-author-block,'
@@ -67,7 +67,7 @@ class IcyPageConverter:
         parsed = urlparse(source_url)
         if parsed.scheme != 'https' or parsed.hostname not in {'www.icy-veins.com', 'icy-veins.com'} or not parsed.path.startswith('/wow/'):
             raise ValueError('页面来源必须为 Icy Veins 魔兽页面')
-        self.soup = BeautifulSoup(source, 'html.parser', preserve_whitespace_tags={'pre', 'code'})
+        self.soup = BeautifulSoup(normalize_table_rows(source), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
         self.body = self.soup.select_one('.guide-page-content')
         if self.body is None:
             raise ValueError('页面缺少攻略正文容器')
@@ -212,8 +212,8 @@ class IcyPageConverter:
         # HTML 段内空行只是空白；导出字符串的换行仍是代码的一部分。
         for text in list(self.body.find_all(string=True)):
             in_export = text.find_parent(lambda n: any(c.startswith('export-string') for c in n.get('class', [])))
-            if not isinstance(text, Comment) and not text.find_parent(['pre', 'code']) and not in_export and '\n' in text:
-                text.replace_with(NavigableString(re.sub(r'\s*\n\s*', ' ', str(text))))
+            if not isinstance(text, Comment) and not text.find_parent(['pre', 'code']) and not in_export and re.search(r'[\r\n]', text):
+                text.replace_with(NavigableString(re.sub(r'\s*[\r\n]+\s*', ' ', str(text))))
 
     def rows(self, parent):
         from botend.services.class_guide_icy_format import is_inline_node

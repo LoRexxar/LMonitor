@@ -3,6 +3,7 @@
 import html
 import json
 import re
+from html.parser import HTMLParser
 
 from bs4 import BeautifulSoup, NavigableString
 from markdown_it import MarkdownIt
@@ -43,12 +44,97 @@ def _guide_emphasis(state, silent):
     return True
 
 
+def normalize_table_rows(value):
+    """Make HTML5's implicit row/cell closures explicit before html.parser.
+
+    Only table structure tokens are edited; source text, attributes, comments,
+    and code are never reserialized. Each nested table has its own row scope,
+    so a redundant inner </tr> cannot close an outer table's row. This is the
+    row/cell recovery subset, not a general HTML5 parser (e.g. foster parenting).
+    """
+    if not isinstance(value, str) or not re.search(r'<table\b', value, re.I):
+        return value
+    offsets = [0] + [m.end() for m in re.finditer('\n', value)]
+    edits = []
+
+    class Rows(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.tables = []
+
+        def edit(self, replacement, remove=False):
+            line, column = self.getpos()
+            start = offsets[line - 1] + column
+            end = value.index('>', start) + 1 if remove else start
+            edits.append((start, end, replacement))
+
+        def handle_starttag(self, tag, attrs):
+            if tag == 'table':
+                self.tables.append({'row': False, 'cell': None})
+            elif self.tables:
+                scope = self.tables[-1]
+                if tag == 'tr':
+                    if scope['row']:
+                        self.edit('</tr>')
+                    scope.update(row=True, cell=None)
+                elif tag in {'td', 'th'}:
+                    if not scope['row']:
+                        self.edit('<tr>')
+                        scope['row'] = True
+                    elif scope['cell']:
+                        self.edit('</' + scope['cell'] + '>')
+                    scope['cell'] = tag
+
+        # HTML self-closing syntax does not close non-void table elements.
+        handle_startendtag = handle_starttag
+
+        def handle_endtag(self, tag):
+            if not self.tables:
+                return
+            scope = self.tables[-1]
+            if tag == 'table':
+                self.tables.pop()
+            elif tag == 'tr':
+                if not scope['row']:
+                    self.edit('', remove=True)
+                scope.update(row=False, cell=None)
+            elif tag in {'td', 'th'}:
+                if scope['cell'] == tag:
+                    scope['cell'] = None
+                else:
+                    self.edit('', remove=True)
+            elif tag in {'tbody', 'thead', 'tfoot'}:
+                scope.update(row=False, cell=None)
+
+    parser = Rows()
+    parser.feed(value)
+    parser.close()
+    parts, position = [], 0
+    for start, end, replacement in edits:
+        parts.extend((value[position:start], replacement))
+        position = end
+    parts.append(value[position:])
+    return ''.join(parts)
+
+
 def html_to_markdown(value):
-    soup = BeautifulSoup(clean_html(value), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
+    soup = BeautifulSoup(clean_html(normalize_table_rows(value)), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
     def text(node, depth=0):
         if isinstance(node, NavigableString):
-            return str(node)
+            # HTML prose line endings are whitespace, not Markdown paragraph
+            # boundaries. Code and opaque structural HTML keep their literals.
+            if node.find_parent(['pre', 'code']):
+                return str(node)
+            return re.sub(r'\s*[\r\n]+\s*', ' ', str(node))
         name = node.name
+        if name in ('table', 'ul', 'ol'):
+            # Keep structural HTML opaque: Markdown lists can reset starts,
+            # lose empty items or move text following a nested list. Tables
+            # must also retain data cells, spans and inline/code formatting.
+            # Encode newlines so blank lines/directives cannot split a block.
+            markup = re.sub(r'[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]',
+                            lambda match: '&#{};'.format(ord(match[0])), str(node))
+            return '\n\n' + markup + '\n\n'
         inner = ''.join(text(child, depth) for child in node.children)
         if name in ('strong', 'b'):
             if node.find_parent(['strong', 'b']) or not inner.strip():
@@ -66,15 +152,9 @@ def html_to_markdown(value):
         if name == 'img':
             return '![{}](<{}>)'.format(node.get('alt', ''), node.get('src', ''))
         if name == 'br':
-            return '  \n'
-        if name in ('ul', 'ol'):
-            rows = []
-            for index, child in enumerate(node.find_all('li', recursive=False), 1):
-                prefix = '{}. '.format(index) if name == 'ol' else '- '
-                content = ''.join(text(c, depth + 1) for c in child.children).strip()
-                lines = content.splitlines() or ['']
-                rows.append(prefix + lines[0] + ''.join('\n' + ' ' * len(prefix) + line for line in lines[1:]))
-            return '\n\n' + '\n'.join(rows) + '\n\n'
+            # Hardbreak whitespace is stripped at paragraph boundaries and
+            # becomes a paragraph break for consecutive br elements.
+            return '<br>'
         if name == 'blockquote':
             return '\n\n' + '\n'.join('> ' + line for line in inner.strip().splitlines()) + '\n\n'
         if name == 'pre':
@@ -94,14 +174,6 @@ def html_to_markdown(value):
             return fence + padding + code + padding + fence
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
             return '\n\n' + '#' * int(name[1]) + ' ' + inner.strip() + '\n\n'
-        if name == 'table':
-            # Markdown 表格必须有表头，不能把无表头来源的第一条数据提升成 th。
-            # 保留已清洗 HTML，兼容逐单元格对齐、合并单元格及嵌套行内格式。
-            # 换行用等价字符引用存储，使整个表格保持单个 HTML block；否则
-            # 空行会终止 CommonMark HTML，行首 ::: 也会被扩展解析器截走。
-            table = re.sub(r'[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]',
-                           lambda match: '&#{};'.format(ord(match[0])), str(node))
-            return '\n\n' + table + '\n\n'
         if name == 'hr':
             return '\n\n---\n\n'
         if name in ('p', 'div', 'figure', 'figcaption'):
@@ -190,7 +262,7 @@ def compile_markdown(source, *, _expand_tabs=True):
         result, pending = [], []
         def flush():
             if pending:
-                result.append({'id': key(), 'type': 'html', 'html': clean_html(md.renderer.render(pending, md.options, {})), 'children': []})
+                result.append({'id': key(), 'type': 'html', 'html': clean_html(normalize_table_rows(md.renderer.render(pending, md.options, {}))), 'children': []})
                 pending.clear()
         tokens = md.parse(text); index = 0
         while index < len(tokens):
