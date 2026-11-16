@@ -45,11 +45,32 @@ class PortalSimcReferenceTests(TestCase):
         self.assertIn('/auth/login/?next=', response.url)
         build.assert_not_called()
 
+    def test_request_timing_keeps_stage_costs_without_logging_unrelated_inputs(self):
+        from botend.services.simc_reference import ReferenceTimings
+        with patch('botend.services.simc_reference.perf_counter', side_effect=[10, 10.25, 12.5, 13]), \
+                self.assertLogs('LSpider', level='INFO') as captured:
+            timings = ReferenceTimings({'spec': 'warrior_fury', 'talent': '7', 'token': '不可记录的凭据'})
+            timings.mark('catalog')
+            timings.mark('talent_tree')
+            timings.finish(ValueError('不可记录的异常正文'))
+        self.assertEqual(timings.stages, {'catalog': 0.25, 'talent_tree': 2.25})
+        output = '\n'.join(captured.output)
+        for value in ('event=start', 'stage=talent_tree seconds=2.250', 'event=finish seconds=3.000', 'error=ValueError'):
+            self.assertIn(value, output)
+        self.assertNotIn('不可记录', output)
+
+    def test_failed_page_records_timing_and_preserves_the_exception(self):
+        with patch('botend.portal.simc_reference.reference_context', side_effect=ValueError('测试异常')), \
+                patch('botend.portal.simc_reference.ReferenceTimings') as timing:
+            with self.assertRaisesMessage(ValueError, '测试异常'):
+                self.client.get(self.url, {'spec': 'warrior_fury'})
+        self.assertIsInstance(timing.return_value.finish.call_args.args[0], ValueError)
+
     def test_regular_account_can_read_current_shared_resources(self):
         with patch('requests.sessions.Session.request', side_effect=AssertionError('禁止联网')):
             response = self.client.get(self.url, {'spec': 'warrior_fury'})
         self.assertEqual(response.status_code, 200)
-        for text in ('测试天赋代码', '山丘领主', '测试头盔', '285', 'bloodthirst', '12.1', 'MID2', '暴击 0'):
+        for text in ('测试天赋代码', '山丘领主', '12.1', 'MID2'):
             self.assertContains(response, text)
         self.assertEqual(response.context['profile'].id, self.profile.id)
         self.assertEqual(response.context['talent'].id, self.talent.id)
@@ -89,9 +110,9 @@ class PortalSimcReferenceTests(TestCase):
     def test_missing_spec_data_is_an_honest_empty_state(self):
         response = self.client.get(self.url, {'spec': 'monk_mistweaver'})
         self.assertContains(response, '武僧 · 织雾')
-        self.assertContains(response, '该专精暂无启用的共享装备配置')
+        self.assertContains(self.client.get(self.url, {'spec': 'monk_mistweaver', 'view': 'reference-equipment'}), '该专精暂无启用的共享装备配置')
         self.assertContains(response, '该专精暂无可展示的天赋代码')
-        self.assertContains(response, '该专精暂无可展示的共享 APL')
+        self.assertContains(self.client.get(self.url, {'spec': 'monk_mistweaver', 'view': 'reference-apl'}), '该专精暂无可展示的共享 APL')
         self.assertNotContains(response, 'bloodthirst')
 
     def test_fallback_version_is_kept_and_shared_short_spec_is_disambiguated(self):
@@ -116,7 +137,7 @@ class PortalSimcReferenceTests(TestCase):
             is_system=True, is_selectable=True,
         )
         self.publication.apls.add(alternate)
-        response = self.client.get(self.url, {'spec': 'warrior_fury', 'apl': alternate.id})
+        response = self.client.get(self.url, {'spec': 'warrior_fury', 'apl': alternate.id, 'view': 'reference-apl'})
         self.assertContains(response, '手动选择的参考 APL')
         self.assertContains(response, 'actions=/execute')
         self.assertNotContains(response, 'actions=/bloodthirst')
@@ -125,7 +146,7 @@ class PortalSimcReferenceTests(TestCase):
         self.apl.is_selectable = False
         self.apl.save()
         SimcApl.objects.create(name='可选但非默认', spec='warrior_fury', content='不应自动选中', is_system=True, is_selectable=True)
-        response = self.client.get(self.url, {'spec': 'warrior_fury'})
+        response = self.client.get(self.url, {'spec': 'warrior_fury', 'view': 'reference-apl'})
         self.assertContains(response, '默认 APL 当前不可展示')
         self.assertIsNone(response.context['apl'])
         self.assertNotContains(response, '不应自动选中')
@@ -137,7 +158,7 @@ class PortalSimcReferenceTests(TestCase):
         self.apl.save()
         alternate = SimcApl.objects.create(name='另一个系统方案', spec='warrior_fury', source='simc_builtin', is_system=True, is_selectable=True)
         self.publication.apls.add(alternate)
-        response = self.client.get(self.url, {'spec': 'warrior_fury'})
+        response = self.client.get(self.url, {'spec': 'warrior_fury', 'view': 'reference-apl'})
         self.assertIsNone(response.context['apl'])
         self.assertContains(response, '无法确定唯一默认项')
 
@@ -156,7 +177,7 @@ class PortalSimcReferenceTests(TestCase):
 
     def test_database_text_is_escaped_and_page_is_read_only(self):
         SimcApl.objects.filter(pk=self.apl.pk).update(content='<script>alert(1)</script>')
-        response = self.client.get(self.url)
+        response = self.client.get(self.url, {'view': 'reference-apl'})
         self.assertContains(response, '&lt;script&gt;alert(1)&lt;/script&gt;')
         self.assertNotContains(response, '<script>alert(1)</script>')
         self.assertEqual(self.client.post(self.url, {'name': '禁止写入'}).status_code, 405)

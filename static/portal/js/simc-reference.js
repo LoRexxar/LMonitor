@@ -1,5 +1,91 @@
 (() => {
     'use strict';
+    const workspace = document.querySelector('.reference-workbench');
+    if (!workspace) return;
+    const statusBox = document.getElementById('reference-navigation-status');
+    let requestNumber = 0, pendingRequest, debounceTimer, slowTimer, cleanup;
+    let pendingDestination = null;
+    let displayedQuery = location.search;
+    const resetStatus = () => {
+        clearTimeout(slowTimer);
+        statusBox.hidden = true;
+        workspace.removeAttribute('aria-busy');
+    };
+    const showStatus = (url, failed = false) => {
+        clearTimeout(slowTimer);
+        statusBox.hidden = false;
+        const spinner = statusBox.querySelector('.reference-loading-spinner');
+        if (spinner) spinner.hidden = failed;
+        workspace.setAttribute('aria-busy', String(!failed));
+        statusBox.querySelector('[data-reference-loading-label]').textContent = failed ? '资料加载失败' : '正在更新所选配置…';
+        statusBox.querySelector('[data-reference-loading-detail]').textContent = failed
+            ? '当前仍显示上一次成功加载的配置，请重试。' : '正在读取当前章节及模拟结果。';
+        const retry = statusBox.querySelector('[data-reference-loading-retry]');
+        retry.href = url;
+        retry.hidden = !failed;
+        if (!failed) slowTimer = setTimeout(() => {
+            statusBox.querySelector('[data-reference-loading-detail]').textContent = '加载时间较长，可继续等待或重试。';
+            retry.hidden = false;
+        }, 10000);
+    };
+    const invalidate = () => {
+        clearTimeout(debounceTimer);
+        pendingRequest?.abort();
+        return ++requestNumber;
+    };
+    const navigate = async (destination, {historyMode = 'push', focusId = ''} = {}) => {
+        const number = invalidate();
+        const url = new URL(destination, location.href);
+        pendingDestination = url.href;
+        const controller = pendingRequest = new AbortController();
+        showStatus(url.href);
+        try {
+            const response = await fetch(url, {
+                headers: {'X-Simc-Reference': 'workspace'}, credentials: 'same-origin', signal: controller.signal,
+            });
+            if (number !== requestNumber) return;
+            if (response.redirected || !response.ok || !response.headers.get('Content-Type')?.includes('application/json')) {
+                throw new Error('资料请求未成功');
+            }
+            const data = await response.json();
+            if (number !== requestNumber) return;
+            if (typeof data.html !== 'string' || typeof data.navigation !== 'string' ||
+                    !['reference-talents', 'reference-equipment', 'reference-apl'].includes(data.section)) {
+                throw new Error('资料响应不完整');
+            }
+            const canonical = new URL(data.url, location.href);
+            if (canonical.origin !== location.origin || canonical.pathname !== location.pathname) throw new Error('资料地址不匹配');
+            canonical.hash = url.hash.startsWith('#apl-list-') && data.section === 'reference-apl' ? url.hash : `#${data.section}`;
+            cleanup?.();
+            workspace.innerHTML = data.html;
+            const navigation = document.querySelector('.simc-module-navigation');
+            if (navigation) navigation.outerHTML = data.navigation;
+            if (historyMode === 'push') history.pushState(null, '', canonical);
+            else history.replaceState(null, '', canonical);
+            displayedQuery = canonical.search;
+            pendingDestination = null;
+            resetStatus();
+            cleanup = initializeWorkspace();
+            document.dispatchEvent(new CustomEvent('simc:reference-updated'));
+            if (focusId) document.getElementById(focusId)?.focus({preventScroll: true});
+        } catch (error) {
+            if (number !== requestNumber || error.name === 'AbortError') return;
+            workspace.querySelectorAll('form').forEach(form => form.reset());
+            pendingDestination = null;
+            showStatus(url.href, true);
+        }
+    };
+    window.addEventListener('popstate', () => {
+        // 同一配置的 APL 分组历史由 hashchange 还原，无需再次请求后端。
+        if (!pendingDestination && location.search === displayedQuery) return;
+        navigate(location.href, {historyMode: 'replace'});
+    });
+    window.addEventListener('pagehide', () => { invalidate(); clearTimeout(slowTimer); });
+    window.addEventListener('pageshow', event => { if (event.persisted) resetStatus(); });
+    function initializeWorkspace() {
+    const lifetime = new AbortController();
+    let headerObserver;
+
     const sections = [...document.querySelectorAll('[data-reference-panel]')];
     const sectionTabs = [...document.querySelectorAll('[data-reference-tab]')];
     let activeSection = sections[0];
@@ -8,6 +94,13 @@
         const target = sections.find(section => section.id === id) ||
             (id.startsWith('apl-list-') ? document.getElementById('reference-apl') : null);
         if (!target) return false;
+        if (target.dataset.loaded !== 'true') {
+            const destination = new URL(pendingDestination || location.href);
+            destination.searchParams.set('view', target.id);
+            destination.hash = hash;
+            navigate(destination, {focusId: `${target.id}-tab`});
+            return true;
+        }
         activeSection = target;
         sections.forEach(section => { section.hidden = section !== target; });
         sectionTabs.forEach(tab => {
@@ -24,8 +117,15 @@
         tab.setAttribute('aria-controls', tab.hash.slice(1));
         tab.addEventListener('click', event => {
             event.preventDefault();
-            openSection(tab.hash);
-            history.pushState(null, '', tab.hash);
+            if (pendingDestination) {
+                const destination = new URL(pendingDestination);
+                destination.searchParams.set('view', tab.hash.slice(1));
+                destination.hash = tab.hash;
+                navigate(destination, {focusId: tab.id});
+            } else if (openSection(tab.hash) && activeSection.id === tab.hash.slice(1)) {
+                history.replaceState(null, '', tab.href);
+                displayedQuery = location.search;
+            }
         });
         tab.addEventListener('keydown', event => {
             let next;
@@ -51,62 +151,38 @@
         }
     };
     restoreSection();
-    window.addEventListener('hashchange', restoreSection);
+    window.addEventListener('hashchange', () => {
+        // 浏览器前后退会同时触发 popstate 和 hashchange，共用同一次加载。
+        if (pendingDestination !== location.href) restoreSection();
+    }, {signal: lifetime.signal});
     const header = document.querySelector('.portal-header');
     if (header && window.ResizeObserver) {
-        new ResizeObserver(() => {
+        headerObserver = new ResizeObserver(() => {
             document.querySelector('.simc-reference').style.setProperty('--reference-header-height', `${header.getBoundingClientRect().height}px`);
-        }).observe(header);
-    }
-    const navigationStatus = document.getElementById('reference-navigation-status');
-    const workbench = document.querySelector('.reference-workbench');
-    let navigationTimer;
-    const resetNavigationStatus = () => {
-        clearTimeout(navigationTimer);
-        if (navigationStatus) navigationStatus.hidden = true;
-        workbench?.removeAttribute('aria-busy');
-    };
-    window.addEventListener('pageshow', event => {
-        if (event.persisted) resetNavigationStatus();
-    });
-    window.addEventListener('pagehide', () => clearTimeout(navigationTimer));
-    const showNavigationStatus = form => {
-        if (!navigationStatus) return;
-        clearTimeout(navigationTimer);
-        const selected = form.querySelector('select')?.selectedOptions[0]?.textContent.trim();
-        navigationStatus.querySelector('[data-reference-loading-label]').textContent = selected
-            ? `正在加载：${selected}` : '正在应用英雄天赋筛选…';
-        const detail = navigationStatus.querySelector('[data-reference-loading-detail]');
-        detail.textContent = '正在读取所选配置，请稍候。';
-        const retry = navigationStatus.querySelector('[data-reference-loading-retry]');
-        const destination = new URL(form.action, location.href);
-        destination.search = new URLSearchParams(new FormData(form)).toString();
-        retry.href = destination.href;
-        retry.hidden = true;
-        navigationStatus.hidden = false;
-        workbench?.setAttribute('aria-busy', 'true');
-        // Leave successful form controls enabled: native GET serialization
-        // happens after submit listeners and must retain every selected value.
-        navigationTimer = setTimeout(() => {
-            detail.textContent = '加载时间较长，可继续等待或重新加载。';
-            retry.hidden = false;
-        }, 10000);
-    };
-    document.querySelectorAll('.simc-reference form').forEach(form => {
-        form.addEventListener('change', event => {
-            if (event.target.matches('select, input[type="checkbox"]')) form.requestSubmit();
         });
-        form.addEventListener('submit', () => {
-            let view = form.querySelector('input[name="view"]');
-            if (!view) {
-                view = document.createElement('input');
-                view.type = 'hidden';
-                view.name = 'view';
-                form.append(view);
-            }
-            view.value = activeSection.id;
-            form.action = `#${activeSection.id}`;
-            showNavigationStatus(form);
+        headerObserver.observe(header);
+    }
+    document.querySelectorAll('.simc-reference form').forEach(form => {
+        const destination = () => {
+            const url = new URL(location.pathname, location.href);
+            url.search = new URLSearchParams(new FormData(form)).toString();
+            url.searchParams.set('view', activeSection.id);
+            url.hash = activeSection.id;
+            return url;
+        };
+        form.addEventListener('change', event => {
+            if (!event.target.matches('select, input[type="checkbox"]')) return;
+            const url = destination();
+            invalidate();
+            pendingDestination = url.href;
+            showStatus(url.href);
+            const focusId = event.target.id;
+            // 合并连续勾选；旧响应即使无法取消，也不能覆盖新选择。
+            debounceTimer = setTimeout(() => navigate(url, {focusId}), event.target.type === 'checkbox' ? 180 : 0);
+        });
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            navigate(destination());
         });
         const submit = form.querySelector('button[type="submit"]');
         if (submit) submit.hidden = true;
@@ -160,7 +236,7 @@
     const updateSceneOrientation = () => tablist?.setAttribute('aria-orientation', narrowScenes.matches ? 'horizontal' : 'vertical');
     if (tablist) tablist.setAttribute('role', 'tablist');
     updateSceneOrientation();
-    narrowScenes.addEventListener('change', updateSceneOrientation);
+    narrowScenes.addEventListener('change', updateSceneOrientation, {signal: lifetime.signal});
     tabs.forEach(tab => {
         tab.setAttribute('role', 'tab');
         tab.setAttribute('aria-controls', tab.hash.slice(1));
@@ -211,9 +287,15 @@
             }
         });
     });
-    window.addEventListener('hashchange', () => openList(window.location.hash));
-    if (!openList(window.location.hash)) {
-        const initial = panels.find(panel => panel.hasAttribute('data-apl-default')) || panels[0];
-        if (initial) openList(`#${initial.id}`);
+    const restoreList = () => {
+        if (!openList(window.location.hash)) {
+            const initial = panels.find(panel => panel.hasAttribute('data-apl-default')) || panels[0];
+            if (initial) openList(`#${initial.id}`);
+        }
+    };
+    window.addEventListener('hashchange', restoreList, {signal: lifetime.signal});
+    restoreList();
+    return () => { lifetime.abort(); headerObserver?.disconnect(); clearTimeout(statusTimer); };
     }
+    cleanup = initializeWorkspace();
 })();

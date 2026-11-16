@@ -320,29 +320,16 @@ def maintain_simulations(batch_size=5):
 
 
 def public_results(spec_key, profile, talent, apl):
-    """仅返回本模块创建且严格匹配当前公开输入的结果。"""
+    """仅返回写入端已校验的当前公开索引，复用榜单的有效性与排名口径。"""
     if not all((profile, talent, apl)):
         return []
-    config = SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').filter(
+    config = SimcReferenceSimulationConfig.objects.select_related('settings__template').only(
+        'id', 'spec_key', 'use_ptr', 'settings_id', 'settings__id', 'settings__backend_id',
+        'settings__template_id', 'settings__is_enabled', 'settings__template__id', 'settings__template__content',
+    ).filter(
         spec_key=spec_key, use_ptr=profile.use_ptr, settings__is_enabled=True,
     ).first()
     if not config:
         return []
-    try:
-        snapshots = [(scene, snapshot(config, profile, talent, apl, scene)) for scene in active_scenarios(config)]
-    except ValueError:
-        return []
-    found = []
-    for scene, value in snapshots:
-        row = matching_simulations(config, value).filter(
-            status='completed', dps__gt=0,
-        ).order_by('-pk').values('dps', 'signature').first()
-        if row and math.isfinite(row['dps']):
-            found.append((scene, value, row))
-    from botend.services.simc_reference_rankings import current_rankings
-    rankings = current_rankings(config) if found else {}
-    return [dict(value['simulation_params'], dps=row['dps'], ranking=rankings.get((config.pk, row['signature'])),
-                 config_id=config.pk, signature=row['signature'], scenario_id=scene.pk, scenario_name=scene.name,
-                 name=scene.name, targets=value['simulation_params']['desired_targets'],
-                 duration=value['simulation_params']['max_time'])
-            for scene, value, row in found]
+    from botend.services.simc_reference_rankings import configuration_results
+    return configuration_results(config, profile.pk, talent.pk, apl.pk)

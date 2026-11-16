@@ -17,6 +17,41 @@ class ReferenceRankingReadTests(TestCase):
     result = ranking_tests.ReferenceRankingTests.result
     alternate_talent = ranking_tests.ReferenceRankingTests.alternate_talent
 
+    def test_reference_reuses_indexed_talent_title_without_guide_projection(self):
+        self.result(200)
+        SimcReferenceRankingEntry.objects.update(talent_display_name='已维护的天赋标题')
+        self.client.force_login(self.user)
+        with patch('botend.services.simc_reference.apply_talent_display_names') as project:
+            response = self.client.get('/portal/simc-reference/',
+                {'spec': 'warrior_fury'}, HTTP_X_SIMC_REFERENCE='workspace')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('已维护的天赋标题', response.json()['html'])
+        project.assert_called_once_with([])
+
+    def test_configuration_results_share_index_and_never_scan_history_or_rebuild_inputs(self):
+        from botend.services import simc_reference_simulations as source
+        single, aoe = self.result(200), self.result(600, 5)
+        self.result(300, talent=self.alternate_talent())
+        with ExitStack() as stack:
+            for target in ('snapshot', 'matching_simulations', 'tasks._build_profile_payload'):
+                stack.enter_context(patch('botend.services.simc_reference_simulations.' + target,
+                    side_effect=AssertionError('配置页读取不得重建输入或扫描历史')))
+            with CaptureQueriesContext(connection) as queries:
+                results = source.public_results('warrior_fury', self.profile, self.talent, self.apl)
+        self.assertEqual([row['signature'] for row in results], [single.signature, aoe.signature])
+        self.assertEqual([row['dps'] for row in results], [200, 600])
+        self.assertIsNone(results[0]['ranking']['overall_rank'])
+        self.assertEqual(results[0]['ranking']['spec_rank'], 2)
+        self.assertEqual(results[1]['ranking']['overall_rank'], 1)
+        self.assertEqual(len(queries), 3)
+        for query in queries:
+            self.assertNotIn('JSON_EXTRACT', query['sql'])
+            self.assertNotIn('"snapshot"', query['sql'])
+            self.assertFalse(query['sql'].lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE')))
+        SimcReferenceRankingEntry.objects.filter(result=single).update(is_current=False)
+        self.assertEqual([row['signature'] for row in source.public_results(
+            'warrior_fury', self.profile, self.talent, self.apl)], [aoe.signature])
+
     def test_admin_queries_do_not_grow_with_combinations_or_parse_titles(self):
         """冷读和重复读均不得逐行查询天赋字段或解析攻略。"""
         from botend.services.simc_reference_rankings import admin_ranking_page_context

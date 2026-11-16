@@ -251,16 +251,20 @@ class ReferencePresentationTests(TestCase):
         self.client.force_login(self.user)
         with patch('requests.sessions.Session.request', side_effect=AssertionError('只读展示禁止联网')):
             response = self.client.get('/portal/simc-reference/?spec=warrior_fury')
+            equipment = self.client.get('/portal/simc-reference/?spec=warrior_fury&view=reference-equipment')
+            apl = self.client.get('/portal/simc-reference/?spec=warrior_fury&view=reference-apl')
         self.assertEqual(response.status_code, 200)
-        for text in ('talent-node-card--tree', 'data-wow-item-tooltip', '勇士的战盔',
-                     '嗜血', '暴怒', '使用条件', '子列表没有执行技能时', '原始规则'):
-            self.assertContains(response, text)
+        self.assertContains(response, 'talent-node-card--tree')
+        for text in ('data-wow-item-tooltip', '勇士的战盔'):
+            self.assertContains(equipment, text)
+        for text in ('嗜血', '暴怒', '使用条件', '子列表没有执行技能时', '原始规则'):
+            self.assertContains(apl, text)
         self.assertTemplateUsed(response, 'portal/spec_detail/_talent_tree.html')
         self.assertContains(response, 'player-talent-tree.js')
         self.assertNotContains(response, 'reference-talent-node')
-        self.assertContains(response, 'data-apl-tabs')
-        self.assertContains(response, 'reference-rule-line')
-        self.assertContains(response, '什么时候进入本组')
+        self.assertContains(apl, 'data-apl-tabs')
+        self.assertContains(apl, 'reference-rule-line')
+        self.assertContains(apl, '什么时候进入本组')
 
     def test_compound_spec_identity_and_aura_description(self):
         WowTalentNodeMetadata.objects.create(

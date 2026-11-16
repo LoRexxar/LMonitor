@@ -1,10 +1,13 @@
 """面向内测用户的现行 SimC 资料投影；只读取全局资源和本地展示元数据。"""
 
 from django.http import Http404
+from time import perf_counter
+from uuid import uuid4
+from utils.log import logger
 from botend.services.simc_talent_titles import apply_talent_display_names
 
 from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, SPEC_ICON
-from botend.models import SimcApl, SimcProfile, SimcTalentString, WowTalentVersion, SimcReferencePublication
+from botend.models import SimcApl, SimcProfile, SimcTalentString, WowTalentVersion, SimcReferencePublication, SimcReferenceRankingEntry
 from botend.services.simc_player_config import (
     build_player_config_detail, canonical_simc_profile_key,
 )
@@ -15,7 +18,31 @@ from botend.services.simc_reference_heroes import (
 )
 
 
-def reference_catalog(*, public_only=True, project_talent_titles=True):
+class ReferenceTimings:
+    """记录资料页处理阶段，超时排查无需打印天赋代码、请求凭据或用户信息。"""
+
+    def __init__(self, params):
+        self.request_id = uuid4().hex[:12]
+        self.identity = {key: str(params.get(key, ''))[:80] for key in ('spec', 'profile', 'talent', 'apl')}
+        self.started = self.previous = perf_counter()
+        self.stages = {}
+        logger.info('[SimcReference] request=%s event=start selection=%r', self.request_id, self.identity)
+
+    def mark(self, stage):
+        now = perf_counter()
+        elapsed = now - self.previous
+        self.stages[stage] = round(elapsed, 3)
+        self.previous = now
+        if elapsed >= 1:
+            logger.warning('[SimcReference] request=%s stage=%s seconds=%.3f', self.request_id, stage, elapsed)
+
+    def finish(self, error=None):
+        logger.info('[SimcReference] request=%s event=finish seconds=%.3f stages=%r error=%s',
+                    self.request_id, perf_counter() - self.started, self.stages,
+                    type(error).__name__ if error else '')
+
+
+def reference_catalog(*, public_only=True, project_talent_titles=True, include_talent_codes=True):
     """读取目录；页面可延后标题投影，管理调用默认仍返回完整展示名称。"""
     groups, by_key = [], {}
     for class_name, specs in CLASS_SPEC_MAP.items():
@@ -41,7 +68,8 @@ def reference_catalog(*, public_only=True, project_talent_titles=True):
         ),
         'talents': SimcTalentString.objects.filter(
             is_active=True, is_selectable=True, is_system=True, owner_user_id__isnull=True,
-        ).values('id', 'name', 'spec', 'talent', 'system_key', 'default_apl_id', 'hero_talent_names'),
+        ).values('id', 'name', 'spec', 'system_key', 'default_apl_id', 'hero_talent_names',
+                 *(['talent'] if include_talent_codes else [])),
         'apls': SimcApl.objects.filter(
             is_active=True, is_selectable=True, is_system=True, owner_user_id__isnull=True,
         ).values('id', 'name', 'spec', 'class_name', 'source'),
@@ -78,16 +106,35 @@ def _select(rows, raw_id, preferred_id=None):
     return next((row for row in rows if row['id'] == preferred_id), rows[0] if rows else None)
 
 
-def reference_context(params):
+def reference_context(params, *, timings=None):
     from botend.services.simc_reference_simulations import public_results
-    groups, specs = reference_catalog(project_talent_titles=False)
+    def mark(stage):
+        if timings is not None:
+            timings.mark(stage)
+
+    section = params.get('view') or 'reference-talents'
+    if section not in ('reference-talents', 'reference-equipment', 'reference-apl'):
+        raise Http404('资料章节不存在')
+    groups, specs = reference_catalog(project_talent_titles=False, include_talent_codes=False)
+    mark('catalog')
     key = params.get('spec') or next(
         (key for key, row in specs.items() if row['has_data']), next(iter(specs)),
     )
     if key not in specs:
         raise Http404('专精不存在')
     spec = dict(specs[key])
-    apply_talent_display_names(spec['talents'])
+    talent_ids = [row['id'] for row in spec['talents']]
+    codes = dict(SimcTalentString.objects.filter(pk__in=talent_ids).values_list('pk', 'talent'))
+    titles = {}
+    for row in SimcReferenceRankingEntry.objects.filter(talent_id__in=talent_ids, is_current=True).exclude(
+            talent_display_name='').order_by('-updated_at', '-pk').values('talent_id', 'talent_display_name'):
+        titles.setdefault(row['talent_id'], row['talent_display_name'])
+    for row in spec['talents']:
+        row['talent'] = codes.get(row['id'], '')
+        if row['id'] in titles:
+            row['display_name'] = titles[row['id']]
+    apply_talent_display_names([row for row in spec['talents'] if row['id'] not in titles])
+    mark('talent_titles')
     heroes = hero_selection(params, spec)
     stable_key = f'simc_upstream:{key}'
     profile_default = next((r['id'] for r in spec['profiles'] if r['system_key'] == stable_key), None)
@@ -128,9 +175,10 @@ def reference_context(params):
         is_system=True, owner_user_id__isnull=True,
         simcreferencepublication__spec_key=key, simcreferencepublication__is_published=True,
     ).first() if apl_row else None
+    mark('selection')
     detail = {}
     equipment_code = ''
-    if profile:
+    if profile and section == 'reference-equipment':
         from simc_equipment_control import SLOTS
         allowed_keys = set(SLOTS) | {key.lower() for key in CLASS_CN} | {
             'spec', 'race', 'level', 'role', 'position', 'professions', 'food', 'flask', 'potion',
@@ -147,22 +195,26 @@ def reference_context(params):
                 'gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility',
             )},
         )
+    mark('equipment')
     # 装备中的内嵌天赋不具有发布授权，不能作为未勾选天赋的回退来源。
     if detail and not talent:
         detail['talents'] = {'build_code': ''}
     talent_code = talent.talent if talent else ''
     tree_display = cached_displays.get(talent.id) if talent else None
-    if tree_display is None:
+    if tree_display is None and section == 'reference-talents':
         tree_display = reference_trees(talent_code, spec, talent_version)
+    tree_display = tree_display or {'trees': []}
     if heroes['ids'] and not talent and not tree_hero_ids(tree_display) & heroes['ids']:
         talent_code = ''
         tree_display = {'trees': [], 'message': '暂无符合所选英雄天赋的天赋方案。'}
     tree_display = filter_tree_panels(tree_display, heroes['ids'])
+    mark('talent_tree')
     class_key, spec_key = key.split('_', 1)
     apl_display = readable_apl(apl.content, display_symbols(
         class_key, spec_key, talent_version,
         branch='ptr' if profile and profile.use_ptr else 'retail',
-    ), hero_id=heroes['apl_id']) if apl and apl.content else {'groups': [], 'unsupported': [], 'count': 0}
+    ), hero_id=heroes['apl_id']) if section == 'reference-apl' and apl and apl.content else {'groups': [], 'unsupported': [], 'count': 0}
+    mark('apl')
     overrides = []
     if profile:
         for field, label in (
@@ -171,7 +223,24 @@ def reference_context(params):
         ):
             if getattr(profile, field) is not None:
                 overrides.append({'label': label, 'value': getattr(profile, field)})
+    simulation_results = public_results(key, profile, talent, apl)
+    mark('results')
+    from urllib.parse import urlencode
+    selected_params = {'spec': key}
+    for name, resource in (('profile', profile), ('talent', talent), ('apl', apl)):
+        if resource:
+            selected_params[name] = resource.pk
+    if heroes['ids']:
+        selected_params['hero'] = sorted(heroes['ids'])
+    if heroes['apl_value']:
+        selected_params['apl_hero'] = heroes['apl_value']
+    if params.get('scenario'):
+        selected_params['scenario'] = params.get('scenario')
+    section_urls = {name: '?' + urlencode(dict(selected_params, view=name), doseq=True) + '#' + name
+                    for name in ('reference-talents', 'reference-equipment', 'reference-apl')}
     return {
+        'active_section': section, 'section_urls': {key.replace('-', '_'): value for key, value in section_urls.items()},
+        'canonical_query': urlencode(dict(selected_params, view=section), doseq=True),
         'spec_groups': groups, 'selected_spec': spec,
         'heroes': heroes,
         'profile': profile, 'talent': talent, 'apl': apl, 'player_detail': detail,
@@ -181,5 +250,5 @@ def reference_context(params):
         'apl_display': apl_display,
         'apl_missing': apl_missing, 'apl_is_default': bool(apl and apl.id == default_apl_id),
         'attribute_overrides': overrides,
-        'simulation_results': public_results(key, profile, talent, apl),
+        'simulation_results': simulation_results,
     }
