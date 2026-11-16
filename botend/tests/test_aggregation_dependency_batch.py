@@ -84,6 +84,64 @@ class AggregationDependencyBatchTests(TestCase):
             self.assertNotEqual(actual, previous)
             self.assertEqual(actual, [raid.raid_fingerprint(*scope) for scope in self.scopes])
 
+    def test_overlapping_gear_reads_only_new_items_and_preserves_scope_dependencies(self):
+        """重合装备只读取一次；各范围仍保留自己的装等和缺项失效语义。"""
+        from botend.services.aggregation_dependency_reads import dependency_reads
+        self.item.effects = {'schema': 1, 'effects': []}
+        self.item.save(update_fields=['effects'])
+        other = WowItemSnapshot.objects.create(item_id=456, name='另一件装备')
+        records = [
+            [{'gear_json': [{'id': 123, 'itemLevel': 100}]}],
+            [{'gear_json': [{'id': 123, 'itemLevel': 200}, {'id': 456}, {'id': 789}]}],
+            [{'gear_json': [{'id': 123, 'itemLevel': 200}, {'id': 456}, {'id': 789}]}],
+        ]
+        expected = [dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire') for rows in records]
+        context = {}
+        with CaptureQueriesContext(connection) as queries:
+            actual = [dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire', context=context)
+                      for rows in records]
+        self.assertEqual(actual, expected)
+        item_sql = [q['sql'] for q in queries if 'FROM "wow_item_snapshot"' in q['sql']]
+        self.assertEqual(len(item_sql), 2)
+        self.assertNotIn('123', item_sql[1].split(' IN ')[-1])
+        self.assertNotEqual(actual[0]['variants'], actual[1]['variants'])
+        self.assertLessEqual(dependency_reads(context).used_bytes, 16 * 1024 * 1024)
+        # 新一轮必须发现原本缺失的物品，以及不更新 timestamp 的中央资料修正。
+        WowItemSnapshot.objects.create(item_id=789, name='补齐装备')
+        WowItemSnapshot.objects.filter(pk=other.pk).update(name='修正名称')
+        refreshed = dependencies._metadata_dependencies(records[-1], {}, 'Mage', 'Fire', context={})
+        self.assertNotEqual(refreshed, actual[-1])
+        self.assertEqual(refreshed, dependencies._metadata_dependencies(records[-1], {}, 'Mage', 'Fire'))
+
+    def test_dependency_budget_exhaustion_does_not_change_fingerprints(self):
+        """内存预算不足只减少复用；不跳过任何资料验证。"""
+        from botend.services.aggregation_dependency_reads import DependencyReads
+        rows = [{'gear_json': [{'id': 123, 'itemLevel': 200}]}]
+        context = {'dependency-reads': DependencyReads(max_bytes=0)}
+        first = dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire', context=context)
+        self.assertEqual(context['dependency-reads'].used_bytes, 0)
+        WowItemSnapshot.objects.filter(pk=self.item.pk).update(name='预算回退的新名称')
+        second = dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire', context=context)
+        self.assertNotEqual(first, second)
+        self.assertEqual(second, dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire'))
+
+    def test_enchantment_reads_preserve_ambiguity_and_next_batch_invalidation(self):
+        """相同附魔只读取一次，冲突映射仍不能任意选一件物品。"""
+        from botend.services.wow_item_display import load_enchantment_catalog
+        WowItemSnapshot.objects.create(item_id=880, enchantment_id=42, name='附魔')
+        rows = [{'gear_json': [{'id': 123, 'permanentEnchant': 42, 'temporaryEnchant': 43}]}]
+        context = {}
+        with patch('botend.services.wow_item_display.load_enchantment_catalog',
+                   wraps=load_enchantment_catalog) as loader:
+            first = dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire', context=context)
+            second = dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire', context=context)
+        self.assertEqual(first, second)
+        self.assertEqual(loader.call_count, 1)
+        WowItemSnapshot.objects.create(item_id=881, enchantment_id=42, name='冲突附魔')
+        changed = dependencies._metadata_dependencies(rows, {}, 'Mage', 'Fire', context={})
+        self.assertEqual(changed['enchant_catalog'], [])
+        self.assertNotEqual(changed, first)
+
     def test_real_cold_hot_publication_preserves_identity_and_invalidates_changes(self):
         path = Path(self.tmp.name) / str(self.season.pk) / 'Mage/Fire'
         run = lambda: SpecDetailAggregationMonitor._aggregate_raid(

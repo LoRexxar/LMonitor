@@ -46,7 +46,7 @@ def _content_rows(queryset, *, items_by_pk=None):
     return list(queryset.order_by('pk').values(*fields))
 
 
-def _variant_dependencies(items, gear_records):
+def _variant_dependencies(items, gear_records, *, reads=None):
     """Track the same current variants as ordinary aggregate display."""
     from botend.services.wow_item_display import (
         _active_item_catalog_season, _needs_effects_compilation, _positive_int,
@@ -54,25 +54,31 @@ def _variant_dependencies(items, gear_records):
     )
     if not items:
         return None, []
-    season = _active_item_catalog_season()
+    from .aggregation_dependency_reads import DependencyReads
+    reads = reads if reads is not None else DependencyReads()
+    season = reads.many('item-season', [0], lambda _: {0: _active_item_catalog_season()}).get(0)
     if season is None:
         return None, []
     items_by_pk = {item.pk: item for item in items.values()}
     variants = WowItemVariantSnapshot.objects.filter(
         season=season, batch_key=season.gear_batch_key, item_id__in=items_by_pk).order_by()
-    grouped = {}
-    # Only selection fields/JSON keys: never hydrate all historical variant JSON.
-    # Presence, not truthiness, matters even for a null difficulty_drop marker.
-    for row in variants.annotate(dedicated=Q(metadata__has_key='difficulty_drop')).values(
-            'pk', 'item_id', 'item_level', 'variant_type', 'data_branch', 'bonus_ids',
-            'metadata__data_branch', 'metadata__ptr_preview', 'dedicated'):
-        metadata = {'data_branch': row['metadata__data_branch'],
-                    'ptr_preview': row['metadata__ptr_preview']}
-        if row['dedicated']:
-            metadata['difficulty_drop'] = None
-        grouped.setdefault(row['item_id'], []).append(SimpleNamespace(
-            pk=row['pk'], item_level=row['item_level'], variant_type=row['variant_type'],
-            bonus_ids=row['bonus_ids'], data_branch=row['data_branch'], metadata=metadata))
+    def load_candidates(ids):
+        grouped = {pk: [] for pk in ids}
+        # 只读取候选身份；专属掉落标记即使为 null 也必须保留。
+        for row in variants.filter(item_id__in=ids).annotate(
+                dedicated=Q(metadata__has_key='difficulty_drop')).values(
+                'pk', 'item_id', 'item_level', 'variant_type', 'data_branch', 'bonus_ids',
+                'metadata__data_branch', 'metadata__ptr_preview', 'dedicated'):
+            metadata = {'data_branch': row['metadata__data_branch'],
+                        'ptr_preview': row['metadata__ptr_preview']}
+            if row['dedicated']:
+                metadata['difficulty_drop'] = None
+            grouped[row['item_id']].append(SimpleNamespace(
+                pk=row['pk'], item_level=row['item_level'], variant_type=row['variant_type'],
+                bonus_ids=row['bonus_ids'], data_branch=row['data_branch'], metadata=metadata))
+        return grouped
+    namespace = ('variants', season.pk, season.gear_batch_key)
+    grouped = reads.many((namespace, 'candidates'), items_by_pk, load_candidates)
     levels = {item_id: {0} for item_id in items}
     for record in gear_records:
         for item in record.get('gear_json') or []:
@@ -95,8 +101,10 @@ def _variant_dependencies(items, gear_records):
                 candidates, item_level=level, allow_default_variant=True, default_order='lowest')
             if variant is not None:
                 selected.add(variant.pk)
-    return [season.pk, season.gear_batch_key], _content_rows(
-        variants.filter(pk__in=selected), items_by_pk=items_by_pk)
+    selected_rows = reads.many((namespace, 'content'), selected, lambda ids: {
+        row['id']: row for row in _content_rows(
+            variants.filter(pk__in=ids), items_by_pk=items_by_pk)})
+    return [season.pk, season.gear_batch_key], [selected_rows[pk] for pk in sorted(selected_rows)]
 
 
 @lru_cache(maxsize=16)
@@ -183,20 +191,26 @@ def _metadata_dependencies(records, facts, class_name, spec_name, *, context=Non
     The decoder consumes other specs of the *same class*, not only selected nodes.
     """
     from .stats_talent_dependencies import effective_grants
+    from .aggregation_dependency_reads import dependency_reads
+    from .wow_item_display import load_enchantment_catalog
+    context = context if context is not None else {}
+    reads = dependency_reads(context)
     events = [event for payloads in facts.values() for event in payloads]
     gear_records = [*records, *({'gear_json': event.get('gear') or []} for event in events)]
-    catalog = combatants._enchant_catalog([
-        {'gear': row.get('gear_json') or []} for row in gear_records])
+    enchant_ids = {eid for row in gear_records for item in row.get('gear_json') or []
+                   if isinstance(item, dict) for field in ('permanentEnchant', 'temporaryEnchant')
+                   if (eid := combatants._positive_int(item.get(field)))}
+    catalog = reads.many('enchants', enchant_ids, load_enchantment_catalog)
     gear_records.append({'gear_json': [{'id': row['item_id']} for row in catalog.values()]})
-    items = stats._collect_item_ids_from_records(gear_records)
+    items = reads.many('items', stats._item_ids_from_records(gear_records), lambda ids: {
+        int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=ids)})
     item_rows = [{field.attname: getattr(item, field.attname)
                   for field in WowItemSnapshot._meta.concrete_fields
                   if field.name not in _NON_CONTENT_FIELDS}
                  for _, item in sorted(items.items())]
-    gear_scope, variants = _variant_dependencies(items, gear_records)
+    gear_scope, variants = _variant_dependencies(items, gear_records, reads=reads)
     # Caller-owned, one fingerprint batch only. Never retain DB facts on a
     # process-wide provider or on the long-lived monitor instance.
-    context = context if context is not None else {}
     base_key = ('talent-base', class_name, spec_name)
     if base_key not in context:
         version = TalentVersionResolver.get_default(TalentVersionResolver.USAGE_STATS)

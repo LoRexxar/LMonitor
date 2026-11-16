@@ -152,6 +152,21 @@ def _is_wowhead_seo_description(value):
 
 
 def _collect_item_ids_from_records(records, include_gear=True, include_gems=True, include_enchants=True):
+    ids = _item_ids_from_records(records, include_gear, include_gems, include_enchants)
+    if not ids:
+        return {}
+    try:
+        return {
+            int(row.item_id): row
+            for row in WowItemSnapshot.objects.filter(item_id__in=ids)
+        }
+    except Exception:
+        # 兼容迁移尚未执行的页面环境；聚合依赖读取使用严格查询，不缓存查询失败。
+        return {}
+
+
+def _item_ids_from_records(records, include_gear=True, include_gems=True, include_enchants=True):
+    """只提取装备、宝石和附魔物品身份，不读取或补全资料。"""
     ids = set()
     for record in records or []:
         gear = record.get('gear_json') or []
@@ -176,16 +191,7 @@ def _collect_item_ids_from_records(records, include_gear=True, include_gems=True
                         item_id = _coerce_item_id(ench.get('id'))
                         if item_id:
                             ids.add(item_id)
-    if not ids:
-        return {}
-    try:
-        return {
-            int(row.item_id): row
-            for row in WowItemSnapshot.objects.filter(item_id__in=ids)
-        }
-    except Exception:
-        # 兼容迁移尚未执行的环境：页面先用 gear_json 中的原始名称渲染，部署 migrate 后自动读中文元数据。
-        return {}
+    return ids
 
 
 def _item_snapshot_payload(item_id, fallback_name='', fallback_icon='', fallback_description='', fallback_quality=0, snapshots=None):

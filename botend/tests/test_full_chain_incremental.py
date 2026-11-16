@@ -184,7 +184,8 @@ class FullChainIncrementalTests(TestCase):
 
     def test_dungeon_publication_failure_preserves_summary_and_details(self):
         SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=1, dungeon_name='一号',
-            class_name='Mage', spec_name='Fire', character_name='角色', dps=100, keystone_level=10, report_code='Report', fight_id=1)
+            class_name='Mage', spec_name='Fire', character_name='角色', realm='Realm', region='eu',
+            dps=100, keystone_level=10, report_code='Report', fight_id=1)
         args = (self.season, 'Mage', 'Fire', self.path / 'dungeon.json')
         with self.assertRaises(OSError):
             aggregate_dungeon(*args, Mock(side_effect=OSError('发布中断')))
