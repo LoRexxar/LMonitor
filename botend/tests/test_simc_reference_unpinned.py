@@ -15,10 +15,11 @@ from botend.services import simc_reference_simulations as service
 from botend.services.simc_reference_management import scheme_results
 from botend.services.simc_reference_rankings import current_rankings, leaderboard, ranking_entry
 from botend.tests import test_simc_reference_simulations as fixtures
+from botend.tests import test_simc_reference_rankings as ranking_fixtures
 
 
 class UnpinnedReferenceTests(TestCase):
-    setUp = fixtures.ReferenceSimulationTests.setUp
+    setUp = ranking_fixtures.ReferenceRankingTests.setUp
     enqueue = fixtures.ReferenceSimulationTests.enqueue
     results = fixtures.ReferenceSimulationTests.results
 
@@ -75,7 +76,7 @@ class UnpinnedReferenceTests(TestCase):
             player_config_mode='manual_equipment', player_equipment=f'warrior="p{i}"\nspec=fury',
         ) for i in range(3)]
         talents = [self.talent] + [SimcTalentString.objects.create(
-            name=f'talent-{i}', spec='warrior_fury', talent=f'talent-{i}', is_system=True,
+            name=f'talent-{i}', spec='warrior_fury', talent=f'talent-{i}', hero_talent_names=['Slayer'], is_system=True,
         ) for i in range(3)]
         apls = [self.apl, SimcApl.objects.create(
             name='alternate-apl', spec='warrior_fury', class_name='warrior',
@@ -105,9 +106,10 @@ class UnpinnedReferenceTests(TestCase):
                         self.assertEqual(len(results), 2)
                         for result in results:
                             self.assertIn(result['signature'], {sig for _, sig in before.values()})
-                            self.assertEqual(result['ranking']['overall_total'], 32)
+                            self.assertEqual(result['ranking']['overall_total'], 1)
                             self.assertEqual(result['ranking']['spec_total'], 32)
-                            self.assertEqual(result['ranking']['overall_rank'], 1)
+                            self.assertEqual(result['ranking']['overall_rank'],
+                                             1 if (profile, talent, apl) == (self.profile, self.talent, self.apl) else None)
         config = type(self.config).objects.select_related('settings__backend', 'settings__template').get(pk=self.config.pk)
         with CaptureQueriesContext(connection) as queries:
             ranks = current_rankings(config)
@@ -120,11 +122,12 @@ class UnpinnedReferenceTests(TestCase):
                 for scene in group['scenes']:
                     self.assertFalse(scene['stale'])
                     self.assertEqual(scene['result'].signature, before[scene['result'].pk][1])
-                    self.assertEqual(scene['ranking']['overall_total'], 32)
+                    self.assertEqual(scene['ranking']['overall_total'], 1)
         first_id = min(before)
         signature = before[first_id][1]
         board = leaderboard(config, signature, 'overall')
-        self.assertEqual(len(board['entries']), 32)
+        self.assertEqual(len(board['entries']), 1)
+        self.assertEqual(len(leaderboard(config, signature, 'spec')['entries']), 32)
         self.assertEqual(ranking_entry(config.pk), (config.pk, signature, 'overall'))
         for pk, frozen in before.items():
             row = SimcReferenceSimulation.objects.get(pk=pk)

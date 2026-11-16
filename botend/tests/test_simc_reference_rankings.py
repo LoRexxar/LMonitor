@@ -17,7 +17,10 @@ from botend.tests import test_simc_reference_simulations as simulation_tests
 
 
 class ReferenceRankingTests(TestCase):
-    setUp = simulation_tests.ReferenceSimulationTests.setUp
+    def setUp(self):
+        simulation_tests.ReferenceSimulationTests.setUp(self)
+        self.talent.hero_talent_names = ['Slayer']
+        self.talent.save(update_fields=['hero_talent_names'])
 
     def result(self, dps, targets=1, *, config=None, profile=None, talent=None, apl=None, status='completed'):
         config = config or self.config
@@ -32,22 +35,112 @@ class ReferenceRankingTests(TestCase):
         refresh_configs([config.pk])
         return row
 
-    def other_spec(self):
-        apl = SimcApl.objects.create(name='火法优先级', spec='mage_fire', class_name='mage', is_system=True,
+    def other_spec(self, spec_key='mage_fire', hero='Sunfury'):
+        apl = SimcApl.objects.create(name='法师优先级', spec=spec_key, class_name='mage', is_system=True,
                                      is_selectable=True, content='actions=/fireball', source='user')
-        talent = SimcTalentString.objects.create(name='火法天赋', spec='mage_fire', talent='demo', is_system=True, default_apl=apl)
-        profile = SimcProfile.objects.create(name='火法装备', spec='mage_fire', class_name='mage', player_config_mode='manual_equipment')
-        config = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire', settings_id=self.config.settings_id)
-        publish_resources('mage_fire', profiles=[profile], talents=[talent], apls=[apl])
+        talent = SimcTalentString.objects.create(name='法师天赋', spec=spec_key, talent='demo', hero_talent_names=[hero], is_system=True, default_apl=apl)
+        profile = SimcProfile.objects.create(name='法师装备', spec=spec_key, class_name='mage', player_config_mode='manual_equipment')
+        config = SimcReferenceSimulationConfig.objects.create(spec_key=spec_key, settings_id=self.config.settings_id)
+        publish_resources(spec_key, profiles=[profile], talents=[talent], apls=[apl])
         return dict(config=config, profile=profile, talent=talent, apl=apl)
 
     def alternate_talent(self):
-        talent = SimcTalentString.objects.create(name='另一份天赋', spec='warrior_fury', talent='other', is_system=True, default_apl=self.apl)
+        talent = SimcTalentString.objects.create(name='另一份天赋', spec='warrior_fury', talent='other', hero_talent_names=['屠戮者'], is_system=True, default_apl=self.apl)
         self.publication.talents.add(talent)
         return talent
 
     def rank(self, row):
         return current_rankings(self.config).get((row.config_id, row.signature))
+
+    def test_hero_winners_and_full_spec_ranks_agree_across_pages_and_scenes(self):
+        """同树的装备、天赋和 APL 组合只占一席，专精内仍保留所有名次。"""
+        from botend.services.simc_reference_rankings import admin_ranking_page_context
+        rival = self.alternate_talent()
+        second_hero = SimcTalentString.objects.create(
+            name='山丘领主天赋', spec='warrior_fury', talent='thane',
+            hero_talent_names=['Mountain Thane'], is_system=True, default_apl=self.apl)
+        profile = SimcProfile.objects.create(name='另一套装备', spec='warrior_fury',
+            class_name='warrior', player_config_mode='manual_equipment')
+        apl = SimcApl.objects.create(name='另一套 APL', spec='warrior_fury', class_name='warrior',
+            is_system=True, is_selectable=True, content='actions=/bloodthirst', source='simc_upstream')
+        self.publication.talents.add(second_hero)
+        self.publication.profiles.add(profile)
+        self.publication.apls.add(apl)
+        other = self.other_spec()
+        anchors = {}
+        for targets, scores in ((1, (200, 400, 300, 350)), (5, (800, 700, 600, 900))):
+            anchors[targets] = self.result(scores[0], targets)
+            self.result(scores[1], targets, talent=rival, profile=profile, apl=apl)
+            self.result(scores[2], targets, talent=second_hero)
+            self.result(scores[3], targets, **other)
+        self.client.force_login(self.user)
+        for targets, anchor in anchors.items():
+            with self.subTest(targets=targets):
+                ranks = self.rank(anchor)
+                self.assertEqual(ranks, dict(overall_rank=None if targets == 1 else 2,
+                    overall_total=3, spec_rank=3 if targets == 1 else 1, spec_total=3))
+                overall = leaderboard(self.config, anchor.signature, 'overall')
+                spec = leaderboard(self.config, anchor.signature, 'spec')
+                self.assertEqual([entry['rank'] for entry in overall['entries']], [1, 2, 3])
+                self.assertEqual([entry['rank'] for entry in spec['entries']], [1, 2, 3])
+                self.assertEqual(overall['current']['rank'], ranks['overall_rank'])
+                self.assertEqual(spec['current']['rank'], ranks['spec_rank'])
+                self.assertEqual(len({(entry['spec'], entry['hero']) for entry in overall['entries']}), 3)
+                admin = admin_ranking_page_context(self.config.settings_id, anchor.scenario_id)
+                self.assertEqual([(r['talent'], r['dps'], r['rank']) for r in admin['entries']],
+                                 [(r['talent'], r['dps'], r['rank']) for r in overall['entries']])
+                response = self.client.get(reverse('portal_simc_reference_rankings',
+                    args=[self.config.pk, anchor.signature, 'overall']))
+                self.assertEqual(response.context['current_in_ranking'], targets == 5)
+                if targets == 1:
+                    self.assertContains(response, '当前配置未上榜')
+                    self.assertNotContains(response, 'data-ranking-locate')
+                    self.assertNotContains(response, 'data-ranking-current')
+                else:
+                    self.assertContains(response, 'data-ranking-current', count=1)
+        results = service.public_results('warrior_fury', self.profile, self.talent, self.apl)
+        self.assertEqual([row['ranking'] for row in results], [self.rank(anchors[1]), self.rank(anchors[5])])
+
+    def test_tied_hero_winner_is_stable_after_rerun_and_spec_keeps_ties(self):
+        anchor = self.result(200)
+        rival = self.result(200, talent=self.alternate_talent())
+        other = self.other_spec()
+        mage = self.result(200, **other)
+        self.assertEqual(self.rank(anchor)['overall_rank'], 1)
+        self.assertIsNone(self.rank(rival)['overall_rank'])
+        self.assertEqual(self.rank(mage)['overall_rank'], 1)
+        self.assertEqual(self.rank(rival)['spec_rank'], 1)
+        replacement = self.result(200)
+        self.assertEqual(self.rank(replacement)['overall_rank'], 1)
+        self.assertIsNone(self.rank(rival)['overall_rank'])
+        self.assertEqual(len(leaderboard(self.config, replacement.signature, 'overall')['entries']), 2)
+
+    def test_shared_hero_tree_keeps_a_winner_for_each_specialization(self):
+        anchor = self.result(100)
+        fire = self.result(200, **self.other_spec(hero='Frostfire'))
+        frost = self.result(300, **self.other_spec(spec_key='mage_frost', hero='霜火'))
+        self.assertEqual(self.rank(fire)['overall_rank'], 2)
+        self.assertEqual(self.rank(frost)['overall_rank'], 1)
+        board = leaderboard(self.config, anchor.signature, 'overall')
+        self.assertEqual(len(board['entries']), 3)
+        self.assertEqual([entry['hero'] for entry in board['entries'][:2]], ['霜火', '霜火'])
+
+    def test_missing_or_ambiguous_hero_stays_in_spec_without_a_false_global_rank(self):
+        for heroes in ([], ['未知英雄树'], ['Slayer', 'Mountain Thane']):
+            with self.subTest(heroes=heroes):
+                self.talent.hero_talent_names = heroes
+                self.talent.save(update_fields=['hero_talent_names'])
+                anchor = self.result(200)
+                self.assertEqual(self.rank(anchor), dict(overall_rank=None, overall_total=0,
+                                                       spec_rank=1, spec_total=1))
+                self.client.force_login(self.user)
+                response = self.client.get(reverse('portal_simc_reference_rankings',
+                    args=[self.config.pk, anchor.signature, 'overall']))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, '英雄天赋树尚未明确')
+                self.assertFalse(response.context['current_in_ranking'])
+                self.assertTrue(response.context['empty_ranking'])
+                self.assertEqual(leaderboard(self.config, anchor.signature, 'spec')['current']['rank'], 1)
 
     def test_two_dimensions_and_targets_rank_independently(self):
         row = self.result(200)
@@ -58,13 +151,14 @@ class ReferenceRankingTests(TestCase):
         other = self.other_spec()
         self.result(300, **other)
         self.result(400, 5, **other)
-        self.assertEqual(self.rank(row), dict(overall_rank=2, overall_total=3, spec_rank=1, spec_total=2))
-        self.assertEqual(self.rank(aoe), dict(overall_rank=2, overall_total=3, spec_rank=2, spec_total=2))
+        self.assertEqual(self.rank(row), dict(overall_rank=2, overall_total=2, spec_rank=1, spec_total=2))
+        self.assertEqual(self.rank(aoe), dict(overall_rank=None, overall_total=2, spec_rank=2, spec_total=2))
         projected = service.public_results('warrior_fury', self.profile, self.talent, self.apl)
         self.assertEqual([r['ranking'] for r in projected], [self.rank(row), self.rank(aoe)])
         self.client.force_login(self.user)
         response = self.client.get(self.url)
-        self.assertContains(response, '排行榜 <strong>2</strong> / 3')
+        self.assertContains(response, '排行榜 <strong>2</strong> / 2')
+        self.assertContains(response, '排行榜 <strong>未上榜</strong>')
         self.assertNotContains(response, '本专精 <strong>')
 
     def test_ties_latest_success_and_pending_rerun(self):
@@ -72,11 +166,11 @@ class ReferenceRankingTests(TestCase):
         self.result(200, talent=self.alternate_talent())
         other = self.other_spec()
         low = self.result(100, **other)
-        self.assertEqual(self.rank(low)['overall_rank'], 3)
+        self.assertEqual(self.rank(low)['overall_rank'], 2)
         self.result(None, status='queued')
         self.assertEqual(self.rank(row)['overall_rank'], 1)
         self.result(150)
-        self.assertEqual(self.rank(row), dict(overall_rank=2, overall_total=3, spec_rank=2, spec_total=2))
+        self.assertEqual(self.rank(row), dict(overall_rank=None, overall_total=2, spec_rank=2, spec_total=2))
 
     def test_current_public_valid_results_only(self):
         row = self.result(200)
@@ -169,7 +263,8 @@ class ReferenceRankingTests(TestCase):
         with CaptureQueriesContext(connection) as queries:
             ranks = current_rankings(config)
         self.assertLessEqual(len(queries), 4)
-        self.assertEqual(ranks[(row.config_id, row.signature)]['overall_rank'], 23)
+        self.assertIsNone(ranks[(row.config_id, row.signature)]['overall_rank'])
+        self.assertEqual(ranks[(row.config_id, row.signature)]['spec_rank'], 23)
         page = scheme_results(config, 2)
         self.assertEqual(page.paginator.count, 23)
         for group in page:
@@ -181,16 +276,16 @@ class ReferenceRankingTests(TestCase):
         other = self.other_spec()
         self.result(300, **other)
         self.result(900, 5, **other)
-        for scope, total, rank in (('overall', 3, 3), ('spec', 2, 2)):
+        for scope, total, rank in (('overall', 2, None), ('spec', 2, 2)):
             board = leaderboard(self.config, anchor.signature, scope)
             self.assertEqual(len(board['entries']), total)
             current = [r for r in board['entries'] if r['is_current']]
-            self.assertEqual(len(current), 1)
-            self.assertEqual(current[0]['rank'], rank)
-            self.assertEqual(current[0]['profile'], self.profile.name)
-            self.assertEqual(current[0]['talent'], self.talent.name)
-            self.assertEqual(current[0]['apl'], self.apl.name)
-            self.assertEqual(current[0]['dps'], 100)
+            self.assertEqual(len(current), int(scope == 'spec'))
+            self.assertEqual(board['current']['rank'], rank)
+            self.assertEqual(board['current']['profile'], self.profile.name)
+            self.assertEqual(board['current']['talent'], self.talent.name)
+            self.assertEqual(board['current']['apl'], self.apl.name)
+            self.assertEqual(board['current']['dps'], 100)
         self.assertIsNone(leaderboard(self.config, '0' * 64, 'overall'))
         self.assertIsNone(leaderboard(self.config, anchor.signature, 'invalid'))
 
@@ -222,7 +317,7 @@ class ReferenceRankingTests(TestCase):
                                                      is_system=True, default_apl=self.apl)
             self.publication.talents.add(talent)
             self.result(100 + index, talent=talent)
-        board = leaderboard(self.config, anchor.signature, 'overall')
+        board = leaderboard(self.config, anchor.signature, 'spec')
         self.assertEqual(len(board['entries']), 23)
         self.assertEqual(board['entries'][-1]['rank'], 23)
         self.assertTrue(board['entries'][-1]['is_current'])

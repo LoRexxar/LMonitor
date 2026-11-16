@@ -2,12 +2,13 @@
 from unittest.mock import patch
 from django.test import TestCase
 from botend.tests import test_simc_reference_simulations as fixtures
+from botend.tests import test_simc_reference_rankings as ranking_fixtures
 from botend.models import SimcReferenceSimulation
 from botend.services import simc_reference_simulations as service
 
 
 class RankingPublicationTests(TestCase):
-    setUp = fixtures.ReferenceSimulationTests.setUp
+    setUp = ranking_fixtures.ReferenceRankingTests.setUp
     enqueue = fixtures.ReferenceSimulationTests.enqueue
     dispatch = fixtures.ReferenceSimulationTests.dispatch
 

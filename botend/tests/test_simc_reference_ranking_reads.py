@@ -27,7 +27,7 @@ class ReferenceRankingReadTests(TestCase):
         from botend.models import SimcTalentString, SimcReferenceSimulation
         talents = SimcTalentString.objects.bulk_create([
             SimcTalentString(name=f'规模测试天赋 {number}', spec=self.talent.spec,
-                            talent=self.talent.talent, is_system=True, default_apl=self.apl)
+                            talent=self.talent.talent, hero_talent_names=['Slayer'], is_system=True, default_apl=self.apl)
             for number in range(414)
         ])
         self.publication.talents.add(*talents)
@@ -52,7 +52,8 @@ class ReferenceRankingReadTests(TestCase):
                    side_effect=AssertionError('榜单读取不得解析天赋标题')):
             with CaptureQueriesContext(connection) as many:
                 board = admin_ranking_page_context(self.config.settings_id)
-            self.assertEqual(len(board['entries']), 415)
+            self.assertEqual(len(board['entries']), 1)
+            self.assertEqual(board['entries'][0]['dps'], 613)
             self.assertEqual(len(many), len(single))
             self.assertLessEqual(len(many), 3)
             from time import perf_counter
@@ -96,7 +97,8 @@ class ReferenceRankingReadTests(TestCase):
             with CaptureQueriesContext(connection) as queries:
                 rankings = current_rankings(config)
             self.assertLessEqual(len(queries), 3)
-            self.assertEqual(rankings[(anchor.config_id, anchor.signature)]['overall_total'], 9)
+            self.assertEqual(rankings[(anchor.config_id, anchor.signature)]['overall_total'], 1)
+            self.assertEqual(rankings[(anchor.config_id, anchor.signature)]['spec_total'], 9)
             with CaptureQueriesContext(connection) as entry_queries:
                 entry = ranking_entry(self.config.pk)
             self.assertLessEqual(len(entry_queries), 1)
@@ -107,8 +109,9 @@ class ReferenceRankingReadTests(TestCase):
             self.assertLessEqual(len(http_queries), 12)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.redirect_chain), 1)
-            self.assertEqual(len(response.context['entries']), 9)
-            self.assertContains(response, 'data-ranking-current', count=1)
+            self.assertEqual(len(response.context['entries']), 1)
+            self.assertNotContains(response, 'data-ranking-current')
+            self.assertContains(response, '当前配置未上榜')
         selected = ' '.join(query['sql'].split(' FROM ')[0] for query in queries)
         for forbidden in ('"snapshot"', '"player_equipment"', '"content"', '"talent"', '"current_version"'):
             self.assertNotIn(forbidden, selected)

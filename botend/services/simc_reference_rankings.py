@@ -10,6 +10,7 @@ from django.http import Http404
 from django.db.models import Case, Exists, F, IntegerField, OuterRef, Value, When
 
 from botend.constants.wow import specialization_catalog, SPEC_ROLE
+from botend.constants.hero_talents import HERO_SUBTREE_NAME_ZH, normalize_hero_subtree_names_zh
 from botend.models import SimcReferencePublication, SimcReferenceRankingEntry
 from botend.services.simc_player_config import canonical_simc_profile_key
 from botend.services.simc_scenario_display import scenario_label
@@ -72,7 +73,8 @@ def apply_ranking_role(board, role, path):
         selected_role=role, role_label=ROLE_LABELS[role],
         role_options=[dict(label=label, url=ranking_role_url(path, key), selected=key == role)
                       for key, label in ROLE_LABELS.items() if key != 'unknown' or key in present or key == role],
-        current_in_ranking=bool(current and current['role'] == role),
+        current_in_ranking=bool(current and current['role'] == role and
+                                any(entry['is_current'] for entry in entries)),
     )
     board['empty_ranking'] = not board['entries']
     for name in ('scope_options', 'scene_options', 'settings_options'):
@@ -114,18 +116,20 @@ def _read_queryset():
         'id', 'comparison_key', 'talent_display_name', 'config_id', 'scenario_id', 'profile_id', 'talent_id', 'apl_id', 'result_id',
         'config__id', 'config__spec_key', 'config__use_ptr', 'config__settings_id',
         'scenario__id', 'scenario__settings_id', 'scenario__name', 'scenario__simulation_params',
-        'profile__id', 'profile__name', 'talent__id', 'talent__name', 'apl__id', 'apl__name',
+        'profile__id', 'profile__name', 'talent__id', 'talent__name', 'talent__hero_talent_names', 'apl__id', 'apl__name',
         'result__id', 'result__signature', 'result__dps',
     )
 
 
 def _project(entry, params):
+    heroes = normalize_hero_subtree_names_zh(entry.talent.hero_talent_names)
     return SimpleNamespace(
         pk=entry.result_id, signature=entry.result.signature, dps=entry.result.dps,
         config_id=entry.config_id, config=entry.config,
         profile_id=entry.profile_id, profile=entry.profile,
         talent_id=entry.talent_id, talent=entry.talent,
         talent_display_name=entry.talent_display_name or entry.talent.name,
+        hero=heroes[0] if len(heroes) == 1 and heroes[0] in HERO_SUBTREE_NAME_ZH.values() else '',
         apl_id=entry.apl_id, apl=entry.apl,
         current_scenario=entry.scenario, snapshot={'simulation_params': params},
     )
@@ -158,24 +162,45 @@ def _current_cohorts(config):
     return cohorts.values()
 
 
+def _hero_winners(rows):
+    """每个专精、每棵英雄树保留一个最高 DPS 组合；同分按稳定的配置标识取舍。"""
+    winners = {}
+    for row in sorted(rows, key=lambda item: (-item.dps, item.config_id, item.profile_id,
+                                             item.talent_id, item.apl_id, item.pk)):
+        if row.hero:
+            winners.setdefault((row.config.spec_key, row.hero), row)
+    return list(winners.values())
+
+
+def _positions(rows):
+    """按职责分别计算竞赛排名，摘要与榜单使用完全相同的并列规则。"""
+    positions, counts, previous = {}, defaultdict(int), {}
+    for row in sorted(rows, key=lambda item: (-item.dps, item.pk)):
+        role = ranking_spec_metadata(row.config.spec_key)['role']
+        counts[role] += 1
+        last_dps, last_rank = previous.get(role, (None, 0))
+        rank = last_rank if row.dps == last_dps else counts[role]
+        previous[role] = row.dps, rank
+        positions[row.pk] = rank
+    return positions, counts
+
+
 def current_rankings(config):
     """两个维度的名次摘要，与完整榜单共用候选和排序规则。"""
     rankings = {}
     for rows in _current_cohorts(config):
-        by_spec, by_role = defaultdict(list), defaultdict(list)
+        by_spec = defaultdict(list)
+        overall_positions, overall_counts = _positions(_hero_winners(rows))
         for row in rows:
             by_spec[row.config.spec_key].append(row)
-            by_role[ranking_spec_metadata(row.config.spec_key)['role']].append(row)
-        for dimension, groups in (('overall', by_role.values()), ('spec', by_spec.values())):
-            for group in groups:
-                previous, rank = None, 0
-                for index, row in enumerate(sorted(group, key=lambda item: (-item.dps, item.pk)), 1):
-                    if row.dps != previous:
-                        rank = index
-                    previous = row.dps
-                    rankings.setdefault((row.config_id, row.signature), {}).update({
-                        f'{dimension}_rank': rank, f'{dimension}_total': len(group),
-                    })
+        for group in by_spec.values():
+            spec_positions, _ = _positions(group)
+            for row in group:
+                role = ranking_spec_metadata(row.config.spec_key)['role']
+                rankings[(row.config_id, row.signature)] = dict(
+                    overall_rank=overall_positions.get(row.pk), overall_total=overall_counts[role],
+                    spec_rank=spec_positions[row.pk], spec_total=len(group),
+                )
     return rankings
 
 
@@ -183,22 +208,17 @@ def _ranked_entries(rows, anchor_pk=None):
     """One formatter for public contextual rankings and admin condition groups."""
     from django.urls import reverse
     from urllib.parse import urlencode
-    entries, role_ranks = [], {}
+    entries = []
     rows = list(rows)
+    positions, _ = _positions(rows)
     for row in sorted(rows, key=lambda item: (-item.dps, item.pk)):
         metadata = ranking_spec_metadata(row.config.spec_key)
-        role = metadata['role']
-        count, previous, rank = role_ranks.get(role, (0, None, 0))
-        count += 1
-        if row.dps != previous:
-            rank = count
-        role_ranks[role] = count, row.dps, rank
         detail_url = reverse('portal_simc_reference') + '?' + urlencode({
             'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
             'scenario': row.current_scenario.pk,
         })
         entries.append({
-            'rank': rank, **metadata,
+            'rank': positions[row.pk], **metadata, 'hero': row.hero,
             'profile': row.profile.name, 'talent': row.talent_display_name, 'apl': row.apl.name,
             'dps': row.dps, 'is_current': row.pk == anchor_pk,
             'detail_url': detail_url,
@@ -225,8 +245,12 @@ def leaderboard(config, signature, scope):
         anchor = next((row for row in candidates if row.config_id == config.pk and row.signature == signature), None)
         if anchor is None:
             continue
-        rows = candidates if scope == 'overall' else [row for row in candidates if row.config.spec_key == config.spec_key]
+        rows = _hero_winners(candidates) if scope == 'overall' else [row for row in candidates if row.config.spec_key == config.spec_key]
         entries = _ranked_entries(rows, anchor.pk)
+        current = next((entry for entry in entries if entry['is_current']), None)
+        if current is None:
+            current = _ranked_entries([anchor], anchor.pk)[0]
+            current['rank'] = None
         scene_signatures = {
             row.current_scenario.pk: row.signature
             for cohort in cohorts for row in cohort
@@ -234,10 +258,11 @@ def leaderboard(config, signature, scope):
                (anchor.config_id, anchor.profile_id, anchor.talent_id, anchor.apl_id)
         }
         return {'entries': entries, 'scope_label': '全职业' if scope == 'overall' else '本专精',
+                'hero_winners_only': scope == 'overall',
                 'targets': anchor.snapshot['simulation_params']['desired_targets'],
                 'duration': anchor.snapshot['simulation_params']['max_time'], 'iterations': anchor.snapshot['simulation_params']['iterations'],
                 'scenario_id': anchor.current_scenario.pk, 'scenario_name': anchor.current_scenario.name,
-                'current': next(entry for entry in entries if entry['is_current']),
+                'current': current,
                 'scene_signatures': scene_signatures,
                 'profile_id': anchor.profile_id, 'talent_id': anchor.talent_id, 'apl_id': anchor.apl_id}
     return None
@@ -257,7 +282,7 @@ def admin_ranking_page_context(settings_id=None, scenario_id=None):
         'id', 'use_ptr', 'backend_id', 'template_id', 'template__id', 'template__content',
     ).order_by('use_ptr', 'pk'))
     root = reverse('simc_reference_rankings_entry')
-    base = {'entries': [], 'current': None, 'scope_options': [], 'settings_options': [],
+    base = {'entries': [], 'current': None, 'scope_options': [], 'settings_options': [], 'hero_winners_only': True,
             'scene_options': [], 'empty_ranking': True, 'admin_ranking': True,
             'module_section': 'rankings', 'module_reference_url': reverse('simc_reference_results'),
             'module_rankings_url': root, 'return_url': reverse('simc_reference_results'),
@@ -287,6 +312,7 @@ def admin_ranking_page_context(settings_id=None, scenario_id=None):
     rows = [_project(entry, params) for entry in _read_queryset().filter(
         config__settings_id=selected.pk, scenario_id=scene.pk, comparison_key=key,
     ) if math.isfinite(entry.result.dps)]
+    rows = _hero_winners(rows)
     base.update(entries=_ranked_entries(rows), empty_ranking=not rows,
                 use_ptr=selected.use_ptr, targets=params['desired_targets'], duration=params['max_time'],
                 iterations=params['iterations'], scenario_id=scene.pk, scenario_name=scene.name,
