@@ -13,6 +13,7 @@ from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 from datetime import timedelta
+from threading import Lock
 from urllib.parse import urlencode
 
 import requests
@@ -60,6 +61,12 @@ class WagoSkillDiffMonitor(BaseScan):
             return False
         logger.info('[WagoSkillDiffMonitor] phase=retry_wait event=%s:%s status=%s retry_at=%s',
                     type(event).__name__, event.pk, event.status, retry_at.isoformat())
+        if event.error_message:
+            from botend.services.wago_diagnostics import error_details, event_context
+            logger.warning('[WagoSkillDiff Error] %s', json.dumps({
+                **event_context(event), 'phase': 'retry_wait', 'status': event.status,
+                'retry_at': retry_at.isoformat(), **error_details(event.error_message),
+            }, ensure_ascii=False))
         return True
 
     def __init__(self, req, task):
@@ -86,6 +93,10 @@ class WagoSkillDiffMonitor(BaseScan):
             'User-Agent': 'Mozilla/5.0',
             'Connection': 'close',
         })
+        self._http_metrics_lock = Lock()
+        self._http_attempts = 0
+        self._http_failed_attempts = 0
+        self._http_seconds = 0.0
         self._hotfix_history_cache = {}
         self.core_tables = {
             'spell',
@@ -183,6 +194,20 @@ class WagoSkillDiffMonitor(BaseScan):
             logger.info('[WagoSkillDiff] phase=event_result kind=%s event=%s status=%s has_error=%s',
                         type(event).__name__, event.pk, event.status,
                         bool(getattr(event, 'error_message', '')))
+            if fields.get('error_message'):
+                from botend.services.wago_diagnostics import error_details, event_context
+                logger.warning('[WagoSkillDiff Error] %s', json.dumps({
+                    **event_context(event), 'status': event.status,
+                    **error_details(fields['error_message']),
+                }, ensure_ascii=False))
+
+    def _http_metrics(self):
+        with self._http_metrics_lock:
+            return self._http_attempts, self._http_failed_attempts, self._http_seconds
+
+    def _run_stage(self, phase, operation, *, event=None, **scope):
+        from botend.services.wago_diagnostics import run_stage
+        return run_stage(self, phase, operation, event=event, **scope)
 
     def _bulk_upsert_snapshots(self, model, objs, unique_fields, update_fields, batch_size=None):
         from botend.services.wow_snapshot_store import upsert_changed_snapshots
@@ -475,10 +500,10 @@ class WagoSkillDiffMonitor(BaseScan):
                 raise ValueError('Hotfix backfill interval must start at the supplied state cursor')
         else:
             try:
-                latest_push = self._fetch_latest_hotfix_push_id(
+                latest_push = self._run_stage('hotfix_discovery', lambda: self._fetch_latest_hotfix_push_id(
                     locale=hotfix_locale, region_id=region_id, current_build=current_build,
                     after_push=last_push,
-                )
+                ), branch=branch, locale=hotfix_locale, region_id=region_id, from_push=last_push)
             except (HotfixSourceIncomplete, WagoDiffUnavailable) as exc:
                 logger.warning('[WagoSkillDiffMonitor] Hotfix discovery incomplete: %s', exc)
                 st.hotfix_last_run_status = 'failed'
@@ -540,9 +565,9 @@ class WagoSkillDiffMonitor(BaseScan):
         fallback_status = ''
         fallback_error = ''
         try:
-            hotfix_rows = self._collect_hotfix_interval_rows(
+            hotfix_rows = self._run_stage('hotfix_collect', lambda: self._collect_hotfix_interval_rows(
                 from_push, latest_push, region_id=region_id, locale=hotfix_locale,
-            )
+            ), event=hotfix_event)
             if not hotfix_rows:
                 raise WagoDiffUnavailable('Hotfix interval has no verified rows for selected region')
             if backfill_interval is not None and expected_source_count is not None:
@@ -552,21 +577,21 @@ class WagoSkillDiffMonitor(BaseScan):
                     raise WagoDiffUnavailable(
                         f'Hotfix interval source identity mismatch: count={len(ids)} sha256={digest}'
                     )
-            facts = self._resolve_hotfix_facts(
+            facts = self._run_stage('hotfix_resolve', lambda: self._resolve_hotfix_facts(
                 hotfix_rows, db2_build=current_build,
                 interval_only=backfill_interval is not None,
                 recover_spell_history=backfill_interval is not None,
-            )
-            class_report = self._generate_hotfix_class_report(
+            ), event=hotfix_event, source_rows=len(hotfix_rows))
+            class_report = self._run_stage('hotfix_class_report', lambda: self._generate_hotfix_class_report(
                 branch, current_build, from_push, latest_push,
                 region_id=region_id, facts=facts, locale=hotfix_locale,
                 stage_for_publication=True,
-            )
-            report = self._generate_hotfix_full_report(
+            ), event=hotfix_event)
+            report = self._run_stage('hotfix_full_report', lambda: self._generate_hotfix_full_report(
                 branch, current_build, from_push, latest_push, locale=hotfix_locale,
                 region_id=region_id, hotfix_rows=hotfix_rows, facts=facts,
                 stage_for_publication=True,
-            )
+            ), event=hotfix_event)
             if not report or not report.get('content_html_path') or int(report.get('entry_count') or 0) != len(hotfix_rows):
                 raise WagoDiffUnavailable('Hotfix full report incomplete after verified collection')
             report.update({
@@ -640,7 +665,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
         row = None
         try:
-            row, _ = WowHotfixReport.objects.update_or_create(
+            row, _ = self._run_stage('hotfix_save_report', lambda: WowHotfixReport.objects.update_or_create(
                 branch=branch,
                 locale=hotfix_locale,
                 region_id=region_id,
@@ -666,7 +691,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     'class_class_count': int(report.get('class_class_count') or 0),
                     'class_unresolved_count': int(report.get('class_unresolved_count') or 0),
                 }
-            )
+            ), event=hotfix_event)
         except Exception as e:
             self._discard_hotfix_staging(report, class_report)
             self._mark_event(hotfix_event, status='save_report_failed', report=None, error_message=e)
@@ -695,7 +720,8 @@ class WagoSkillDiffMonitor(BaseScan):
         if not fallback_status:
             published = []
             try:
-                published = self._publish_staged_hotfix_reports(report, class_report) or []
+                published = self._run_stage('hotfix_publish', lambda: self._publish_staged_hotfix_reports(
+                    report, class_report), event=hotfix_event) or []
                 row.collection_complete = True
                 row.save(update_fields=['collection_complete'])
             except Exception as e:
@@ -1868,7 +1894,8 @@ class WagoSkillDiffMonitor(BaseScan):
 
         report = None
         try:
-            report = self._generate_report(branch, from_build, to_build)
+            report = self._run_stage('build_generate', lambda: self._generate_report(
+                branch, from_build, to_build), event=event)
         except Exception as e:
             self._mark_event(event, status='generate_failed', report=None, error_message=e)
             st.last_event_at = now
@@ -1934,7 +1961,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
         row = None
         try:
-            row, _ = WowSkillDiffReport.objects.update_or_create(
+            row, _ = self._run_stage('build_save_report', lambda: WowSkillDiffReport.objects.update_or_create(
                 branch=branch,
                 locale=self.locale,
                 to_build=to_build,
@@ -1948,7 +1975,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     'spell_count': int(report.get('spell_count') or 0),
                     'class_count': int(report.get('class_count') or 0),
                 }
-            )
+            ), event=event)
         except Exception as e:
             self._mark_event(event, status='save_report_failed', report=None, error_message=e)
             st.last_event_at = now
@@ -2353,7 +2380,9 @@ class WagoSkillDiffMonitor(BaseScan):
         if wowhead_url:
             wowhead_spell_ids = self._fetch_wowhead_spell_ids(wowhead_url)
         try:
-            changed_tables = set(self._fetch_changed_db2_tables(from_build, to_build) or [])
+            changed_tables = set(self._run_stage('build_table_discovery',
+                lambda: self._fetch_changed_db2_tables(from_build, to_build),
+                branch=branch, from_build=from_build, to_build=to_build) or [])
         except WagoDiffUnavailable as e:
             return {
                 'diff_unavailable': True,
@@ -2366,7 +2395,8 @@ class WagoSkillDiffMonitor(BaseScan):
         if not relevant_tables:
             for t in sorted(self.core_tables):
                 try:
-                    diff_rows = self._fetch_db2_diff_rows(t, from_build, to_build)
+                    diff_rows = self._run_stage('build_diff_rows',
+                        lambda: self._fetch_db2_diff_rows(t, from_build, to_build), table=t)
                 except WagoDiffUnavailable as e:
                     return {
                         'diff_unavailable': True,
@@ -2381,17 +2411,21 @@ class WagoSkillDiffMonitor(BaseScan):
         if not relevant_tables:
             return None
 
-        class_names = self._load_chr_classes(to_build)
-        spec_meta = self._load_chr_specialization_meta(to_build)
+        class_names = self._run_stage('build_class_names', lambda: self._load_chr_classes(to_build), build=to_build)
+        spec_meta = self._run_stage('build_specializations',
+            lambda: self._load_chr_specialization_meta(to_build), build=to_build)
         spec_to_class = {sid: meta.get('class_id') for sid, meta in (spec_meta or {}).items() if meta.get('class_id')}
-        current_spell_to_specs = self._load_specialization_spells(to_build)
+        current_spell_to_specs = self._run_stage('build_spell_mapping',
+            lambda: self._load_specialization_spells(to_build), build=to_build)
         if not spec_to_class or not current_spell_to_specs:
             raise WagoDiffUnavailable(
                 f'Wago DB2 class attribution unavailable for {branch} {to_build}: '
                 f'specs={len(spec_to_class)} mapped_spells={len(current_spell_to_specs)}'
             )
-        old_spec_meta = self._load_chr_specialization_meta(from_build)
-        old_spell_to_specs = self._load_specialization_spells(from_build)
+        old_spec_meta = self._run_stage('build_specializations',
+            lambda: self._load_chr_specialization_meta(from_build), build=from_build)
+        old_spell_to_specs = self._run_stage('build_spell_mapping',
+            lambda: self._load_specialization_spells(from_build), build=from_build)
         if not old_spec_meta or not old_spell_to_specs:
             raise WagoDiffUnavailable(f'Wago DB2 class attribution unavailable for {branch} {from_build}')
         spec_meta = {**old_spec_meta, **spec_meta}
@@ -2411,7 +2445,8 @@ class WagoSkillDiffMonitor(BaseScan):
         now = timezone.now()
 
         for t in relevant_tables:
-            diff_rows = self._fetch_db2_diff_rows(t, from_build, to_build)
+            diff_rows = self._run_stage('build_diff_rows',
+                lambda: self._fetch_db2_diff_rows(t, from_build, to_build), table=t)
             if not diff_rows:
                 continue
             tkey = t.lower()
@@ -2678,9 +2713,10 @@ class WagoSkillDiffMonitor(BaseScan):
         if len(spell_changes) > 0:
             zh_name_lookup = self._ensure_spell_names_zh(branch, to_build, list(spell_changes.keys()))
             samples = self._extract_summary_samples(spell_changes, snap_spells, max_samples=10, name_lookup=zh_name_lookup)
-            summary_title = self._glm_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples)
+            summary_title = self._run_stage('build_summary', lambda: self._glm_summary_title(
+                class_spell_counts, len(spell_changes), changed_tables, samples=samples)) or self._heuristic_summary_title(class_spell_counts, len(spell_changes), changed_tables, samples=samples)
         content_md = f"# {summary_title or (server_title + ' 职业技能变更报告')}\n\n- 版本：{from_build} → {to_build}\n- 技能数：{len(spell_changes)}\n"
-        html_meta = self._write_html_report(
+        html_meta = self._run_stage('build_render', lambda: self._write_html_report(
             branch=branch,
             server_title=server_title,
             from_build=from_build,
@@ -2694,7 +2730,7 @@ class WagoSkillDiffMonitor(BaseScan):
             spell_changes=spell_changes,
             wowhead_url=wowhead_url,
             effect_record_ids=True,
-        )
+        ))
         content_html_path = (html_meta or {}).get('path') or ''
         class_count = int((html_meta or {}).get('class_count') or 0)
         return {
@@ -6124,21 +6160,30 @@ class WagoSkillDiffMonitor(BaseScan):
         attempts = max(1, attempts)
         last_error = ''
         for attempt in range(1, attempts + 1):
-            started = time.time()
+            started = time.monotonic()
+            succeeded = False
+            with self._http_metrics_lock:
+                self._http_attempts += 1
             logger.info(f"[WagoSkillDiffMonitor] request {attempt}/{attempts} {url}")
             try:
                 resp = self._http_session.get(url, timeout=timeout)
-                elapsed = time.time() - started
+                elapsed = time.monotonic() - started
                 if resp.status_code == 200:
                     size = len(resp.content or b'')
                     logger.info(f"[WagoSkillDiffMonitor] request done status=200 size={size} elapsed={elapsed:.1f}s {url}")
-                    return resp.content if binary else (resp.text or '')
+                    result = resp.content if binary else (resp.text or '')
+                    succeeded = True
+                    return result
                 last_error = f"status={resp.status_code} elapsed={elapsed:.1f}s"
                 logger.warning(f"[WagoSkillDiffMonitor] request failed {attempt}/{attempts} {url}: {last_error}")
             except Exception as e:
-                elapsed = time.time() - started
+                elapsed = time.monotonic() - started
                 last_error = f"{e} elapsed={elapsed:.1f}s"
                 logger.warning(f"[WagoSkillDiffMonitor] request error {attempt}/{attempts} {url}: {last_error}")
+            finally:
+                with self._http_metrics_lock:
+                    self._http_failed_attempts += int(not succeeded)
+                    self._http_seconds += time.monotonic() - started
             if attempt < attempts:
                 time.sleep(min(2 * attempt, 8))
         logger.warning(f"[WagoSkillDiffMonitor] request exhausted {url}: {last_error}")
