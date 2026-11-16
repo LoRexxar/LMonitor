@@ -71,9 +71,9 @@ def select_raid_records(season_id, boss_id, class_name, spec_name, difficulty, *
 
 
 def _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff,
-            *, read_context=None):
-    rows = select_raid_records(season_id, boss_id, class_name, spec_name, difficulty,
-                               selected_ids=selected_ids)
+            *, read_context=None, selected_records=None):
+    rows = (selected_records if selected_records is not None else select_raid_records(
+        season_id, boss_id, class_name, spec_name, difficulty, selected_ids=selected_ids))
     documents = None
     if read_context is not None:
         from .aggregation_dependency_reads import DependencyReads
@@ -84,12 +84,22 @@ def _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids,
         fetched_before=source_cutoff, document_reads=documents)
 
 
-def _fingerprint(rows, facts, boss_name, class_name, spec_name, context=None):
+def _fingerprint(rows, facts, boss_name, class_name, spec_name, context=None, *, checkpoint=None):
     from .wcl_log_analysis_cache import scope_fingerprint
     dependencies = _metadata_dependencies(rows, facts, class_name, spec_name,
                                           context=context) if rows else {}
-    return scope_fingerprint(rows, facts, class_name, spec_name,
+    fingerprint = scope_fingerprint(rows, facts, class_name, spec_name,
         scope=[ALGORITHM_VERSION, boss_name], metadata=dependencies)
+    if checkpoint is not None:
+        checkpoint.remember(rows, facts, dependencies, fingerprint)
+    return fingerprint
+
+
+def _input_checkpoint(season_id, boss_id, boss_name, class_name, spec_name, difficulty):
+    from .aggregation_input_checkpoint import ScopeInputCheckpoint
+    from .wcl_log_analysis_cache import SCHEMA
+    return ScopeInputCheckpoint(season_id, f'raid:{class_name}:{spec_name}:{difficulty}:{boss_id}',
+                                class_name, spec_name, [ALGORITHM_VERSION, SCHEMA, boss_name])
 
 
 def raid_fingerprints(scopes, *, selected_ids=None, source_cutoff=None, prepared_inputs=None,
@@ -106,12 +116,24 @@ def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, diffi
                      *, _context=None, selected_ids=None, source_cutoff=None, _prepared_inputs=None,
                      phase_timings=None):
     started = time.monotonic()
+    rows = select_raid_records(season_id, boss_id, class_name, spec_name, difficulty,
+                               selected_ids=selected_ids)
+    checkpoint = _input_checkpoint(season_id, boss_id, boss_name, class_name, spec_name, difficulty)
+    previous = checkpoint.reuse(rows, lambda: combatants._load_facts(
+        rows, fetched_before=source_cutoff, identities_only=True), context=_context)
+    if phase_timings is not None:
+        phase_timings['raid_input_check'] += time.monotonic() - started
+        phase_timings['raid_input_reused'] += int(previous is not None)
+    if previous is not None:
+        return previous['fingerprint']
+    started = time.monotonic()
     rows, facts = _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff,
-                          read_context=_context)
+                          read_context=_context, selected_records=rows)
     if phase_timings is not None:
         phase_timings['raid_input'] += time.monotonic() - started
     started = time.monotonic()
-    fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name, _context)
+    fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name, _context,
+                               checkpoint=checkpoint)
     if phase_timings is not None:
         phase_timings['raid_fingerprint'] += time.monotonic() - started
     if _prepared_inputs is not None:
@@ -148,7 +170,8 @@ def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty,
         if phase_timings is not None:
             phase_timings['raid_input'] += time.monotonic() - started
         started = time.monotonic()
-        fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name)
+        fingerprint = _fingerprint(rows, facts, boss_name, class_name, spec_name, checkpoint=
+            _input_checkpoint(season_id, boss_id, boss_name, class_name, spec_name, difficulty))
         if phase_timings is not None:
             phase_timings['raid_fingerprint'] += time.monotonic() - started
     if fingerprint != checked_fingerprint:

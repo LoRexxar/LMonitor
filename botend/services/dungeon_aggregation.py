@@ -340,24 +340,51 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             selected = [row for row in selected if combatants._fight_key(row)]
         by_dungeon[dungeon_id] = [row for row in selected if combatants._fight_key(row)]
     selected = [row for rows in by_dungeon.values() for row in rows]
-    facts = combatants.load_matched_facts(selected, class_name, spec_name, fetched_before=source_cutoff)
     phase_timings['dungeon_input'] += time.monotonic() - started
     started = time.monotonic()
-    from .wcl_log_analysis_cache import scope_fingerprint, reusable_log_statistics
-    metadata, fingerprints, context = {}, {}, {}
+    from .wcl_log_analysis_cache import scope_fingerprint, reusable_log_statistics, SCHEMA
+    from .aggregation_input_checkpoint import ScopeInputCheckpoint
+    metadata, fingerprints, context, checkpoints = {}, {}, {}, {}
+    identities = None
+    def identity_facts():
+        nonlocal identities
+        if identities is None:
+            identities = combatants._load_facts(selected, fetched_before=source_cutoff, identities_only=True)
+        return identities
     for dungeon_id, rows in by_dungeon.items():
+        checkpoint = ScopeInputCheckpoint(season.id, f'dungeon:{class_name}:{spec_name}:{dungeon_id}',
+            class_name, spec_name, [ALGORITHM_VERSION, SCHEMA, dungeon_id,
+                                    stats._lookup_dungeon_cn(encounters[dungeon_id]['name'])],
+            empty_metadata=False)
+        checkpoints[dungeon_id] = checkpoint
+        previous = checkpoint.reuse(rows, identity_facts, context=context)
+        if previous is not None:
+            fingerprints[dungeon_id] = previous['fingerprint']
+            metadata[dungeon_id] = previous['metadata']
+    phase_timings['dungeon_input_check'] += time.monotonic() - started
+    phase_timings['dungeon_input_reused'] += len(fingerprints)
+    reused_scopes = set(fingerprints)
+    changed = [row for dungeon_id, rows in by_dungeon.items() if dungeon_id not in fingerprints for row in rows]
+    started = time.monotonic()
+    facts = combatants.load_matched_facts(changed, class_name, spec_name, fetched_before=source_cutoff) if changed else {}
+    phase_timings['dungeon_input'] += time.monotonic() - started
+    started = time.monotonic()
+    for dungeon_id, rows in by_dungeon.items():
+        if dungeon_id in fingerprints:
+            continue
         scope_facts = combatants.matched_facts(rows, facts, class_name, spec_name)
-        metadata[dungeon_id] = content_digest(
-            _metadata_dependencies(rows, scope_facts, class_name, spec_name, context=context))
+        dependencies = _metadata_dependencies(rows, scope_facts, class_name, spec_name, context=context)
+        metadata[dungeon_id] = content_digest(dependencies)
         fingerprints[dungeon_id] = scope_fingerprint(rows, facts, class_name, spec_name,
             scope=[ALGORITHM_VERSION, dungeon_id, stats._lookup_dungeon_cn(encounters[dungeon_id]['name'])],
             metadata=metadata[dungeon_id])
+        checkpoints[dungeon_id].remember(rows, scope_facts, dependencies, fingerprints[dungeon_id])
     fingerprint = content_digest({
         'algorithm': ALGORITHM_VERSION,
         'storage_version': 4,
         'scope': [season.pk, class_name, spec_name],
         'encounters': [(key, stats._lookup_dungeon_cn(enc['name'])) for key, enc in encounters.items()],
-        'scopes': list(fingerprints.items()),
+        'scopes': [(key, fingerprints[key]) for key in by_dungeon],
     })
     required_keys = [f'dungeon-{key}' for key in encounters] + ['dungeon-all']
     phase_timings['dungeon_fingerprint'] += time.monotonic() - started
@@ -366,6 +393,16 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     phase_timings['dungeon_publication_check'] += time.monotonic() - started
     reused = index is not None
     if not reused:
+        # 汇总依赖所有单本；只有模块实际需重建时才补齐其余单本日志。
+        if len(changed) != len(selected):
+            started = time.monotonic()
+            remaining = [row for key in reused_scopes for row in by_dungeon[key]]
+            additional = combatants.load_matched_facts(remaining, class_name, spec_name, fetched_before=source_cutoff)
+            for fight, events in additional.items():
+                merged = {event['sourceID']: event for event in facts.get(fight, [])}
+                merged.update({event['sourceID']: event for event in events})
+                facts[fight] = [merged[key] for key in sorted(merged)]
+            phase_timings['dungeon_input'] += time.monotonic() - started
         from .wcl_log_analysis_cache import prepare_cached_logs
         prepared = None
         def log_arguments(rows):

@@ -214,8 +214,8 @@ class AggregationDependencyBatchTests(TestCase):
                 patch.object(raid, '_fingerprint', wraps=raid._fingerprint) as fingerprints, \
                 CaptureQueriesContext(connection) as queries:
             run()
-        self.assertEqual(inputs.call_count, len(self.scopes))
-        self.assertEqual(fingerprints.call_count, len(self.scopes))
+        self.assertEqual(inputs.call_count, 1)
+        self.assertEqual(fingerprints.call_count, 1)
         self.assertFalse([q['sql'] for q in queries if q['sql'].lstrip().upper().startswith(
             ('INSERT ', 'UPDATE ', 'DELETE '))])
         detail = read_projection(path / 'raid.json', 'raid-5-1')
@@ -278,6 +278,11 @@ class AggregationDependencyBatchTests(TestCase):
             actual = raid.raid_fingerprints(self.scopes)
         self.assertEqual(actual, expected)
         documents = [q for q in queries if 'FROM "wow_wcl_combatant_document"' in q['sql']]
-        self.assertEqual(len(documents), 1)
+        self.assertEqual(len(documents), 0)
+        # 禁用提前检查时，原有批内正文去重仍然有效。
+        with patch('botend.services.aggregation_input_checkpoint.ScopeInputCheckpoint.reuse', return_value=None), \
+             CaptureQueriesContext(connection) as cold_queries:
+            self.assertEqual(raid.raid_fingerprints(self.scopes), expected)
+        self.assertEqual(len([q for q in cold_queries if 'FROM "wow_wcl_combatant_document"' in q['sql']]), 1)
         self.assertFalse([q for q in queries if q['sql'].lstrip().upper().startswith(
             ('INSERT ', 'UPDATE ', 'DELETE '))])

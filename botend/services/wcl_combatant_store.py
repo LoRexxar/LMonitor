@@ -73,10 +73,18 @@ class StoredCombatant(dict):
 def _project_fact(row):
     result = StoredCombatant({**deepcopy(row.identity_json), **deepcopy(row.attributes_json)})
     result.cache_identity = (row.report_code, row.fight_id, row.actor_id)
+    result.cache_token = (row.report_code, row.fight_id, row.actor_id, row.canonical_hash)
     if row.gear_document_id is not None:
         result['gear'] = deepcopy(row.gear_document.payload)
     if row.talent_document_id is not None:
         result['talentTree'] = deepcopy(row.talent_document.payload)
+    return result
+
+
+def _project_identity(row):
+    """轻量匹配保留不可变事实摘要，不加载装备和天赋正文。"""
+    result = StoredCombatant(deepcopy(row.identity_json))
+    result.cache_token = (row.report_code, row.fight_id, row.actor_id, row.canonical_hash)
     return result
 
 
@@ -128,7 +136,7 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
                 where |= Q(report_code=code, fight_id=fight, actor_id__in=actor_scopes[code, fight])
         compact = WclCombatantFact.objects.filter(where)
         if identities_only:
-            compact = compact.only('pk', 'report_code', 'fight_id', 'actor_id', 'identity_json')
+            compact = compact.only('pk', 'report_code', 'fight_id', 'actor_id', 'identity_json', 'canonical_hash')
         legacy = WclCombatantSnapshot.objects.filter(where)
         if fetched_before is not None:
             compact = compact.filter(fetched_at__lte=fetched_before)
@@ -138,7 +146,7 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
         for row in (compact if identities_only else _bind_documents(compact, document_reads)):
             compact_ids.append(row.pk)
             actors[(row.report_code, row.fight_id, row.actor_id)] = (
-                deepcopy(row.identity_json) if identities_only else _project_fact(row))
+                _project_identity(row) if identities_only else _project_fact(row))
         # Inspect only legacy identities first: never transfer its large raw
         # JSON when a compact actor already satisfies the requested cutoff.
         missing_ids = [row['pk'] for row in legacy.values('pk', 'report_code', 'fight_id', 'actor_id')
@@ -162,7 +170,7 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
         catchup = compact.exclude(pk__in=compact_ids)
         for row in (catchup if identities_only else _bind_documents(catchup, document_reads)):
             actors[(row.report_code, row.fight_id, row.actor_id)] = (
-                deepcopy(row.identity_json) if identities_only else _project_fact(row))
+                _project_identity(row) if identities_only else _project_fact(row))
         for (code, fight, actor), payload in sorted(actors.items()):
             result[(code, fight)].append(payload)
     return result
