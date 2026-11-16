@@ -7,7 +7,7 @@ from django.urls import reverse
 class AdminRankingTemplateTests(SimpleTestCase):
     def board(self, admin):
         return {
-            'admin_ranking': admin, 'scenario_name': '单体长战斗', 'targets': 1,
+            'admin_ranking': admin, 'hero_winners_only': admin, 'scenario_name': '单体长战斗', 'targets': 1,
             'scope_label': '当前专精', 'duration': 300, 'iterations': 1000,
             'return_url': '/dashboard/frontend-simulations/', 'return_label': '模拟结果管理',
             'scope_options': [{'label': '当前专精', 'url': '/legacy-spec/', 'selected': True}],
@@ -96,3 +96,18 @@ class AdminRankingTemplateTests(SimpleTestCase):
         self.assertIn('同一模拟配置与场景', html)
         for forbidden in ('本专精排名', '全职业 /', '同版本'):
             self.assertNotIn(forbidden, html)
+
+    def test_unlisted_global_configuration_keeps_its_actual_spec_rank(self):
+        context = {'ranking': {'overall_rank': None, 'overall_total': 12, 'spec_rank': 7, 'spec_total': 20},
+                   'config_id': 7, 'signature': 'frozen-signature', 'targets': 1,
+                   'settings_id': 4, 'scenario_id': 8}
+        html = render_to_string('shared/simc_reference_rank_buttons.html', context)
+        self.assertIn('<strong>未上榜</strong>', html)
+        self.assertIn('<strong>7</strong>', html)
+        self.assertIn('/ 20', html)
+        self.assertNotIn('None', html)
+        self.assertNotIn('/ 12', html)
+        context['ranking_route'] = 'simc_reference_rankings'
+        html = render_to_string('shared/simc_reference_rank_buttons.html', context)
+        self.assertIn('排行榜 <strong>未上榜</strong>', html)
+        self.assertNotIn('/ 12', html)

@@ -12,10 +12,7 @@
     {% if role_options %}<nav aria-label="排名职责">{% for option in role_options %}<a href="{{ option.url }}"{% if option.selected %} aria-current="page"{% endif %}>{{ option.label }}</a>{% endfor %}</nav>{% endif %}
 </div>
 {% endif %}
-{% if empty_ranking %}
-<section class="ranking-empty"><h2>暂无可展示的模拟结果</h2><p>当前还没有已完成且有效的公开配置模拟结果，稍后可从这里查看榜单。</p><a href="{{ module_reference_url }}">{% if admin_ranking %}前往模拟结果管理{% else %}查看专精模拟资料{% endif %}</a></section>
-{% else %}
-{% if not admin_ranking %}
+{% if not admin_ranking and current %}
 <section class="ranking-current-config" aria-label="当前配置">
     <div class="ranking-current-heading"><h2>当前配置 <span>{{ current.spec }}</span></h2>{% if current_in_ranking %}<a href="#ranking-current" data-ranking-locate>定位榜单中的当前配置</a>{% endif %}</div>
     <dl>
@@ -23,8 +20,12 @@
         <div><dt>天赋</dt><dd>{% include 'shared/simc_reference_rank_resource.html' with name=current.talent detail_url=current.resource_links.talent preview_url=current.preview_links.talent label='天赋' %}</dd></div>
         <div><dt>APL</dt><dd>{% include 'shared/simc_reference_rank_resource.html' with name=current.apl detail_url=current.resource_links.apl preview_url=current.preview_links.apl label='APL' %}</dd></div>
     </dl>
+    {% if hero_winners_only and not current.rank %}<p class="simc-ranking-description">当前配置未上榜：{% if current.hero %}全职业榜仅保留每个专精、每棵英雄天赋树 DPS 最高的一个组合。{% else %}英雄天赋树尚未明确，暂不参与全职业榜。{% endif %}可切换到当前专精榜查看完整排名。</p>{% endif %}
 </section>
 {% endif %}
+{% if empty_ranking %}
+<section class="ranking-empty"><h2>暂无可展示的模拟结果</h2><p>当前没有符合榜单条件的公开配置模拟结果。{% if hero_winners_only %}全职业榜仅展示英雄天赋树已明确的各专精最佳组合。{% endif %}</p><a href="{{ module_reference_url }}">{% if admin_ranking %}前往模拟结果管理{% else %}查看专精模拟资料{% endif %}</a></section>
+{% else %}
 <section class="simc-ranking-panel" aria-label="模拟完整榜单">
     {% include 'shared/simc_reference_leaderboard.html' %}
 </section>

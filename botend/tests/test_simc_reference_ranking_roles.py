@@ -24,7 +24,7 @@ class ReferenceRankingRoleTests(TestCase):
         key = 'warrior_protection'
         apl = SimcApl.objects.create(name='坦克APL', spec=key, class_name='warrior', is_system=True,
                                     is_selectable=True, content='actions=/auto_attack', source='user')
-        talent = SimcTalentString.objects.create(name='坦克天赋', spec=key, talent='demo', is_system=True, default_apl=apl)
+        talent = SimcTalentString.objects.create(name='坦克天赋', spec=key, talent='demo', hero_talent_names=['Mountain Thane'], is_system=True, default_apl=apl)
         profile = SimcProfile.objects.create(name='坦克装备', spec=key, class_name='warrior', player_config_mode='manual_equipment')
         config = SimcReferenceSimulationConfig.objects.create(spec_key=key, settings_id=self.config.settings_id)
         publish_resources(key, profiles=[profile], talents=[talent], apls=[apl])
