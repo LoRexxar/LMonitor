@@ -111,7 +111,7 @@ def _read_queryset():
         apl__owner_user_id__isnull=True, apl__is_system=True,
         result__status='completed', result__dps__gt=0,
     ).select_related('config', 'scenario', 'profile', 'talent', 'apl', 'result').only(
-        'id', 'comparison_key', 'config_id', 'scenario_id', 'profile_id', 'talent_id', 'apl_id', 'result_id',
+        'id', 'comparison_key', 'talent_display_name', 'config_id', 'scenario_id', 'profile_id', 'talent_id', 'apl_id', 'result_id',
         'config__id', 'config__spec_key', 'config__use_ptr', 'config__settings_id',
         'scenario__id', 'scenario__settings_id', 'scenario__name', 'scenario__simulation_params',
         'profile__id', 'profile__name', 'talent__id', 'talent__name', 'apl__id', 'apl__name',
@@ -125,6 +125,7 @@ def _project(entry, params):
         config_id=entry.config_id, config=entry.config,
         profile_id=entry.profile_id, profile=entry.profile,
         talent_id=entry.talent_id, talent=entry.talent,
+        talent_display_name=entry.talent_display_name or entry.talent.name,
         apl_id=entry.apl_id, apl=entry.apl,
         current_scenario=entry.scenario, snapshot={'simulation_params': params},
     )
@@ -183,9 +184,7 @@ def _ranked_entries(rows, anchor_pk=None):
     from django.urls import reverse
     from urllib.parse import urlencode
     entries, role_ranks = [], {}
-    from botend.services.simc_talent_titles import apply_talent_display_names
     rows = list(rows)
-    apply_talent_display_names([row.talent for row in rows])
     for row in sorted(rows, key=lambda item: (-item.dps, item.pk)):
         metadata = ranking_spec_metadata(row.config.spec_key)
         role = metadata['role']
@@ -200,7 +199,7 @@ def _ranked_entries(rows, anchor_pk=None):
         })
         entries.append({
             'rank': rank, **metadata,
-            'profile': row.profile.name, 'talent': row.talent.display_name, 'apl': row.apl.name,
+            'profile': row.profile.name, 'talent': row.talent_display_name, 'apl': row.apl.name,
             'dps': row.dps, 'is_current': row.pk == anchor_pk,
             'detail_url': detail_url,
             'resource_links': {kind: detail_url + '#' + section for kind, section in (

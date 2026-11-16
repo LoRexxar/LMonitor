@@ -2292,6 +2292,7 @@ class SimcReferenceRankingEntry(models.Model):
     spec_key = models.CharField(max_length=100)
     comparison_key = models.CharField(max_length=64, db_index=True)
     input_signature = models.CharField(max_length=64)
+    talent_display_name = models.TextField(default='', blank=True)
     is_current = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 

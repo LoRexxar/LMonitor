@@ -74,8 +74,13 @@ def _validate(row, config, scenes, published, cache):
     if not current or current[0] != _compute_content_hash(source.normalized_snapshot(row.snapshot)):
         return None
     signature, class_key, cohort = current
+    title_key = ('talent_title', row.talent_id)
+    if title_key not in cache:
+        from botend.services.simc_talent_titles import talent_display_name
+        cache[title_key] = talent_display_name(row.talent)
     return dict(config_id=config.pk, profile_id=row.profile_id, talent_id=row.talent_id, apl_id=row.apl_id,
                 scenario_id=scene.pk, result_id=row.pk, class_key=class_key, spec_key=config.spec_key,
+                talent_display_name=cache[title_key],
                 input_signature=signature, comparison_key=cohort, is_current=True)
 
 
@@ -144,6 +149,59 @@ def refresh_configs(config_ids=None):
                 stats['invalidated'] += Entry.objects.filter(pk__in=obsolete).update(is_current=False, updated_at=timezone.now())
             stats['configs'] += 1
     return stats
+
+
+def refresh_talent_titles(*, talent_ids=None, config_ids=None):
+    """只更新展示名称；按天赋去重并分批读取，不扫描模拟历史或改变排名有效性。"""
+    from botend.services.simc_talent_titles import apply_talent_display_names
+    entries = Entry.objects.all()
+    if talent_ids is not None:
+        entries = entries.filter(talent_id__in=talent_ids)
+    if config_ids is not None:
+        entries = entries.filter(config_id__in=config_ids)
+    resources = SimcTalentString.objects.filter(pk__in=entries.values('talent_id')).only(
+        'id', 'name', 'spec', 'talent', 'system_key', 'hero_talent_names',
+    ).order_by('pk')
+    changed, batch = 0, []
+
+    def update(rows):
+        count = 0
+        apply_talent_display_names(rows)
+        for row in rows:
+            count += entries.filter(talent_id=row.pk).exclude(talent_display_name=row.display_name).update(
+                talent_display_name=row.display_name)
+        return count
+
+    for resource in resources.iterator(chunk_size=200):
+        batch.append(resource)
+        if len(batch) == 200:
+            changed += update(batch)
+            batch = []
+    if batch:
+        changed += update(batch)
+    return changed
+
+
+def _guide_titles_changed(sender, instance, raw=False, update_fields=None, **kwargs):
+    """攻略正文或来源变更后刷新派生标题，不重新模拟或重建有效性索引。"""
+    if raw or (update_fields is not None and not set(update_fields) & {
+        'source_markdown', 'content_markdown', 'source_url', 'guide_type', 'spec_id',
+    }):
+        return
+    request_guide_talent_titles_refresh(instance.pk)
+
+
+def request_guide_talent_titles_refresh(guide_id):
+    """兼容模型保存和攻略编辑器的乐观锁批量更新，提交成功后才刷新。"""
+
+    def refresh():
+        ids = SimcTalentString.objects.filter(
+            Q(system_key__startswith=f'guide:icy-veins:{guide_id}:') |
+            Q(system_key__startswith=f'guide:maxroll:{guide_id}:')
+        ).values_list('pk', flat=True)
+        refresh_talent_titles(talent_ids=ids)
+
+    transaction.on_commit(refresh)
 
 
 def _affected(instance):
@@ -242,6 +300,9 @@ def register_signals():
         post_save.connect(_changed, sender=model, dispatch_uid='ranking_after_' + label)
         post_delete.connect(_deleted, sender=model, dispatch_uid='ranking_delete_' + label)
     post_save.connect(_result_changed, sender=Result, dispatch_uid='ranking_result')
+    from botend.guide_models import ClassGuide
+    post_save.connect(_guide_titles_changed, sender=ClassGuide, dispatch_uid='ranking_guide_titles_saved')
+    post_delete.connect(_guide_titles_changed, sender=ClassGuide, dispatch_uid='ranking_guide_titles_deleted')
     for field in ('profiles', 'talents', 'apls'):
         through = getattr(SimcReferencePublication, field).through
         m2m_changed.connect(_publication_m2m, sender=through, dispatch_uid='ranking_m2m_' + field)
