@@ -80,7 +80,28 @@ def _project_fact(row):
     return result
 
 
-def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None):
+def _bind_documents(rows, reads):
+    """合并读取装备及天赋正文，跨范围只复用不可变文档，不缓存人物匹配结果。"""
+    rows = list(rows)
+    ids = {pk for row in rows for pk in (row.gear_document_id, row.talent_document_id)
+           if pk is not None}
+    if not ids:
+        return rows
+    database = rows[0]._state.db
+    documents = reads.many(('wcl-documents', database), ids,
+                           lambda missing: WclCombatantDocument.objects.using(database).in_bulk(missing))
+    for row in rows:
+        for field in ('gear_document', 'talent_document'):
+            pk = getattr(row, field + '_id')
+            if pk is not None:
+                if pk not in documents:
+                    raise WclCombatantDocument.DoesNotExist('日志事实引用的正文缺失')
+                setattr(row, field, documents[pk])
+    return rows
+
+
+def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None,
+               document_reads=None):
     """按战斗有界读取，可限于已核对身份的角色；空角色范围不读取整场。"""
     keys = set()
     for record in records:
@@ -94,6 +115,9 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
                                     if (actor := _positive_int(value)) is not None}) for key in keys}
         keys = [key for key in keys if actor_scopes[key]]
     result = defaultdict(list)
+    if not identities_only and document_reads is None:
+        from .aggregation_dependency_reads import DependencyReads
+        document_reads = DependencyReads()
     for start in range(0, len(keys), BATCH_SIZE):
         batch = keys[start:start + BATCH_SIZE]
         if actor_scopes is None:
@@ -105,15 +129,13 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
         compact = WclCombatantFact.objects.filter(where)
         if identities_only:
             compact = compact.only('pk', 'report_code', 'fight_id', 'actor_id', 'identity_json')
-        else:
-            compact = compact.prefetch_related('gear_document', 'talent_document')
         legacy = WclCombatantSnapshot.objects.filter(where)
         if fetched_before is not None:
             compact = compact.filter(fetched_at__lte=fetched_before)
             legacy = legacy.filter(fetched_at__lte=fetched_before)
         actors = {}
         compact_ids = []
-        for row in compact:
+        for row in (compact if identities_only else _bind_documents(compact, document_reads)):
             compact_ids.append(row.pk)
             actors[(row.report_code, row.fight_id, row.actor_id)] = (
                 deepcopy(row.identity_json) if identities_only else _project_fact(row))
@@ -137,7 +159,8 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
         # not GC'd during retirement). Compact still wins. Exclude exact PKs,
         # not a max-PK watermark: a lower allocated PK can commit later.
         # Already projected documents are never transferred a second time.
-        for row in compact.exclude(pk__in=compact_ids):
+        catchup = compact.exclude(pk__in=compact_ids)
+        for row in (catchup if identities_only else _bind_documents(catchup, document_reads)):
             actors[(row.report_code, row.fight_id, row.actor_id)] = (
                 deepcopy(row.identity_json) if identities_only else _project_fact(row))
         for (code, fight, actor), payload in sorted(actors.items()):

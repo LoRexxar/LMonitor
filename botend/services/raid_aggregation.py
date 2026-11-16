@@ -70,10 +70,18 @@ def select_raid_records(season_id, boss_id, class_name, spec_name, difficulty, *
     return [rows[pk] for pk in selected_ids if combatants._fight_key(rows[pk])]
 
 
-def _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff):
+def _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff,
+            *, read_context=None):
     rows = select_raid_records(season_id, boss_id, class_name, spec_name, difficulty,
                                selected_ids=selected_ids)
-    return rows, combatants.load_matched_facts(rows, class_name, spec_name, fetched_before=source_cutoff)
+    documents = None
+    if read_context is not None:
+        from .aggregation_dependency_reads import DependencyReads
+        if 'wcl-documents' not in read_context:
+            read_context['wcl-documents'] = DependencyReads()
+        documents = read_context['wcl-documents']
+    return rows, combatants.load_matched_facts(rows, class_name, spec_name,
+        fetched_before=source_cutoff, document_reads=documents)
 
 
 def _fingerprint(rows, facts, boss_name, class_name, spec_name, context=None):
@@ -98,7 +106,8 @@ def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, diffi
                      *, _context=None, selected_ids=None, source_cutoff=None, _prepared_inputs=None,
                      phase_timings=None):
     started = time.monotonic()
-    rows, facts = _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff)
+    rows, facts = _inputs(season_id, boss_id, class_name, spec_name, difficulty, selected_ids, source_cutoff,
+                          read_context=_context)
     if phase_timings is not None:
         phase_timings['raid_input'] += time.monotonic() - started
     started = time.monotonic()

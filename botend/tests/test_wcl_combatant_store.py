@@ -1,6 +1,7 @@
 from copy import deepcopy
 from datetime import timedelta
 import importlib
+from unittest.mock import patch
 
 from django.db import connection
 from django.db.models.deletion import ProtectedError
@@ -161,13 +162,66 @@ class CompactStoreTests(TestCase):
             got = store.load_facts([dict(report_code='Report', fight_id=fight) for fight in by_fight])
         self.assertEqual(Document.objects.count(), 2)
         self.assertEqual(sum(map(len, got.values())), 180)
-        # One compact read + two shared-document prefetches + light legacy keys
-        # + one empty compact catch-up; no second document transfer.
-        self.assertEqual(len(queries), 5)
+        # 装备和天赋正文合并读取；补读仍保留，不再次传输已有正文。
+        self.assertEqual(len(queries), 4)
         documents = [q for q in queries if 'wow_wcl_combatant_document' in q['sql']]
-        self.assertEqual(len(documents), 2)
+        self.assertEqual(len(documents), 1)
         self.assertFalse([q for q in queries if 'wow_wcl_combatant_snapshot' in q['sql']
                           and 'payload_json' in q['sql']])
+
+    def test_documents_are_reused_between_fight_batches_with_independent_outputs(self):
+        """不同战斗共用正文，只读取一次；修改返回值不污染缓存或其他角色。"""
+        from botend.services.aggregation_dependency_reads import DependencyReads
+        store.persist_events('Report', {11: [event()], 12: [event(2, 12)]})
+        records = [dict(report_code='Report', fight_id=fight) for fight in (11, 12)]
+        with patch.object(store, 'BATCH_SIZE', 1), CaptureQueriesContext(connection) as queries:
+            actual = store.load_facts(records)
+        documents = [q for q in queries if 'FROM "wow_wcl_combatant_document"' in q['sql']]
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(actual['Report', 12], [store.canonical_event(event(2, 12))])
+        reads = DependencyReads()
+        first = store.load_facts(records[:1], document_reads=reads)
+        first['Report', 11][0]['gear'][0]['gems'].clear()
+        with CaptureQueriesContext(connection) as reused:
+            second = store.load_facts(records[1:], document_reads=reads)
+        self.assertFalse([q for q in reused if 'wow_wcl_combatant_document' in q['sql']])
+        self.assertEqual(second, {('Report', 12): actual['Report', 12]})
+        with CaptureQueriesContext(connection) as fresh:
+            self.assertEqual(store.load_facts(records[1:]), second)
+        self.assertTrue([q for q in fresh if 'wow_wcl_combatant_document' in q['sql']])
+
+    def test_document_reuse_never_bypasses_actor_matching_or_cutoff(self):
+        """正文命中也必须重新验证角色唯一性和事实采集时间。"""
+        from botend.services.aggregation_dependency_reads import DependencyReads
+        from botend.services.wcl_combatant_snapshot import load_matched_facts
+        old = timezone.now() - timedelta(hours=2)
+        cutoff = old + timedelta(hours=1)
+        store.persist_events('Report', {11: [event()]}, fetched_at=old)
+        row = dict(report_code='Report', fight_id=11, character_name='Player1', realm='Realm')
+        reads = DependencyReads()
+        kwargs = dict(document_reads=reads)
+        first = load_matched_facts([row], 'DeathKnight', 'Frost', **kwargs)
+        self.assertEqual(len(first['Report', 11]), 1)
+        duplicate = event(2)
+        duplicate['source']['name'] = 'Player1'
+        store.persist_events('Report', {11: [duplicate]})
+        self.assertEqual(load_matched_facts([row], 'DeathKnight', 'Frost', **kwargs), {})
+        self.assertEqual(load_matched_facts([row], 'DeathKnight', 'Frost',
+                                          fetched_before=cutoff, **kwargs), first)
+        self.assertEqual(load_matched_facts([row], 'DeathKnight', 'Frost',
+                                          fetched_before=old - timedelta(seconds=1), **kwargs), {})
+
+    def test_document_budget_exhaustion_falls_back_to_reads(self):
+        from botend.services.aggregation_dependency_reads import DependencyReads
+        store.persist_events('Report', {11: [event()]})
+        records = [dict(report_code='Report', fight_id=11)]
+        reads = DependencyReads(max_bytes=0)
+        first = store.load_facts(records, document_reads=reads)
+        with CaptureQueriesContext(connection) as queries:
+            second = store.load_facts(records, document_reads=reads)
+        self.assertEqual(first, second)
+        self.assertEqual(reads.used_bytes, 0)
+        self.assertEqual(len([q for q in queries if 'wow_wcl_combatant_document' in q['sql']]), 1)
 
     def test_migration_reverse_guard(self):
         from django.apps import apps

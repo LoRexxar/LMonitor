@@ -265,3 +265,19 @@ class AggregationDependencyBatchTests(TestCase):
         replay, same_fingerprint, hit = raid.raid_stats(*self.scopes[0])
         self.assertTrue(hit)
         self.assertEqual((replay, same_fingerprint), (result, fingerprint))
+
+    def test_raid_fingerprint_batch_reuses_documents_across_bosses(self):
+        """真实团本入口共用日志正文，同时保持各首领指纹与独立读取一致。"""
+        from botend.services import wcl_combatant_store as store
+        event = {'sourceID': 1, 'specID': 63,
+                 'source': {'id': 1, 'name': 'Player', 'server': 'Realm'},
+                 'gear': [{'id': 123, 'slot': 0}], 'talentTree': []}
+        store.persist_events('Report', {1: [event], 2: [event]})
+        expected = [raid.raid_fingerprint(*scope) for scope in self.scopes]
+        with CaptureQueriesContext(connection) as queries:
+            actual = raid.raid_fingerprints(self.scopes)
+        self.assertEqual(actual, expected)
+        documents = [q for q in queries if 'FROM "wow_wcl_combatant_document"' in q['sql']]
+        self.assertEqual(len(documents), 1)
+        self.assertFalse([q for q in queries if q['sql'].lstrip().upper().startswith(
+            ('INSERT ', 'UPDATE ', 'DELETE '))])

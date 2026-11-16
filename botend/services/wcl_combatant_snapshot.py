@@ -74,10 +74,11 @@ def match_combatant(events, record, class_name, spec_name):
     return matches[0] if len(matches) == 1 else None
 
 
-def _load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None):
+def _load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None,
+                document_reads=None):
     return wcl_combatant_store.load_facts(
         records, fetched_before=fetched_before, identities_only=identities_only,
-        actor_ids_by_fight=actor_ids_by_fight)
+        actor_ids_by_fight=actor_ids_by_fight, document_reads=document_reads)
 
 
 def _fact_read_batches(records, target_limit=100):
@@ -166,7 +167,7 @@ def matched_facts(records, facts, class_name, spec_name):
     return {key: [events[actor] for actor in sorted(events)] for key, events in sorted(selected.items())}
 
 
-def load_matched_facts(records, class_name, spec_name, *, fetched_before=None):
+def load_matched_facts(records, class_name, spec_name, *, fetched_before=None, document_reads=None):
     """先核对整场轻量身份，再读取样本角色的属性、装备和天赋。"""
     records = list(records)
     identities = _load_facts(records, fetched_before=fetched_before, identities_only=True)
@@ -175,7 +176,8 @@ def load_matched_facts(records, class_name, spec_name, *, fetched_before=None):
     del identities, selected
     if not actor_scopes:
         return {}
-    return _load_facts(records, fetched_before=fetched_before, actor_ids_by_fight=actor_scopes)
+    return _load_facts(records, fetched_before=fetched_before, actor_ids_by_fight=actor_scopes,
+                       document_reads=document_reads)
 
 
 def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
