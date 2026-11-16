@@ -1,6 +1,7 @@
 """Presentation must not change executable talent identity."""
 import hashlib
 import json
+from unittest.mock import patch
 from django.test import TestCase
 from django.template.loader import render_to_string
 from botend.guide_models import ClassGuide
@@ -90,6 +91,32 @@ class TalentTitleRankingTests(TestCase):
         self.assertTrue(SimcReferenceRankingEntry.objects.get(result=result).is_current)
         result.refresh_from_db()
         self.assertEqual(json.dumps(result.snapshot, sort_keys=True), frozen)
+        # 攻略变更只刷新索引展示名称，不改变冻结输入或排名有效性。
+        from botend.services.simc_reference_ranking_index import refresh_talent_titles
+        with patch('botend.services.simc_talent_titles.apply_talent_display_names') as project:
+            def rename(rows):
+                for row in rows:
+                    row.display_name = '攻略更新后的天赋标题'
+            project.side_effect = rename
+            with self.captureOnCommitCallbacks(execute=True):
+                guide.content_markdown = '更新后的攻略正文'
+                guide.save(update_fields=['content_markdown'])
+        entry = SimcReferenceRankingEntry.objects.get(result=result)
+        self.assertTrue(entry.is_current)
+        self.assertEqual(entry.talent_display_name, '攻略更新后的天赋标题')
+        with patch('botend.services.simc_talent_titles.apply_talent_display_names',
+                   side_effect=AssertionError('榜单读取不得解析攻略')):
+            self.assertEqual(leaderboard(other['config'], result.signature, 'spec')['current']['talent'],
+                             '攻略更新后的天赋标题')
+        self.assertGreater(refresh_talent_titles(talent_ids=[talent.pk]), 0)
+        # 编辑器采用 QuerySet.update 的乐观锁路径，同样要刷新派生标题。
+        from botend.services.class_guide_service import save_article
+        guide.refresh_from_db()
+        with patch('botend.services.simc_reference_ranking_index.refresh_talent_titles') as refresh:
+            with self.captureOnCommitCallbacks(execute=True):
+                save_article(guide.pk, guide.title, content_markdown='再次编辑正文',
+                             expected_updated_at=guide.updated_at)
+        refresh.assert_called_once()
         talent.talent = 'changed-real-input'
         talent.save(update_fields=['talent'])
         refresh_configs([other['config'].pk])

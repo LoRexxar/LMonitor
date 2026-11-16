@@ -84,6 +84,8 @@ def save_article(guide_id, title, blocks=None, *, content_markdown=None, expecte
             raise ArticleConflict('文章已被其他编辑或同步更新，请刷新后再保存')
         from botend.services.class_guide_snapshot import request_guide_refresh
         request_guide_refresh()
+        from botend.services.simc_reference_ranking_index import request_guide_talent_titles_refresh
+        request_guide_talent_titles_refresh(guide_id)
         return ClassGuide.objects.get(pk=guide_id)
 
 

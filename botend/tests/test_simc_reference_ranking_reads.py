@@ -17,6 +17,66 @@ class ReferenceRankingReadTests(TestCase):
     result = ranking_tests.ReferenceRankingTests.result
     alternate_talent = ranking_tests.ReferenceRankingTests.alternate_talent
 
+    def test_admin_queries_do_not_grow_with_combinations_or_parse_titles(self):
+        """冷读和重复读均不得逐行查询天赋字段或解析攻略。"""
+        from botend.services.simc_reference_rankings import admin_ranking_page_context
+        anchor = self.result(100)
+        with CaptureQueriesContext(connection) as single:
+            admin_ranking_page_context(self.config.settings_id)
+        # 仅构造读取端投影夹具，覆盖线上实测的 415 行规模，不执行模拟。
+        from botend.models import SimcTalentString, SimcReferenceSimulation
+        talents = SimcTalentString.objects.bulk_create([
+            SimcTalentString(name=f'规模测试天赋 {number}', spec=self.talent.spec,
+                            talent=self.talent.talent, is_system=True, default_apl=self.apl)
+            for number in range(414)
+        ])
+        self.publication.talents.add(*talents)
+        entry = SimcReferenceRankingEntry.objects.get(result=anchor)
+        results = SimcReferenceSimulation.objects.bulk_create([
+            SimcReferenceSimulation(config=self.config, scenario_id=entry.scenario_id,
+                profile=self.profile, talent=talent, apl=self.apl, requested_by_id=self.user.pk,
+                status='completed', dps=200 + number, snapshot={}, signature=f'{number + 1:064x}')
+            for number, talent in enumerate(talents)
+        ])
+        SimcReferenceRankingEntry.objects.bulk_create([
+            SimcReferenceRankingEntry(config=self.config, scenario_id=entry.scenario_id,
+                profile=self.profile, talent=talent, apl=self.apl, result=result,
+                class_key=entry.class_key, spec_key=entry.spec_key,
+                comparison_key=entry.comparison_key, input_signature=result.signature,
+                talent_display_name=talent.name)
+            for talent, result in zip(talents, results)
+        ])
+        SimcReferenceRankingEntry.objects.filter(pk=entry.pk).update(is_current=True)
+        self.client.force_login(self.user)
+        with patch('botend.services.simc_talent_titles.apply_talent_display_names',
+                   side_effect=AssertionError('榜单读取不得解析天赋标题')):
+            with CaptureQueriesContext(connection) as many:
+                board = admin_ranking_page_context(self.config.settings_id)
+            self.assertEqual(len(board['entries']), 415)
+            self.assertEqual(len(many), len(single))
+            self.assertLessEqual(len(many), 3)
+            from time import perf_counter
+            for attempt in range(2):
+                start = perf_counter()
+                with CaptureQueriesContext(connection) as http:
+                    response = self.client.get(reverse('simc_reference_rankings_entry'))
+                print(f'本地榜单规模核验：415 行，第 {attempt + 1} 次请求，{len(http)} 次查询，{perf_counter() - start:.3f} 秒')
+                self.assertEqual(response.status_code, 200)
+                self.assertLessEqual(len(http), 12)
+                selected = ' '.join(q['sql'].split(' FROM ')[0] for q in http)
+                for forbidden in ('"snapshot"', '"source_markdown"', '"content_markdown"', '"talent"'):
+                    self.assertNotIn(forbidden, selected)
+
+    def test_unfilled_title_uses_stored_name_without_lazy_rebuild(self):
+        from botend.services.simc_reference_rankings import admin_ranking_page_context
+        self.result(100)
+        SimcReferenceRankingEntry.objects.update(talent_display_name='')
+        with patch('botend.services.simc_talent_titles.apply_talent_display_names',
+                   side_effect=AssertionError('不得在访问时回填')):
+            board = admin_ranking_page_context(self.config.settings_id)
+        self.assertEqual(board['entries'][0]['talent'], self.talent.name)
+        self.assertEqual(SimcReferenceRankingEntry.objects.get().talent_display_name, '')
+
     def test_index_only_http_reads_and_payload_projection(self):
         anchor = self.result(100)
         for number in range(8):
