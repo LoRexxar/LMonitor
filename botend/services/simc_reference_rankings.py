@@ -159,7 +159,7 @@ def _current_cohorts(config):
     for entry in entries:
         if math.isfinite(entry.result.dps):
             cohorts[entry.comparison_key].append(_project(entry, scenes[entry.comparison_key][0]))
-    return cohorts.values()
+    return [cohorts[key] for key in keys if key in cohorts]
 
 
 def _hero_winners(rows):
@@ -185,10 +185,10 @@ def _positions(rows):
     return positions, counts
 
 
-def current_rankings(config):
-    """两个维度的名次摘要，与完整榜单共用候选和排序规则。"""
+def _cohort_rankings(cohorts):
+    """同一批索引结果同时生成 DPS 和名次，避免重复读取。"""
     rankings = {}
-    for rows in _current_cohorts(config):
+    for rows in cohorts:
         by_spec = defaultdict(list)
         overall_positions, overall_counts = _positions(_hero_winners(rows))
         for row in rows:
@@ -202,6 +202,30 @@ def current_rankings(config):
                     spec_rank=spec_positions[row.pk], spec_total=len(group),
                 )
     return rankings
+
+
+def current_rankings(config):
+    """两个维度的名次摘要，与完整榜单共用候选和排序规则。"""
+    return _cohort_rankings(_current_cohorts(config))
+
+
+def configuration_results(config, profile_id, talent_id, apl_id):
+    """配置页仅消费现行索引，不重建输入或扫描历史结果 JSON。"""
+    cohorts = _current_cohorts(config)
+    rankings = _cohort_rankings(cohorts)
+    results = []
+    for rows in cohorts:
+        for row in rows:
+            if (row.config_id, row.profile_id, row.talent_id, row.apl_id) != (
+                    config.pk, profile_id, talent_id, apl_id):
+                continue
+            scene = row.current_scenario
+            params = row.snapshot['simulation_params']
+            results.append(dict(params, dps=row.dps, ranking=rankings[(row.config_id, row.signature)],
+                config_id=row.config_id, signature=row.signature, scenario_id=scene.pk,
+                scenario_name=scene.name, name=scene.name,
+                targets=params['desired_targets'], duration=params['max_time']))
+    return results
 
 
 def _ranked_entries(rows, anchor_pk=None):

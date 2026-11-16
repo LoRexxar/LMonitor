@@ -24,15 +24,23 @@
 
     scaleTalentStage();
     window.addEventListener('resize', scaleTalentStage);
-    if (window.ResizeObserver) {
-        const observer = new ResizeObserver(scaleTalentStage);
-        document.querySelectorAll('.talent-stage-scale-wrapper').forEach(wrapper => observer.observe(wrapper.parentElement));
+    const stageObserver = window.ResizeObserver ? new ResizeObserver(scaleTalentStage) : null;
+    const initializedChoices = new WeakSet();
+    function initializeTrees() {
+        stageObserver?.disconnect();
+        document.querySelectorAll('.talent-stage-scale-wrapper').forEach(wrapper => stageObserver?.observe(wrapper.parentElement));
+        initializeChoices();
+        scaleTalentStage();
     }
+    document.addEventListener('simc:reference-updated', () => { hideOptionTooltip(); initializeTrees(); });
 
     /* ===== Choice Node Popup Hover ===== */
     var activeTooltip = null;
 
+    function initializeChoices() {
     document.querySelectorAll('.talent-node-card--tree.is-choice-node').forEach(function(node) {
+        if (initializedChoices.has(node)) return;
+        initializedChoices.add(node);
         var popup = node.querySelector('.talent-choice-popup');
         if (!popup) return;
         var hoverTimeout = null;
@@ -71,6 +79,10 @@
             });
         });
     });
+
+    }
+
+    initializeTrees();
 
     function showOptionTooltip(name, desc, anchor) {
         hideOptionTooltip();

@@ -92,14 +92,14 @@ class HeroPageTests(TestCase):
         self.publication.talents.add(self.slayer)
 
     def test_page_filter_selects_matching_talent_and_apl(self):
-        response = self.client.get(self.url, {'spec': 'warrior_fury', 'hero': '60'})
+        response = self.client.get(self.url, {'view': 'reference-apl', 'spec': 'warrior_fury', 'hero': '60'})
         self.assertEqual(response.context['talent'].id, self.slayer.id)
         self.assertEqual([r['id'] for r in response.context['selected_spec']['talents']], [self.slayer.id])
         self.assertEqual([g['name'] for g in response.context['apl_display']['groups']], [None, 'slayer_st', 'common'])
         self.assertNotContains(response, '<code>slayer_st</code>', html=True)
 
     def test_local_override_does_not_change_page_talent(self):
-        response = self.client.get(self.url, {'spec': 'warrior_fury', 'hero': '60', 'apl_hero': '61'})
+        response = self.client.get(self.url, {'view': 'reference-apl', 'spec': 'warrior_fury', 'hero': '60', 'apl_hero': '61'})
         self.assertEqual(response.context['talent'].id, self.slayer.id)
         self.assertEqual([g['name'] for g in response.context['apl_display']['groups']], [None, 'thane_aoe', 'common'])
         self.assertContains(response, 'name="hero" value="60"')
@@ -107,7 +107,7 @@ class HeroPageTests(TestCase):
 
     def test_local_all_and_page_multiple_choices(self):
         for params in ({'hero': '60', 'apl_hero': 'all'}, {'hero': ['60', '61']}):
-            response = self.client.get(self.url, {'spec': 'warrior_fury', **params})
+            response = self.client.get(self.url, {'view': 'reference-apl', 'spec': 'warrior_fury', **params})
             self.assertEqual(len(response.context['apl_display']['groups']), 4)
 
     def test_invalid_and_cross_spec_hero_is_404(self):

@@ -122,8 +122,12 @@ class ReferenceSimulationTests(TestCase):
             with self.subTest(field=field):
                 original = getattr(obj, field)
                 model.objects.filter(pk=obj.pk).update(**{field: changed})
+                # 批量写绕过模型信号，显式维护索引，与正式批量编辑路径保持一致。
+                from botend.services.simc_reference_ranking_index import refresh_configs
+                refresh_configs([self.config.pk])
                 self.assertEqual(self.results(), [])
                 model.objects.filter(pk=obj.pk).update(**{field: original})
+                refresh_configs([self.config.pk])
         self.assertEqual(len(self.results()), 2)
         update_scenario_params(self.config.settings, max_time=240)
         self.assertEqual(self.results(), [])

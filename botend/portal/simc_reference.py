@@ -3,13 +3,14 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
-from django.http import Http404
+from django.http import Http404, JsonResponse
+from django.template.loader import render_to_string
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.cache import never_cache
 from django.views.decorators.vary import vary_on_cookie
 
-from botend.services.simc_reference import reference_context
+from botend.services.simc_reference import reference_context, ReferenceTimings
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -19,12 +20,33 @@ class PortalSimcReferenceView(LoginRequiredMixin, View):
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request):
-        context = reference_context(request.GET)
+        timings = ReferenceTimings(request.GET)
+        error = None
+        try:
+            return self.render_reference(request, timings)
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            timings.finish(error)
+
+    def render_reference(self, request, timings):
+        context = reference_context(request.GET, timings=timings)
         results = context['simulation_results']
-        context.update(module_section='reference', module_reference_url=request.get_full_path(),
+        context.update(module_section='reference', module_reference_url=request.path + '?' + context['canonical_query'],
                        module_rankings_url=reverse('portal_simc_reference_rankings', args=[results[0]['config_id'], results[0]['signature'], 'overall'])
                        if results else reverse('portal_simc_reference_rankings_entry'))
-        response = render(request, 'portal/simc_reference.html', context)
+        if request.headers.get('X-Simc-Reference') == 'workspace':
+            response = JsonResponse({
+                'html': render_to_string('portal/_simc_reference_workspace.html', context, request=request),
+                'navigation': render_to_string('shared/simc_reference_navigation.html', context, request=request),
+                'url': request.path + '?' + context['canonical_query'],
+                'section': context['active_section'],
+            })
+        else:
+            response = render(request, 'portal/simc_reference.html', context)
+        response.headers['Vary'] = 'X-Simc-Reference'
+        timings.mark('render')
         response['X-Robots-Tag'] = 'noindex, nofollow'
         return response
 
