@@ -812,7 +812,9 @@ class SimcHistoryBackendPaginationTests(TestCase):
         for page in (1, 2):
             request = self.factory.get(f'/api/simc-workbench/history/?page={page}&page_size=1')
             request.user = self.user
-            row = json.loads(self.view.get(request, resource='history').content)['data'][0]
+            with CaptureQueriesContext(connection) as queries:
+                row = json.loads(self.view.get(request, resource='history').content)['data'][0]
+            self.assertTrue(any('UNION ALL' in q['sql'] and 'LIMIT 1' in q['sql'] for q in queries))
             page_ids.append((row.get('row_type', 'task'), row['id']))
 
         self.assertEqual(page_ids, [

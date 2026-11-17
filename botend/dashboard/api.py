@@ -7167,36 +7167,32 @@ class SimcWorkbenchAPIView(View):
                 ordinary_queryset = ordinary_queryset.filter(mode=simulation_type)
 
             if scope == 'favorites':
-                ordinary_refs = [
-                    ('task', task_id, favorited_at)
-                    for task_id, favorited_at in SimcTaskFavorite.objects.filter(
-                        user_id=request.user.id,
-                        task_id__in=ordinary_queryset.values('id'),
-                    ).values_list('task_id', 'created_at')
-                ]
-                execution_refs = []
+                refs = SimcTaskFavorite.objects.filter(
+                    user_id=request.user.id, task_id__in=ordinary_queryset.values('id'),
+                ).order_by('-created_at', '-task_id').annotate(
+                    history_type=models.Value('task'),
+                ).values_list('history_type', 'task_id', 'created_at')
             else:
-                ordinary_refs = [
-                    ('task', task_id, modified_time)
-                    for task_id, modified_time in ordinary_queryset.values_list('id', 'modified_time')
-                ]
+                refs = ordinary_queryset.order_by().annotate(
+                    history_type=models.Value('task'), history_time=models.F('modified_time'),
+                ).values_list('history_type', 'id', 'history_time')
                 include_benchmark = not spec and simulation_type in ('all', 'benchmark')
-                execution_refs = [
-                    ('benchmark_execution', execution_id, created_at)
-                    for execution_id, created_at in SimcBenchmarkExecution.objects.filter(
-                        cases__task__user_id=request.user.id,
-                    ).distinct().values_list('id', 'created_at')
-                ] if include_benchmark else []
-            refs = ordinary_refs + execution_refs
-            # Stable page boundaries even when MySQL timestamps have identical precision.
-            refs.sort(
-                key=lambda item: (item[2], item[0] == 'benchmark_execution', item[1]),
-                reverse=True,
-            )
-            total = len(refs)
+                if include_benchmark:
+                    own_case = SimcBenchmarkCase.objects.filter(
+                        execution_id=models.OuterRef('pk'), task__user_id=request.user.id,
+                    )
+                    execution_refs = SimcBenchmarkExecution.objects.filter(
+                        models.Exists(own_case),
+                    ).order_by().annotate(
+                        history_type=models.Value('benchmark_execution'), history_time=models.F('created_at'),
+                    ).values_list('history_type', 'id', 'history_time')
+                    refs = refs.union(execution_refs, all=True)
+                # 同一时刻先排 Benchmark，同类型再按主键倒序。
+                refs = refs.order_by('-history_time', 'history_type', '-id')
+            total = refs.count()
             total_pages = (total + page_size - 1) // page_size
             offset = (page - 1) * page_size
-            page_refs = refs[offset:offset + page_size]
+            page_refs = list(refs[offset:offset + page_size]) if offset < total else []
 
             task_ids = [object_id for row_type, object_id, _created_at in page_refs if row_type == 'task']
             execution_ids = [
@@ -7218,10 +7214,12 @@ class SimcWorkbenchAPIView(View):
                 for version_id in (task.apl_version_id, task.talent_version_id)
                 if version_id
             }
+            title_fields = ('name', 'spec', 'talent', 'hero_talent_names')
             versions = {
-                version.id: version for version in SimcResourceVersion.objects.filter(
-                    id__in=version_ids,
-                ).only('id', 'resource_type', 'payload')
+                version_id: dict(zip(title_fields, values))
+                for version_id, *values in SimcResourceVersion.objects.filter(id__in=version_ids).values_list(
+                    'id', *[f'payload__{field}' for field in title_fields],
+                )
             }
             apl_ids = {task.apl_id for task in tasks.values() if task.apl_id}
             talent_ids = {task.talent_string_id for task in tasks.values() if task.talent_string_id}
@@ -7290,11 +7288,9 @@ class SimcWorkbenchAPIView(View):
             }
 
             frozen_title_rows = [
-                (task.id, versions[task.talent_version_id].payload, task.talent_string_id)
+                (task.id, versions[task.talent_version_id], task.talent_string_id)
                 for task in tasks.values()
-                if task.talent_version_id in versions
-                and isinstance(versions[task.talent_version_id].payload, dict)
-                and versions[task.talent_version_id].payload.get('name')
+                if versions.get(task.talent_version_id, {}).get('name')
             ]
             frozen_titles = dict(zip(
                 [row[0] for row in frozen_title_rows],
@@ -7316,10 +7312,8 @@ class SimcWorkbenchAPIView(View):
                     continue
                 task = tasks.get(object_id)
                 if task is not None:
-                    apl_version = versions.get(task.apl_version_id)
-                    talent_version = versions.get(task.talent_version_id)
-                    apl_payload = apl_version.payload if apl_version and isinstance(apl_version.payload, dict) else {}
-                    talent_payload = talent_version.payload if talent_version and isinstance(talent_version.payload, dict) else {}
+                    apl_payload = versions.get(task.apl_version_id, {})
+                    talent_payload = versions.get(task.talent_version_id, {})
                     params = task.simulation_params if isinstance(task.simulation_params, dict) else {}
                     fight_style = str(params.get('fight_style') or 'Patchwerk').strip()
                     target_count = params.get('desired_targets', 1)
