@@ -172,7 +172,7 @@
     $('raid-filters').hidden = tab !== 'raids';
     if (load && tab === 'runs' && state.catalog) {
       const ready = state.catalog.available.filter((r) => r.coordinate.module === 'runs' && r.coordinate.region === $('region').value);
-      if (!ready.some((r) => r.coordinate.level === $('level').value)) $('level').value = ready[0]?.coordinate.level || '10-12';
+      if (!ready.some((r) => r.coordinate.level === $('level').value)) $('level').value = ready[0]?.coordinate.level || state.catalog.levels[0]?.value;
     }
     rangeControls();
     updatePresentation();
@@ -501,8 +501,8 @@
       select($('season'), state.catalog.seasons.map((s) => ({ value: s.slug, label: s.name })), state.catalog.current_season);
       select($('region'), state.catalog.regions, selection.get('region') || 'cn');
       const requestedLevel = selection.get('level');
-      if (requestedLevel && !state.catalog.levels.some((row) => row.value === requestedLevel)) throw new Error('链接中的层数范围已停用，请使用10–12层、16层及以上或20层及以上。');
-      select($('level'), state.catalog.levels, requestedLevel || '10-12');
+      if (requestedLevel && !state.catalog.levels.some((row) => row.value === requestedLevel)) throw new Error(`链接中的层数范围已停用，请使用${state.catalog.levels.map((row) => row.label).join('、')}。`);
+      select($('level'), state.catalog.levels, requestedLevel || state.catalog.levels[0]?.value);
       select($('period'), state.catalog.periods, selection.get('period') || 'season');
       populateWeeks(selection);
       idFilters.forEach((key) => {

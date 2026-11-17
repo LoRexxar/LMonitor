@@ -95,7 +95,7 @@ class MonitorCommandAdmissionTests(TestCase):
         before = (task.last_scan_time, task.flag)
         queries = [{'dungeon': 'test-dungeon', 'include_classes': '8'}]
         expected = dict(season='season-cli', regions=['world'], modules=['heatmaps'],
-                        dungeons=['test-dungeon'], levels=['10-12'], periods=['last-reset'],
+                        dungeons=['test-dungeon'], levels=['10-plus'], periods=['last-reset'],
                         queries=queries, only_queries=True)
         with TemporaryDirectory() as directory:
             path = Path(directory) / 'queries.json'

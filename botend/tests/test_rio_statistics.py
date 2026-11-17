@@ -169,7 +169,7 @@ class RioStatisticsTests(SimpleTestCase):
         transport = Mock(return_value=self.response(GRID))
         collector = rio.Collector(transport=transport)
         keys = set()
-        for level, expected in [('10-12', (10, 12)), ('16-plus', (16, 99)), ('20-plus', (20, 99))]:
+        for level, expected in [('10-plus', (10, 99)), ('15-plus', (15, 99)), ('20-plus', (20, 99))]:
             with self.subTest(level=level):
                 coordinate = self.heat_coordinate(level=level)
                 keys.add(rio.key_for(coordinate))
@@ -177,9 +177,9 @@ class RioStatisticsTests(SimpleTestCase):
                 params = transport.call_args.kwargs['params']
                 self.assertEqual((params['minMythicLevel'], params['maxMythicLevel']), expected)
         self.assertEqual(len(keys), 3)
-        rio._publish(self.heat_coordinate(level='10-12'), {'num_runs': 10})
-        self.assertEqual(rio.read_entry(self.heat_coordinate(level='16-plus'))['snapshot']['state'], 'pending')
-        for invalid in ['all', '10-plus', 'level-12', 'level-30', '10-14', '25-plus', 'custom']:
+        rio._publish(self.heat_coordinate(level='10-plus'), {'num_runs': 10})
+        self.assertEqual(rio.read_entry(self.heat_coordinate(level='15-plus'))['snapshot']['state'], 'pending')
+        for invalid in ['all', '10-12', '16-plus', 'level-12', 'level-30', '10-14', '25-plus', 'custom']:
             with self.assertRaises(ValueError): self.heat_coordinate(level=invalid)
 
     def test_nightly_default_contains_exactly_three_ranges(self):
@@ -188,7 +188,7 @@ class RioStatisticsTests(SimpleTestCase):
             result = rio.Collector(transport=transport).run(modules=['heatmaps'], regions=['cn'], periods=['season'])
         pairs = {(call.kwargs['params']['minMythicLevel'], call.kwargs['params']['maxMythicLevel'])
                  for call in transport.call_args_list}
-        self.assertEqual(pairs, {(10, 12), (16, 99), (20, 99)})
+        self.assertEqual(pairs, {(10, 99), (15, 99), (20, 99)})
         self.assertEqual(result['remaining'], 0)
         self.assertEqual(result['ready'], 12)
 

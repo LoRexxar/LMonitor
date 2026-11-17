@@ -1,4 +1,4 @@
-"""完成记录聚合响应的严格导入，不自动抓取未公开统计端点。"""
+"""Raider.IO 网站统计接口与手动导入共用的完成记录严格校验。"""
 import hashlib
 import json
 from datetime import timedelta
@@ -18,7 +18,23 @@ class RetiredLevel(ValueError):
     """历史导入属于已停用层数，无需重复处理。"""
 
 
-def normalize_runs(source, meta):
+def request_parameters(c, meta):
+    """网站公开统计页使用的内部接口；不是公开 v1 稳定 API。"""
+    from botend.services.rio_statistics import LEVELS
+    weeks = week_options(meta, c['region'])
+    if not weeks:
+        raise ValueError('赛季周资料尚未就绪')
+    low, high = LEVELS[c['level']][:2]
+    params = {'season': c['season'], 'type': 'runs-over-time', 'groupBy': 'period',
+              'minMythicLevel': low, 'maxMythicLevel': high,
+              'seasonWeekStart': 1, 'seasonWeekEnd': len(weeks), 'version': 4,
+              'force': 'false'}
+    if c['region'] != 'world':
+        params['region'] = c['region']
+    return params
+
+
+def normalize_runs(source, meta, *, expected_coordinate=None, expected_coverage=None):
     from botend.services.rio_statistics import LEVELS, coordinate, _stamp, number
     if not isinstance(source, dict) or source.get('type') != 'runs-over-time':
         raise ValueError('不是完成记录统计响应')
@@ -38,21 +54,28 @@ def normalize_runs(source, meta):
     if (not isinstance(query, dict) or set(query) - allowed or query.get('type') != 'runs-over-time'
             or query.get('groupBy') != 'period' or query.get('uniqueCharacters') is not False
             or query.get('timedOnly') is not False or query.get('version') != 4
-            or query.get('season') != meta.get('current_season')):
+            or query.get('season') != meta.get('current_season')
+            or ('force' in query and query['force'] is not False)
+            or ('viewTypePosition' in query and query['viewTypePosition'] != 'enemy_position')):
         raise ValueError('来源分组、去重或统计版本与完成记录口径不符')
     low = integer(query.get('minMythicLevel'), 2, 99)
     high = integer(query.get('maxMythicLevel'), low, 99)
     level = next((key for key, value in LEVELS.items() if value[:2] == (low, high)), 'custom')
     if level == 'custom':
         raise RetiredLevel('完成记录层数范围已停用')
-    params = {'season': query.get('season'), 'region': query.get('region') or 'world',
+    # Global requests omit region; an explicit empty/null region is not global.
+    params = {'season': query.get('season'), 'region': query.get('region', 'world'),
               'level': level, 'min_level': low, 'max_level': high}
     c = coordinate('runs', params, meta=meta)
+    if expected_coordinate is not None and c != expected_coordinate:
+        raise ValueError('来源完成记录坐标与请求不一致')
     weeks = week_options(meta, c['region'])
     if not weeks:
         raise ValueError('赛季周资料尚未就绪')
     first_week = integer(query.get('seasonWeekStart'), 1, len(weeks))
     last_week = integer(query.get('seasonWeekEnd'), first_week, len(weeks))
+    if expected_coverage is not None and (first_week, last_week) != expected_coverage:
+        raise ValueError('来源完成记录周窗口与请求不一致')
     by_period = {w['period']: w for w in weeks[first_week - 1:last_week]}
     rows = []
     seen = set()

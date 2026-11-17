@@ -11,7 +11,7 @@ from botend.services.rio_statistics_storage import StorageError
 
 
 def check_health(*, deep=False, initialize=False, backup=False):
-    from botend.services.rio_statistics import store, root, catalog, _stamp, _load
+    from botend.services.rio_statistics import store, root, catalog, _stamp, _load, REGIONS, LEVELS, key_for, freshness_window
     cache = store()
     if initialize:
         cache.ensure()
@@ -72,9 +72,25 @@ def check_health(*, deep=False, initialize=False, backup=False):
     if report['disk_bytes'] >= report['maximum_bytes'] or report['free_bytes'] < report['minimum_free_bytes']:
         issues.append('缓存容量或可用磁盘空间不足')
     report['cooldown_until'] = _load(root() / 'cooldown.json', {}).get('until')
-    report['runs_source_mode'] = 'file-import'
-    report['runs_source_note'] = '完成记录只维护导入响应；自动获取上游统计的来源尚未配置'
-    issues.append('完成记录尚未配置自动上游来源，无法保证每日产生新统计')
+    report['runs_source_mode'] = 'raiderio-statistics'
+    report['runs_source_note'] = '每日采集 Raider.IO 网站统计接口（非公开 v1 稳定 API），同时保留文件导入'
+    if scope:
+        coverage = {'expected': len(REGIONS) * len(LEVELS), 'ready': 0, 'missing': 0, 'stale': 0, 'failed': 0}
+        entries = cache.index()['entries']
+        now = timezone.now()
+        invalid = set(report.get('invalid_payloads', []))
+        for region in REGIONS:
+            for level in LEVELS:
+                c = {'module': 'runs', 'season': scope['rio_season'], 'region': region, 'scope': scope['token'], 'level': level}
+                key = key_for(c)
+                entry = entries.get(key, {})
+                fetched = _stamp(entry.get('fetched_at'))
+                state = ('failed' if entry.get('error') or key in invalid else 'missing' if not fetched
+                         else 'stale' if now - fetched > freshness_window(c) else 'ready')
+                coverage[state] += 1
+        report['runs_coverage'] = coverage
+        if coverage['ready'] != coverage['expected']:
+            issues.append('完成记录自动采集覆盖未齐：缺失{missing}、失败{failed}、过期{stale}（共{expected}个范围）'.format(**coverage))
     report['issues'] = issues
     broken = report['state'] == 'error' or report.get('views', {}).get('state') == 'error'
     report['status'] = 'ok' if not issues else 'error' if broken else 'warning'
