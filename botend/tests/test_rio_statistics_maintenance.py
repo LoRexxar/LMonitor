@@ -164,18 +164,43 @@ class RioStorageMaintenanceTests(SimpleTestCase):
 
     def test_pending_import_cannot_be_reported_complete(self):
         with patch('botend.services.rio_statistics_runs.import_feeds', return_value={'imported': 0, 'failed': 0, 'pending': 1}):
-            result = rio.Collector(transport=Mock()).run(modules=['runs'], regions=['cn'])
+            result = rio.Collector(transport=Mock()).run(modules=['runs'], regions=['cn'], only_queries=True)
         self.assertEqual((result['state'], result['runs_pending']), ('partial', 1))
 
-    def test_missing_automatic_run_source_is_explicit_health_warning(self):
+    def test_automatic_run_source_reports_actual_missing_coverage(self):
         from botend.services.rio_statistics_health import check_health
         with patch('botend.services.rio_statistics_health.active_scope', return_value=self.scope):
             result = check_health(deep=True, initialize=True, backup=True)
         self.assertEqual(result['state'], 'ok')
         self.assertEqual(result['status'], 'warning')
-        self.assertEqual(result['runs_source_mode'], 'file-import')
-        self.assertIn('完成记录尚未配置自动上游来源，无法保证每日产生新统计', result['issues'])
+        self.assertEqual(result['runs_source_mode'], 'raiderio-statistics')
+        self.assertEqual(result['runs_coverage'], {'expected': 18, 'ready': 0, 'missing': 18, 'stale': 0, 'failed': 0})
+        self.assertIn('完成记录自动采集覆盖未齐：缺失18、失败0、过期0（共18个范围）', result['issues'])
         self.assertIsNone(result['last_nightly'])
+
+    def test_complete_run_coverage_does_not_warn_about_missing_automatic_source(self):
+        from botend.services.rio_statistics_health import check_health
+        for region in rio.REGIONS:
+            for level in rio.LEVELS:
+                c = rio.coordinate('runs', {'region': region, 'level': level}, meta=self.meta)
+                rio._publish(c, {'rows': [], 'source_kind': 'raiderio-statistics'})
+        with patch('botend.services.rio_statistics_health.active_scope', return_value=self.scope):
+            result = check_health(deep=True)
+        self.assertEqual(result['runs_coverage'], {'expected': 18, 'ready': 18, 'missing': 0, 'stale': 0, 'failed': 0})
+        self.assertFalse(any('完成记录' in issue for issue in result['issues']))
+
+    def test_run_health_distinguishes_failed_stale_and_other_scope_entries(self):
+        from botend.services.rio_statistics_health import check_health
+        old = timezone.now() - timedelta(hours=37)
+        c = rio.coordinate('runs', {'region': 'cn'}, meta=self.meta)
+        with patch.object(rio.timezone, 'now', return_value=old):
+            rio._publish(c, {'rows': []})
+        failed = rio.coordinate('runs', {'region': 'eu'}, meta=self.meta)
+        rio._failure(failed, '来源仍在生成')
+        rio._publish(dict(c, scope='b' * 64), {'rows': []})
+        with patch('botend.services.rio_statistics_health.active_scope', return_value=self.scope):
+            result = check_health(deep=True)
+        self.assertEqual(result['runs_coverage'], {'expected': 18, 'ready': 0, 'missing': 16, 'stale': 1, 'failed': 1})
 
     def test_persistent_connection_failure_opens_circuit_instead_of_exhausting_budget(self):
         import requests

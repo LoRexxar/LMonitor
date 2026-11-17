@@ -337,7 +337,7 @@ class SnapshotStore:
             raise StorageError('统计缓存空间不足，已停止写入并保留有效数据')
         self._size_check[2] += incoming
 
-    def publish(self, coordinate, payload, *, fetched_at, upstream_at, next_at, newer_only=False):
+    def publish(self, coordinate, payload, *, fetched_at, upstream_at, next_at, newer_only=False, refresh_equal=False):
         self.ensure()
         body = {'schema': SCHEMA, 'coordinate': coordinate, 'fetched_at': fetched_at, 'upstream_at': upstream_at, 'data': payload}
         blob, digest, size = self._pack(body)
@@ -349,7 +349,9 @@ class SnapshotStore:
             try:
                 old = db.execute('SELECT * FROM snapshots WHERE key=?', (key,)).fetchone()
                 stamp = epoch(upstream_at)
-                if newer_only and old and old['upstream_epoch'] is not None and (stamp is None or stamp <= old['upstream_epoch']):
+                if (newer_only and old and old['upstream_epoch'] is not None
+                        and (stamp is None or stamp < old['upstream_epoch']
+                             or (stamp == old['upstream_epoch'] and not refresh_equal))):
                     repair = False
                     if stamp == old['upstream_epoch']:
                         try:

@@ -141,7 +141,7 @@ def read_entry(coordinate, *, meta=None):
     }}
 
 
-def _publish(coordinate, payload, *, upstream_at=None, newer_only=False):
+def _publish(coordinate, payload, *, upstream_at=None, newer_only=False, refresh_equal=False):
     next_at = _next_daily()
     if coordinate.get('module') == 'heatmaps' and coordinate.get('period') == 'last-reset':
         try:
@@ -152,7 +152,7 @@ def _publish(coordinate, payload, *, upstream_at=None, newer_only=False):
         if previous and previous.get('data') == payload and not entry.get('error'):
             next_at = (timezone.now() + timedelta(days=3)).isoformat()
     return store().publish(coordinate, payload, fetched_at=_now(), upstream_at=upstream_at,
-                           next_at=next_at, newer_only=newer_only)
+                           next_at=next_at, newer_only=newer_only, refresh_equal=refresh_equal)
 
 
 def _failure(coordinate, message):
@@ -488,6 +488,14 @@ class Collector:
             _write(root() / 'catalog.json', meta)
 
     def fetch(self, c, meta):
+        if c['module'] == 'runs':
+            from botend.services.rio_statistics_runs import request_parameters, normalize_runs
+            params = request_parameters(c, meta)
+            data = self.get('/api/statistics/get-data', params)
+            _, payload, stamp = normalize_runs(data, meta, expected_coordinate=c,
+                expected_coverage=(params['seasonWeekStart'], params['seasonWeekEnd']))
+            payload['source_kind'] = 'raiderio-statistics'
+            return payload, stamp
         if c['module'] == 'overview':
             data = self.get('/api/v1/mythic-plus/cutoff-analysis/summary', {'season': c['season'], 'region': c['region']})
             return normalize_overview(data, c['season'], c['region']), data.get('updatedAt')
@@ -629,6 +637,11 @@ class Collector:
         if dungeons and not set(dungeons) <= {d['slug'] for d in season_row['dungeons']}:
             raise ValueError('副本不属于该赛季')
         tasks = []
+        # 夜间完成记录覆盖全部公开地区；不扩大其它模块原有地区计划。
+        if 'runs' in modules and not only_queries:
+            for region in (tuple(REGIONS) if self.maintain else regions):
+                for level in levels:
+                    tasks.append(coordinate('runs', {'season': season, 'region': region, 'level': level}, meta=meta))
         for region in (() if only_queries else regions):
             if 'overview' in modules:
                 tasks.append(coordinate('overview', {'season': season, 'region': region}, meta=meta))
@@ -710,7 +723,13 @@ class Collector:
             try:
                 payload, stamp = self.fetch(c, meta)
                 self.guard_scope()
-                _publish(c, payload, upstream_at=stamp)
+                if c['module'] == 'runs':
+                    # Revalidate an unchanged ready aggregate daily, but never
+                    # replace a newer imported/collected aggregate with an old one.
+                    if not _publish(c, payload, upstream_at=stamp, newer_only=True, refresh_equal=True):
+                        raise ValueError('来源完成记录聚合时间早于已保存数据')
+                else:
+                    _publish(c, payload, upstream_at=stamp)
                 self._view_keys.add(key_for(c))
                 ready += 1
                 consecutive_errors = 0
