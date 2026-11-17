@@ -12,8 +12,8 @@ from django.core.exceptions import ValidationError
 from django.core.cache import cache
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import BooleanField, Case, Count, Func, JSONField, Max, OuterRef, Q, Subquery, Value, When
-from django.db.models.fields.json import KeyTransform
+from django.db.models import BooleanField, Case, Count, F, Func, JSONField, Max, OuterRef, Q, Subquery, Value, When
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone
 
 from botend.constants.wow import CLASS_CN, SPEC_CN, canonical_class_spec
@@ -88,8 +88,12 @@ def source_kind(row):
     has_manual = row.summary_has_manual if hasattr(row, 'summary_has_manual') else bool(row.manual_json)
     if has_manual:
         return 'manual'
-    metadata = row.result_json.get('metadata', {}) if isinstance(row.result_json, dict) else {}
-    return 'local_deterministic' if metadata.get('source_kind') == 'local_deterministic' else 'ai'
+    if hasattr(row, 'summary_result_source'):
+        source = row.summary_result_source
+    else:
+        metadata = row.result_json.get('metadata', {}) if isinstance(row.result_json, dict) else {}
+        source = metadata.get('source_kind') if isinstance(metadata, dict) else None
+    return 'local_deterministic' if source == 'local_deterministic' else 'ai'
 
 
 def _date(value):
@@ -127,7 +131,8 @@ def _base_query():
 
 
 def _result_hash(row):
-    return hashlib.sha256(json.dumps(row.result_json, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+    result = row.summary_review_result if hasattr(row, 'summary_review_result') else row.result_json
+    return hashlib.sha256(json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
 def _common(row):
@@ -302,13 +307,20 @@ def list_analyses(params):
     # Deliberately do NOT call _detail/frozen_ai/build_evidence on list pages.
     page, page_size = _page(params)
     tag = _text(params.get('tag', ''), 'tag', 200)  # Exact label, not a substring or trimmed alias.
-    query = _base_query().defer('evidence_json', 'manual_json').annotate(
+    query = _base_query().defer('evidence_json', 'manual_json', 'result_json').annotate(
         summary_has_manual=Case(When(manual_json={}, then=Value(False)), default=Value(True), output_field=BooleanField()),
         summary_manual_labels=_ManualTagColumn('label'),
         summary_manual_values=_ManualTagColumn('value'),
         summary_strengths=KeyTransform('evidence_strengths', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json'))),
         summary_labels=KeyTransform('eligible_labels', 'evidence_json'),
-        summary_observations=KeyTransform('observations', 'result_json'))
+        summary_observations=KeyTransform('observations', 'result_json'),
+        summary_result_source=KeyTextTransform.from_lookup('result_json__metadata__source_kind'),
+        # 只有仍可能匹配的人工复核需要完整结果来校验原始摘要。
+        summary_review_result=Case(
+            When(reviewed_at__isnull=False, reviewed_evidence_hash=F('evidence_hash'), then=F('result_json')),
+            default=Value(None), output_field=JSONField(),
+        ),
+    )
     q = _text(params.get('q', ''), 'q', 200).strip()
     if q:
         condition = (Q(player__character_name__icontains=q) | Q(player__realm__icontains=q)

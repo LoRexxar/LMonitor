@@ -64,8 +64,10 @@ class PlayerAnalysisManagementTests(TestCase):
         row.save()
         detail = service.update_analysis(row.pk, {'revision': row.revision, 'review_status': 'approved'}, self.user)
         self.assertTrue(detail['review_matches_ai'])
+        self.assertTrue(service.list_analyses({})['items'][0]['review_matches_ai'])
         PlayerObservationAnalysis.objects.filter(pk=row.pk).update(result_json={'observations': [], 'conclusion_id': 'changed'})
         self.assertFalse(service.get_analysis(row.pk)['review_matches_ai'])
+        self.assertFalse(service.list_analyses({})['items'][0]['review_matches_ai'])
         detail = service.update_analysis(row.pk, {'revision': detail['revision'], 'review_status': 'approved'}, self.user)
         self.assertTrue(detail['review_matches_ai'])
         self.assertEqual(len(detail['reviewed_result_hash']), 64)
@@ -131,7 +133,7 @@ class PlayerAnalysisManagementTests(TestCase):
         for sql in selects:
             self.assertNotIn('gear_json', sql)
             # JSON path extraction is allowed; selecting the full frozen blob is not.
-            self.assertNotRegex(sql, r'(?:SELECT\s+|,\s*)["`]wow_player_observation_analysis["`]\.["`]evidence_json["`](?:\s*,|\s+FROM)')
+            self.assertNotRegex(sql, r'(?:SELECT\s+|,\s*)["`]wow_player_observation_analysis["`]\.["`](?:evidence|result)_json["`](?:\s*,|\s+FROM)')
         self.assertLessEqual(len(selects), 4)
         self.assertEqual(service.list_analyses({'q': str(row.pk)})['total'], 1)
         self.assertEqual(service.list_analyses({'q': 'test-realm'})['total'], 1)

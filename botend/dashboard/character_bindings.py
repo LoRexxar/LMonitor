@@ -18,7 +18,11 @@ from botend.services import character_bindings as service
 
 
 def _rows(queryset):
-    rows = list(queryset.select_related('player', 'user'))
+    rows = list(queryset.select_related('player', 'user').only(
+        'id', 'character_name', 'region', 'realm_slug', 'is_active', 'user__username',
+        'player__id', 'player__class_name', 'player__spec_name', 'player__realm',
+        'player__avatar_url', 'player__item_level', 'player__score', 'player__last_updated',
+    ))
     for row in rows:
         row.detail_url = service.detail_url(row)
         player = row.player
