@@ -3,7 +3,7 @@ import re
 from urllib.parse import urlsplit
 from django.core.paginator import Paginator
 from django.db.models import BigIntegerField, Case, CharField, Count, Exists, F, IntegerField, Max, Min, OuterRef, Q, Value, When
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast, Coalesce, NullIf
 from django.http import JsonResponse
 from django.views import View
@@ -95,18 +95,32 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
         return JsonResponse({'success': True, 'resource': resource, 'branch': branch, **result})
 
     def items(self, params, branch, identity):
-        variants = WowItemVariantSnapshot.objects.annotate(_branch=Coalesce(
+        season = number(params, 'season')
+        variants = WowItemVariantSnapshot.objects.alias(_branch=Coalesce(
             NullIf(KeyTextTransform('data_branch', 'metadata'), Value(''), output_field=CharField()),
             Case(When(metadata__ptr_preview=True, then=Value('ptr')), default=F('data_branch'), output_field=CharField()),
             output_field=CharField()
-        )).filter(_branch=branch, batch_key=F('season__gear_batch_key')).annotate(_quality=Coalesce(
+        )).filter(_branch=branch)
+        variant_quality = Coalesce(
             Cast(KeyTextTransform.from_lookup('metadata__difficulty_drop__quality'), IntegerField()),
             Cast(KeyTextTransform('quality', KeyTextTransform(branch,
                 KeyTextTransform('branch_display', 'item__metadata'))), IntegerField()),
-            F('item__quality'), output_field=IntegerField()))
-        season = number(params, 'season')
-        if season:
-            variants = variants.filter(season_id=season)
+            F('item__quality'), output_field=IntegerField())
+        if identity is not None:
+            variants = variants.filter(batch_key=F('season__gear_batch_key'))
+            if season:
+                variants = variants.filter(season_id=season)
+        else:
+            seasons = list(SeasonMeta.objects.order_by('-pk').values_list('pk', 'gear_batch_key', 'season_name'))
+            # 先固定活动批次，再按现有 (season, batch_key, ...) 索引定界。
+            season_ids_by_batch = {}
+            for season_id, batch_key, _ in seasons:
+                if not season or season_id == season:
+                    season_ids_by_batch.setdefault(batch_key, []).append(season_id)
+            active_batches = Q(pk__in=[])
+            for batch_key, season_ids in season_ids_by_batch.items():
+                active_batches |= Q(batch_key=batch_key, season_id__in=season_ids)
+            variants = variants.filter(active_batches)
         for field in ('variant_type', 'upgrade_track'):
             if params.get(field):
                 variants = variants.filter(**{field: params[field]})
@@ -119,8 +133,12 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
             variants = variants.filter(item_level__lte=high)
         quality = number(params, 'quality', maximum=7)
         if quality is not None:
-            variants = variants.filter(_quality=quality)
-        rows = WowItemSnapshot.objects.annotate(_has_variant=Exists(variants.filter(item_id=OuterRef('pk'))))
+            variants = variants.alias(_quality=variant_quality).filter(_quality=quality)
+        rows = WowItemSnapshot.objects.all()
+        if identity is not None:
+            rows = rows.filter(Exists(variants.filter(item_id=OuterRef('pk'))))
+        else:
+            rows = rows.filter(pk__in=variants.order_by().values('item_id'))
         fields = {'_name': ('name', CharField()), '_name_zh': ('name_zh', CharField()),
                   '_slot': ('slot_key', CharField())}
         for alias, (field, output) in fields.items():
@@ -128,8 +146,7 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
             # Cast the completed fallback, not just its JSON arm: MySQL can
             # otherwise give COALESCE mixed implicit collations (NONE), which
             # fails in LIKE, slot equality and the language REGEXP filters.
-            rows = rows.annotate(**{alias: Cast(Coalesce(path, F(field), output_field=output), output)})
-        rows = rows.filter(_has_variant=True)
+            rows = rows.alias(**{alias: Cast(Coalesce(path, F(field), output_field=output), output)})
         if params.get('slot'):
             rows = rows.filter(_slot=params['slot'])
         rows = localized_filter(rows, '_name_zh', params.get('language', ''))
@@ -143,7 +160,8 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
             item = rows.filter(item_id=identity).first()
             if not item:
                 return None
-            selected, pagination = page_rows(variants.filter(item=item).select_related('season').order_by('-item_level', 'pk'), params)
+            selected, pagination = page_rows(variants.filter(item=item).annotate(
+                _quality=variant_quality).select_related('season').order_by('-item_level', 'pk'), params)
             display = branch_item(item, branch)
             result = self.item_summary(display)
             effects, status = resolve_effects(item, branch=branch, allow_reference=True)
@@ -163,10 +181,14 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
                     'source_build': row.game_build, 'updated_at': row.updated_at.isoformat()})
             return {'record': result, 'entries': entries, 'pagination': pagination}
         selected, pagination = page_rows(rows.only(
-            'id', 'item_id', 'name', 'name_zh', 'slot_key', 'quality', 'icon', 'source', 'metadata',
+            'id', 'item_id', 'name', 'name_zh', 'slot_key', 'quality', 'icon', 'source',
+        ).annotate(
+            branch_display=KeyTransform(branch, KeyTransform('branch_display', 'metadata')),
+            icon_asset=KeyTransform('icon', KeyTransform('display_facts', 'metadata')),
         ).order_by('item_id'), params)
         counts = {}
-        for row in variants.filter(item_id__in=[item.pk for item in selected]).order_by().values('item_id', '_quality').annotate(
+        for row in variants.filter(item_id__in=[item.pk for item in selected]).annotate(
+                _quality=variant_quality).order_by().values('item_id', '_quality').annotate(
                 count=Count('pk'), minimum=Min('item_level'), maximum=Max('item_level')):
             bucket = counts.setdefault(row['item_id'], {'count': 0, 'minimum': row['minimum'], 'maximum': row['maximum'], 'qualities': []})
             bucket['count'] += row['count']
@@ -175,13 +197,16 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
             bucket['qualities'].append(QUALITY_CN.get(row['_quality'], '未知'))
         records = []
         for item in selected:
+            # 复用详情的分支名称和图标规则，只提供两个需要的元数据分支。
+            item.metadata = {'branch_display': {branch: item.branch_display},
+                             'display_facts': {'icon': item.icon_asset}}
             record = self.item_summary(branch_item(item, branch))
             record.update({key: value for key, value in counts.get(item.pk, {}).items() if key != 'item_id'})
             record['quality'] = ' / '.join(sorted(set(record.pop('qualities', [])))) or record['quality']
             record['id'] = item.item_id
             records.append(record)
         return {'records': records, 'pagination': pagination, 'facets': {
-            'seasons': [{'value': str(row.pk), 'label': row.season_name} for row in SeasonMeta.objects.exclude(gear_batch_key='').order_by('-pk')],
+            'seasons': [{'value': str(pk), 'label': name} for pk, batch_key, name in seasons if batch_key],
             'slots': options(SLOTS), 'qualities': options({key: QUALITY_CN[key] for key in range(8)}),
             'types': options(dict(WowItemVariantSnapshot.TYPE_CHOICES)), 'tracks': options(TRACKS)}}
 

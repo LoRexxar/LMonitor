@@ -89,6 +89,24 @@ class CentralDataTests(TestCase):
         self.assertEqual(self.query(quality=0)['pagination']['total'], 0)
         self.assertEqual(self.query(q='Test Sword')['pagination']['total'], 1)
 
+    def test_item_count_uses_active_batch_membership_without_correlated_variant_checks(self):
+        other = SeasonMeta.objects.create(season_key='other-query-test', season_name='另一赛季',
+            mplus_zone_id=3, raid_zone_id=4, gear_batch_key='other')
+        hidden = WowItemSnapshot.objects.create(item_id=990002, name_zh='历史物品')
+        for item, season, batch in ((self.item, other, 'other'), (hidden, other, 'current')):
+            WowItemVariantSnapshot.objects.create(item=item, season=season, batch_key=batch,
+                variant_key=batch, variant_type='drop_equipment', item_level=135)
+        with CaptureQueriesContext(connection) as queries:
+            payload = self.query()
+        count_sql = next(query['sql'] for query in queries
+                         if 'COUNT(' in query['sql'] and 'wow_item_snapshot' in query['sql'])
+        self.assertEqual([item['id'] for item in payload['records']], [self.item.item_id])
+        self.assertEqual(payload['records'][0]['count'], 3)
+        self.assertEqual(self.query(season=other.pk)['records'][0]['count'], 1)
+        self.assertIn(' IN (SELECT ', count_sql)
+        self.assertNotIn('EXISTS', count_sql)
+        self.assertNotIn('JOIN', count_sql)
+
     def test_item_detail_and_missing_identity(self):
         result = self.query(id=990001, branch='ptr')
         self.assertEqual(result['record']['name'], '测试长剑')
