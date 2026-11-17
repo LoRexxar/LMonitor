@@ -150,7 +150,7 @@ class RioStorageMaintenanceTests(SimpleTestCase):
 
     def test_completed_statistics_with_unfinished_maps_is_partial(self):
         result = rio.Collector(max_requests=4, transport=Mock(return_value=self.response(fixtures.GRID))).run(
-            modules=['heatmaps'], regions=['cn'], levels=['10-12'], periods=['season'])
+            modules=['heatmaps'], regions=['cn'], levels=['10-plus'], periods=['season'])
         self.assertEqual(result['remaining'], 0)
         self.assertEqual(result['maps_remaining'], 1)
         self.assertEqual(result['state'], 'partial')

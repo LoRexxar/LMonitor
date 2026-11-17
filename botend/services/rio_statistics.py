@@ -30,8 +30,8 @@ from botend.services.rio_statistics_storage import SnapshotStore, StorageError
 
 logger = logging.getLogger(__name__)
 REGIONS = {'cn': '国服', 'world': '全球', 'us': '美服', 'eu': '欧服', 'kr': '韩服', 'tw': '台服'}
-LEVELS = {'10-12': (10, 12, '10–12 层'),
-          '16-plus': (16, 99, '16 层及以上'),
+LEVELS = {'10-plus': (10, 99, '10 层及以上'),
+          '15-plus': (15, 99, '15 层及以上'),
           '20-plus': (20, 99, '20 层及以上')}
 DEFAULT_LEVELS = tuple(LEVELS)
 DAILY_REQUEST_BUDGET = 6000
@@ -282,10 +282,10 @@ def supported_coordinate(c):
     return c.get('module') not in ('heatmaps', 'runs') or c.get('level') in LEVELS
 
 
-def _add_level(result, params, default='10-12'):
+def _add_level(result, params, default=DEFAULT_LEVELS[0]):
     level = params.get('level', default)
     if level not in LEVELS:
-        raise ValueError('仅支持10–12层、16层及以上、20层及以上')
+        raise ValueError('层数范围已停用或不受支持，仅支持10层及以上、15层及以上、20层及以上')
     if 'min_level' in params or 'max_level' in params:
         low = integer(params.get('min_level', ''), 2, 99)
         high = integer(params.get('max_level', ''), low, 99)
@@ -323,9 +323,9 @@ def coordinate(module, params, *, meta=None):
             raise ValueError('存在不支持的筛选字段')
         season_row = next(r for r in data['seasons'] if r['slug'] == season)
         dungeon = params.get('dungeon', '')
-        layer, level, period = params.get('layer', 'player_death'), params.get('level', '10-12'), params.get('period', 'season')
+        layer, level, period = params.get('layer', 'player_death'), params.get('level', DEFAULT_LEVELS[0]), params.get('period', 'season')
         zero = params.get('zero', '0')
-        if (dungeon not in {r['slug'] for r in season_row['dungeons']} or layer not in LAYERS or level not in LEVELS
+        if (dungeon not in {r['slug'] for r in season_row['dungeons']} or layer not in LAYERS
                 or period not in PERIODS or str(zero) not in ('0', '1') or (str(zero) == '1' and layer == 'player_death')):
             raise ValueError('热力图筛选范围无效')
         result.update(dungeon=dungeon, layer=layer, level=level, period=period, zero=str(zero))
@@ -681,7 +681,7 @@ class Collector:
         # 总览优先；其余同一模块先处理未尝试组合，避免单一坏组合饿死其他范围。
         tasks.sort(key=lambda c: (c['module'] != 'overview', key_for(c) not in subscribed_keys,
                                   MODULES.index(c['module']), bool(manifest.get(key_for(c), {}).get('attempted_at')),
-                                  c.get('level') != '10-12', c.get('period') != 'season', c['region'] != 'cn',
+                                  c.get('level') != DEFAULT_LEVELS[0], c.get('period') != 'season', c['region'] != 'cn',
                                   manifest.get(key_for(c), {}).get('attempted_at', '')))
         ready = failed = 0
         consecutive_errors = 0

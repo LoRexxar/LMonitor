@@ -5,7 +5,7 @@ const {readSource} = require('./vm_harness');
 
 // Unit-only DOM doubles; layout, authentication and actual payloads are verified
 // separately in Playwright against the deployed page.
-function setup() {
+function setup(search = '') {
   const nodes = new Map(), urls = [], requests = [];
   function node() {
     return {textContent: '', value: '', hidden: false, disabled: false,
@@ -23,7 +23,7 @@ function setup() {
   const context = vm.createContext({
     document: {getElementById: id => get(id.replace(/^rio-/, '')),
       querySelectorAll: () => [], documentElement: {}, createElement: node, createElementNS: node},
-    location: {search: '', pathname: '/portal/rio-statistics/'},
+    location: {search, pathname: '/portal/rio-statistics/'},
     history: {replaceState(_state, _title, url) { urls.push(url); }}, URLSearchParams, AbortController,
     MutationObserver: class { observe() {} },
     window: {addEventListener() {}}, setInterval() {},
@@ -33,21 +33,45 @@ function setup() {
   const marker = '  bootstrap();\n})();';
   assert.equal(source.split(marker).length, 2, 'instrument only the initial bootstrap call');
   vm.runInContext(source.replace(marker,
-    '  globalThis.unit = {state, updatePresentation, setTab, updateUrl, renderOverview, refresh, fitFilters: () => fitFilters(), viewQuery: () => viewQuery()};\n})();'), context);
+    '  globalThis.unit = {state, bootstrap, updatePresentation, setTab, updateUrl, renderOverview, refresh, fitFilters: () => fitFilters(), viewQuery: () => viewQuery()};\n})();'), context);
   const select = (name, value, text) => {
     Object.assign(get(name), {value, selectedOptions: [{value, textContent: text}], options: [{value, textContent: text}]});
   };
   select('season', 'unit-season', '测试赛季'); select('region', 'cn', '国服');
   select('days', '30', '最近 30 天'); select('percentile', '1', '前 1%');
-  select('dungeon', 'test-dungeon', '测试副本'); select('level', '10-12', '10–12层');
+  select('dungeon', 'test-dungeon', '测试副本'); select('level', '10-plus', '10层及以上');
   select('period', 'season', '赛季累计'); select('raid', 'test-raid', '测试团本');
   select('difficulty', 'mythic', '史诗'); get('opacity').value = '80';
-  context.unit.state.catalog = {availability: {complete_list: false, modules: {runs: 0}}, available: [], levels: [{value: '10-12', min: 10, max: 12}, {value: '16-plus', min: 16, max: 99}, {value: '20-plus', min: 20, max: 99}], weeks: {cn: []}};
+  context.unit.state.catalog = {availability: {complete_list: false, modules: {runs: 0}}, available: [], levels: [{value: '10-plus', label: '10层及以上', min: 10, max: 99}, {value: '15-plus', label: '15层及以上', min: 15, max: 99}, {value: '20-plus', label: '20层及以上', min: 20, max: 99}], weeks: {cn: []}};
   return {...context.unit, get, select, urls, requests, setWidth: value => { context.window.innerWidth = value; },
     setApplied: query => { context.unit.state.appliedQuery = new URLSearchParams(query); context.unit.state.appliedTab = context.unit.state.tab; },
     respondWith: fn => { context.fetch = (...args) => { requests.push(args); return fn(...args); }; }};
 }
 
+test('bootstrap defaults to the first shared backend range without a frontend level list', async () => {
+  const h = setup('?tab=runs');
+  h.select('level', '', '');
+  const catalog = {...h.state.catalog, seasons: [], current_season: '', regions: [{value: 'cn', label: '国服'}],
+    periods: [], raids: [], classes: [], specs: []};
+  h.respondWith(async () => ({ok: true, json: async () => ({success: true, data: catalog})}));
+  await h.bootstrap();
+  assert.equal(h.get('level').value, '10-plus');
+  assert.equal(h.get('status').textContent, '当前赛季尚未就绪');
+  assert.equal(h.requests.length, 1, 'only the catalog is read');
+});
+test('retired links stop before requesting replacement data in both modules', async () => {
+  for (const tab of ['heatmaps', 'runs']) {
+    for (const level of ['10-12', '16-plus']) {
+      const h = setup(`?tab=${tab}&level=${level}`);
+      const catalog = {...h.state.catalog, seasons: [], regions: [{value: 'cn', label: '国服'}]};
+      h.respondWith(async () => ({ok: true, json: async () => ({success: true, data: catalog})}));
+      await h.bootstrap();
+      assert.match(h.get('error-message').textContent, /层数范围已停用.*10层及以上.*15层及以上.*20层及以上/);
+      assert.equal(h.requests.length, 1, 'a retired link must not silently request new range data');
+      assert.equal(h.urls.length, 0, 'do not rewrite the retired link');
+    }
+  }
+});
 test('native filters collapse on mobile but preserve user opening within the breakpoint', () => {
   const h = setup();
   h.setWidth(390); h.fitFilters(); assert.equal(h.get('filter-disclosure').open, false);
@@ -86,11 +110,11 @@ test('heatmap tells density from probability and updates layer explanation', () 
 });
 test('固定层数与自选周次显示可读范围', () => {
   const h = setup(); h.state.tab = 'heatmaps';
-  h.select('level', '10-12', '10–12层');
+  h.select('level', '10-plus', '10层及以上');
   h.select('period', 'custom', '自选周次'); h.select('week_start', '2', '第 2 周'); h.select('week_end', '4', '第 4 周');
-  h.setApplied('level=10-12');
+  h.setApplied('level=10-plus');
   h.updatePresentation();
-  assert.match(h.get('context').textContent, /10.*12.*层/);
+  assert.match(h.get('context').textContent, /10层及以上/);
   assert.match(h.get('context').textContent, /第 2 周.*第 4 周/);
   assert.doesNotMatch(h.get('context').textContent, /custom/);
 });
@@ -126,11 +150,11 @@ test('draft advanced filters do not become applied through copy or floor URL upd
 });
 test('旧自选层数参数不会重新进入分享链接', () => {
   const h = setup(); h.state.tab = 'heatmaps';
-  h.select('level', '16-plus', '16层及以上');
+  h.select('level', '15-plus', '15层及以上');
   h.setApplied('level=custom&min_level=8&max_level=12');
   h.get('min_level').value = '10'; h.get('max_level').value = '20';
   h.updateUrl();
-  assert.match(h.get('context').textContent, /16层及以上/);
+  assert.match(h.get('context').textContent, /15层及以上/);
   assert.equal(h.viewQuery().has('min_level'), false);
   assert.equal(h.viewQuery().has('max_level'), false);
 });
@@ -151,15 +175,15 @@ test('only a successful matching response promotes the actual request, not a lat
   assert.equal(h.state.appliedQuery.get('item_min'), '100', 'missing response cannot promote draft');
 });
 test('完成记录使用预设层数并忽略旧自选输入', async () => {
-  const h = setup(); h.state.tab = 'runs'; h.select('level', '10-12', '10–12层');
+  const h = setup(); h.state.tab = 'runs'; h.select('level', '10-plus', '10层及以上');
   h.get('min_level').value = '8'; h.get('max_level').value = '12';
   h.respondWith(async () => ({ok: true, json: async () => ({success: true, data: {data: {rows: []}, snapshot: {state: 'ready'}}})}));
   await h.refresh();
   assert.equal(h.get('error').hidden, true);
   const payload = h.state.payload;
   h.get('min_level').value = '10'; h.get('max_level').value = '20'; h.updateUrl();
-  assert.match(h.get('context').textContent, /10.*12.*层/);
-  assert.equal(new URLSearchParams(h.urls.at(-1).split('?')[1]).get('level'), '10-12');
+  assert.match(h.get('context').textContent, /10层及以上/);
+  assert.equal(new URLSearchParams(h.urls.at(-1).split('?')[1]).get('level'), '10-plus');
   assert.equal(new URLSearchParams(h.urls.at(-1).split('?')[1]).has('min_level'), false);
   assert.equal(new URLSearchParams(h.urls.at(-1).split('?')[1]).has('max_level'), false);
   assert.equal(h.get('min_level').value, '10'); assert.equal(h.requests.length, 1);

@@ -159,15 +159,15 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
 
     def test_generating_retains_last_good_and_waits_for_normal_retry(self):
         c = rio.coordinate('runs', {'region': 'cn'}, meta=self.meta)
-        self.collect().run(modules=['runs'], regions=['cn'], levels=['10-12'])
+        self.collect().run(modules=['runs'], regions=['cn'], levels=['10-plus'])
         before, _ = rio.store().read(c)
         self.mode = 'generating'
-        result = self.collect(force=True).run(modules=['runs'], regions=['cn'], levels=['10-12'])
+        result = self.collect(force=True).run(modules=['runs'], regions=['cn'], levels=['10-plus'])
         self.assertEqual((result['state'], result['ready'], result['failed']), ('partial', 0, 1))
         after, _ = rio.store().read(c)
         self.assertEqual(after, before)
         self.assertEqual(read_view(c)['snapshot']['state'], 'stale')
-        retry = self.collect().run(modules=['runs'], regions=['cn'], levels=['10-12'])
+        retry = self.collect().run(modules=['runs'], regions=['cn'], levels=['10-plus'])
         self.assertEqual((retry['state'], retry['requests'], retry['remaining']), ('partial', 0, 1))
 
     def test_runs_use_shared_budget_and_persist_429_cooldown(self):
@@ -182,15 +182,15 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
 
     def test_older_source_is_rejected_and_equal_ready_source_can_recover_failure(self):
         c = rio.coordinate('runs', {'region': 'cn'}, meta=self.meta)
-        self.collect().run(modules=['runs'], regions=['cn'], levels=['10-12'])
+        self.collect().run(modules=['runs'], regions=['cn'], levels=['10-plus'])
         before, _ = rio.store().read(c)
         self.mutate = lambda d: d.update(aggregated_at='2026-10-31T00:00:00Z')
-        older = self.collect(force=True).run(modules=['runs'], regions=['cn'], levels=['10-12'])
+        older = self.collect(force=True).run(modules=['runs'], regions=['cn'], levels=['10-plus'])
         self.assertEqual((older['state'], older['ready'], older['failed']), ('partial', 0, 1))
         after, _ = rio.store().read(c)
         self.assertEqual(after, before)
         self.mutate = lambda d: None
-        equal = self.collect(force=True).run(modules=['runs'], regions=['cn'], levels=['10-12'])
+        equal = self.collect(force=True).run(modules=['runs'], regions=['cn'], levels=['10-plus'])
         self.assertEqual((equal['state'], equal['ready'], equal['failed']), ('complete', 1, 0))
         current, entry = rio.store().read(c)
         self.assertEqual(current['data'], before['data'])
@@ -210,7 +210,7 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
             self.collect().fetch(c, self.meta)
 
     def test_manual_runs_scope_stays_explicit_and_only_queries_does_not_expand(self):
-        result = self.collect().run(modules=['runs'], regions=['eu'], levels=['16-plus'])
+        result = self.collect().run(modules=['runs'], regions=['eu'], levels=['15-plus'])
         self.assertEqual((result['ready'], result['requests']), (1, 1))
         self.assertEqual(self.received[0][1]['region'], 'eu')
         result = self.collect().run(modules=['runs'], only_queries=True, maintain=True)
