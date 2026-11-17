@@ -419,7 +419,7 @@
         if (!quiet) els.tableBody.innerHTML = '<tr><td class="mp-admin-loading">正在加载数据…</td></tr>';
         try {
             const payload = await request(
-                `/api/mythic-planner/manage/?resources=${resources.join(',')}`,
+                `/api/mythic-planner/manage/?resources=${resources.join(',')}&summary=1`,
             );
             mergeSnapshot(payload.data, resources);
             renderAll();

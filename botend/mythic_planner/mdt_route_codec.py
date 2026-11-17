@@ -266,11 +266,10 @@ def _active_dungeon_by_external_index(external_index):
     )
 
 
-class _SourceIndex(KeyTransform):
-    """Project a JSON scalar without coercing numeric strings on SQLite.
+class JSONTypePreservingKey(KeyTransform):
+    """读取 JSON 子字段，保留 SQLite 中原值的类型。
 
-    MySQL/PostgreSQL return JSON; SQLite's normal KeyTransform returns unquoted
-    strings, which JSONField can mistake for numbers (or booleans).
+    SQLite 的普通提取会去掉字符串引号，反序列化时可能将字符串解释为其他类型。
     """
 
     def as_sqlite(self, compiler, connection):
@@ -314,8 +313,8 @@ class DungeonRouteContext:
             is_active=True,
         ).values_list(
             'enemy__key', 'key',
-            _SourceIndex('source_enemy_index', 'enemy__metadata'),
-            _SourceIndex('source_clone_index', 'metadata'),
+            JSONTypePreservingKey('source_enemy_index', 'enemy__metadata'),
+            JSONTypePreservingKey('source_clone_index', 'metadata'),
         )
         valid_uids, by_uid, by_source = set(), {}, {}
         for enemy_key, spawn_key, enemy_index, clone_index in rows:

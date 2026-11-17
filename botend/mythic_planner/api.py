@@ -36,6 +36,7 @@ from botend.mythic_planner.spell_tooltips import (
     SOURCE_MANUAL,
     build_description_metadata,
 )
+from botend.mythic_planner.mdt_route_codec import DungeonRouteContext, JSONTypePreservingKey
 from botend.mythic_planner.services import (
     decode_share_code,
     default_route_compatibility,
@@ -347,10 +348,14 @@ def _management_ability(row):
 
 
 def _management_route(row, owner=None, include_payload=False):
-    route_data = row.route_data if isinstance(row.route_data, dict) else {}
-    pulls = route_data.get('pulls')
+    if include_payload:
+        route_data = row.route_data if isinstance(row.route_data, dict) else {}
+        pulls = route_data.get('pulls')
+        annotations = route_data.get('annotations')
+    else:
+        pulls = row.summary_pulls
+        annotations = row.summary_annotations
     pulls = pulls if isinstance(pulls, list) else []
-    annotations = route_data.get('annotations')
     annotations = annotations if isinstance(annotations, list) else []
     spawn_count = sum(
         len(pull.get('spawn_uids') or [])
@@ -394,7 +399,7 @@ def _management_route(row, owner=None, include_payload=False):
     return result
 
 
-def _management_default_route(row):
+def _management_default_route(row, *, route_context=None, include_payload=True):
     route_data = row.route_data if isinstance(row.route_data, dict) else {}
     pulls = route_data.get('pulls')
     pulls = pulls if isinstance(pulls, list) else []
@@ -405,7 +410,7 @@ def _management_default_route(row):
         for pull in pulls
         if isinstance(pull, dict) and isinstance(pull.get('spawn_uids'), list)
     )
-    compatibility = default_route_compatibility(row)
+    compatibility = default_route_compatibility(row, route_context=route_context)
     return {
         'id': row.id,
         'dungeon_id': row.dungeon_id,
@@ -417,7 +422,7 @@ def _management_default_route(row):
         'applicable_level': row.applicable_level,
         'display_updated_on': _iso(row.display_updated_on),
         'dungeon_level': row.dungeon_level,
-        'route_data': route_data,
+        **({'route_data': route_data} if include_payload else {}),
         'route_code': compatibility['route_code'],
         'pull_count': len(pulls),
         'spawn_count': spawn_count,
@@ -536,7 +541,7 @@ def _preflight_default_route_code(route_code):
     }
 
 
-def management_snapshot(resources=None, dungeon_id=None):
+def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
     if resources is None:
         requested_resources = None
     elif isinstance(resources, str):
@@ -605,20 +610,37 @@ def management_snapshot(resources=None, dungeon_id=None):
         MythicDungeonRoute.objects.select_related(
             'dungeon',
             'dungeon__data_version',
-        ).all()
+        ).defer(
+            'route_data', 'dungeon__metadata', 'dungeon__data_version__metadata', 'dungeon__data_version__notes',
+        ).annotate(
+            summary_pulls=JSONTypePreservingKey('pulls', 'route_data'),
+            summary_annotations=JSONTypePreservingKey('annotations', 'route_data'),
+        )
     ) if wants('routes') else []
     default_routes = list(
         MythicDungeonDefaultRoute.objects.select_related(
             'dungeon',
             'dungeon__data_version',
-        ).all()
+        ).defer('dungeon__metadata', 'dungeon__data_version__metadata', 'dungeon__data_version__notes')
     ) if wants('default_routes') else []
+    # 兼容旧版本路线的导出仍使用原路径。仅在当前导出副本与保存副本相同
+    # 时复用刷新点和楼层，避免同一个副本的每条路线重新查表。
+    active_dungeons = {}
+    for key, pk in MythicDungeon.objects.filter(
+        key__in={row.dungeon.key for row in default_routes},
+        is_active=True, data_version__is_active=True,
+    ).order_by('-data_version__imported_at', '-data_version_id').values_list('key', 'id'):
+        active_dungeons.setdefault(key, pk)
+    route_contexts = {}
+    for row in default_routes:
+        if row.dungeon_id == active_dungeons.get(row.dungeon.key) and row.dungeon_id not in route_contexts:
+            route_contexts[row.dungeon_id] = DungeonRouteContext(row.dungeon)
     owner_ids = {
         row.owner_user_id
         for row in routes
         if row.owner_user_id is not None
     }
-    owners = get_user_model().objects.in_bulk(owner_ids)
+    owners = get_user_model().objects.only('id', 'username', 'first_name', 'last_name', 'email').in_bulk(owner_ids)
     configs = (
         list(MythicPlannerConfig.objects.all())
         if wants('configs')
@@ -857,7 +879,8 @@ def management_snapshot(resources=None, dungeon_id=None):
             for row in routes
         ],
         'default_routes': [
-            _management_default_route(row)
+            _management_default_route(row, route_context=route_contexts.get(row.dungeon_id),
+                                      include_payload=not summary)
             for row in default_routes
         ],
         'configs': [
@@ -1198,6 +1221,7 @@ class DashboardMythicPlannerAPIView(View):
         return success(management_snapshot(
             request.GET.get('resources'),
             request.GET.get('dungeon_id'),
+            summary=request.GET.get('summary') == '1',
         ))
 
     def post(self, request):

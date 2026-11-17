@@ -3724,6 +3724,11 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertEqual(row['invalid_reason'], '')
         decoded = decode_share_code(row['route_code'])
         self.assertEqual(decoded['data_version_key'], 'lmonitor-demo-1')
+        summary = self.client.get('/api/mythic-planner/manage/?resources=default_routes&summary=1')
+        self.assertEqual(summary.status_code, 200, summary.content)
+        summary_row = next(item for item in summary.json()['data']['default_routes'] if item['id'] == route.id)
+        self.assertNotIn('route_data', summary_row)
+        self.assertEqual(summary_row, {key: value for key, value in row.items() if key != 'route_data'})
 
     def test_planner_frontend_does_not_expose_management_entry(self):
         anonymous = self.client.get('/portal/mythic-planner/')

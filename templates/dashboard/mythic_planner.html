@@ -2,7 +2,7 @@
 {% load static %}
 {% block dashboard_extra_head %}
 <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260903_route_preflight">
-<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260903_route_preflight" defer></script>
+<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261117_route_summary" defer></script>
 {% endblock %}
 {% block dashboard_content %}
 {% include 'dashboard/_mythic_planner_config_content.html' %}
@@ -156,6 +156,6 @@
     </div>
 
     <div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
-    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20260903_route_preflight" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261117_route_summary" defer></script>
 </body>
 </html>
