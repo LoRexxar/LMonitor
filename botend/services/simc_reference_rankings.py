@@ -121,21 +121,25 @@ def _read_queryset():
     )
 
 
+def _ranking_hero(names):
+    heroes = normalize_hero_subtree_names_zh(names)
+    return heroes[0] if len(heroes) == 1 and heroes[0] in HERO_SUBTREE_NAME_ZH.values() else ''
+
+
 def _project(entry, params):
-    heroes = normalize_hero_subtree_names_zh(entry.talent.hero_talent_names)
     return SimpleNamespace(
         pk=entry.result_id, signature=entry.result.signature, dps=entry.result.dps,
         config_id=entry.config_id, config=entry.config,
         profile_id=entry.profile_id, profile=entry.profile,
         talent_id=entry.talent_id, talent=entry.talent,
         talent_display_name=entry.talent_display_name or entry.talent.name,
-        hero=heroes[0] if len(heroes) == 1 and heroes[0] in HERO_SUBTREE_NAME_ZH.values() else '',
+        hero=_ranking_hero(entry.talent.hero_talent_names),
         apl_id=entry.apl_id, apl=entry.apl,
         current_scenario=entry.scenario, snapshot={'simulation_params': params},
     )
 
 
-def _current_cohorts(config):
+def _current_cohorts(config, *, positions_only=False):
     """Current indexed results, separated by every comparable scene parameter."""
     if not config.backend_id or not config.template_id or not config.is_enabled:
         return []
@@ -156,9 +160,21 @@ def _current_cohorts(config):
         comparison_key__in=keys, config__use_ptr=config.use_ptr,
         config__settings__backend_id=config.backend_id,
     )
-    for entry in entries:
-        if math.isfinite(entry.result.dps):
-            cohorts[entry.comparison_key].append(_project(entry, scenes[entry.comparison_key][0]))
+    if positions_only:
+        rows = entries.values_list(
+            'comparison_key', 'result_id', 'result__signature', 'result__dps',
+            'config_id', 'config__spec_key', 'profile_id', 'talent_id', 'apl_id', 'talent__hero_talent_names',
+        )
+        for key, pk, signature, dps, config_id, spec_key, profile_id, talent_id, apl_id, heroes in rows.iterator(chunk_size=1000):
+            if math.isfinite(dps):
+                cohorts[key].append(SimpleNamespace(
+                    pk=pk, signature=signature, dps=dps, config_id=config_id, config=SimpleNamespace(spec_key=spec_key),
+                    profile_id=profile_id, talent_id=talent_id, apl_id=apl_id, hero=_ranking_hero(heroes),
+                ))
+    else:
+        for entry in entries:
+            if math.isfinite(entry.result.dps):
+                cohorts[entry.comparison_key].append(_project(entry, scenes[entry.comparison_key][0]))
     return [cohorts[key] for key in keys if key in cohorts]
 
 
@@ -206,7 +222,7 @@ def _cohort_rankings(cohorts):
 
 def current_rankings(config):
     """两个维度的名次摘要，与完整榜单共用候选和排序规则。"""
-    return _cohort_rankings(_current_cohorts(config))
+    return _cohort_rankings(_current_cohorts(config, positions_only=True))
 
 
 def configuration_results(config, profile_id, talent_id, apl_id):

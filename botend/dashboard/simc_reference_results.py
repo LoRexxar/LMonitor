@@ -17,7 +17,7 @@ from botend.services.simc_reference_simulations import (
     snapshot, validate_config, validate_settings,
 )
 from botend.services.simc_task_service import _compute_content_hash
-from botend.services.simc_reference_management import scheme_results, with_report
+from botend.services.simc_reference_management import scheme_resources, scheme_results, with_report
 from botend.services.simc_reference_details import RESOURCE_LABELS, resource_is_shared, resource_preview
 from botend.services.simc_reference_workflow import workflow_context, publication_sections, editor_url
 
@@ -320,7 +320,12 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
         directory = reference_spec_catalog()[1]
         public_directory = (reference_catalog(project_talent_titles=False, include_talent_codes=False)[1]
                             if self.view_mode == 'publication' else {})
-        configs = list(SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').order_by('spec_key', 'use_ptr'))
+        configs = list(SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').only(
+            'spec_key', 'use_ptr', 'settings_id', 'settings__use_ptr', 'settings__is_enabled',
+            'settings__backend_id', 'settings__backend__is_active', 'settings__template_id',
+            'settings__template__spec', 'settings__template__owner_user_id',
+            'settings__template__is_active', 'settings__template__is_selectable',
+        ).order_by('spec_key', 'use_ptr'))
         spec_key = self.kwargs.get('spec_key')
         spec_groups = {}
         if self.view_mode in ('results', 'publication'):
@@ -379,24 +384,26 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             if request.GET.get('scheme'):
                 published = {kind: {row['id'] for row in public.get(kind, [])}
                              for kind in ('profiles', 'talents', 'apls')}
-                history_scheme = get_object_or_404(SimcReferenceSimulation, pk=_positive_id(request.GET['scheme']), config=selected)
-                if history_scheme.talent_id:
-                    from botend.services.simc_talent_titles import apply_talent_display_names
-                    apply_talent_display_names([history_scheme.talent])
+                group = get_object_or_404(SimcReferenceSimulation.objects.only('profile_id', 'talent_id', 'apl_id'),
+                                          pk=_positive_id(request.GET['scheme']), config=selected)
+                resource_keys = {field: getattr(group, field) for field in ('profile_id', 'talent_id', 'apl_id')}
+                profiles, talents, apls = scheme_resources([resource_keys])
+                profile, talent, apl = (profiles.get(group.profile_id), talents.get(group.talent_id), apls.get(group.apl_id))
+                history_scheme = {'pk': group.pk, 'profile': profile, 'talent': talent, 'apl': apl}
                 simulations = with_report(SimcReferenceSimulation.objects.filter(
-                    config=selected, profile_id=history_scheme.profile_id,
-                    talent_id=history_scheme.talent_id, apl_id=history_scheme.apl_id,
-                )).select_related('profile', 'talent', 'apl').order_by('-pk')
+                    config=selected, **resource_keys,
+                ).only('snapshot', 'status', 'dps', 'error', 'created_at')).order_by('-pk')
                 page = Paginator(simulations, 40).get_page(request.GET.get('page'))
+                current_signatures = {}
                 for row in page:
                     try:
                         scene = scenario_for_snapshot(selected, row.snapshot, scenarios=scenarios)
                         row.scene_name = scene.name if scene else '历史场景'
-                        current = snapshot(selected, row.profile, row.talent, row.apl, scene,
-                                           published_resources=published) if scene else None
-                        row.is_stale = current is None or _compute_content_hash(current) != _compute_content_hash(
-                            normalized_snapshot(row.snapshot),
-                        )
+                        if scene and scene.pk not in current_signatures:
+                            current_signatures[scene.pk] = _compute_content_hash(snapshot(
+                                selected, profile, talent, apl, scene, published_resources=published))
+                        row.is_stale = not scene or current_signatures[scene.pk] != _compute_content_hash(
+                            normalized_snapshot(row.snapshot))
                     except (ValueError, KeyError):
                         row.is_stale = True
             else:

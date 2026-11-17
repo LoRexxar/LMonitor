@@ -1,6 +1,8 @@
 """Independent scene formset persistence and complete UI projections."""
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from botend.models import (SimcBackendBinary, SimcContentTemplate, SimcReferenceSimulationSettings,
@@ -110,6 +112,37 @@ class ScenarioUITests(TestCase):
                 self.assertEqual(scene.simulation_params['max_time'], 40)
                 self.assertTrue(self.settings.is_enabled)
                 self.assertEqual(SimcTask.objects.count(), 0)
+
+    def test_admin_results_read_shared_payloads_once_per_history_page(self):
+        scene = self.create_scene()
+        config, profile, talent, apl = self.resources()
+        SimcApl.objects.filter(pk=apl.pk).update(validation_diagnostics={'unused': 'x' * 25000})
+        frozen = service.snapshot(config, profile, talent, apl, scene)
+        signature = service.tasks._compute_content_hash(frozen)
+        simulations = SimcReferenceSimulation.objects.bulk_create([
+            SimcReferenceSimulation(config=config, scenario=scene, profile=profile, talent=talent, apl=apl,
+                requested_by_id=self.user.pk, snapshot=frozen, signature=signature, status='completed', dps=1234)
+            for _ in range(7)
+        ])
+        url = reverse('simc_reference_spec_results', args=[config.spec_key])
+        with CaptureQueriesContext(connection) as list_queries:
+            listing = self.client.get(url)
+        list_sql = [query['sql'] for query in list_queries]
+        with CaptureQueriesContext(connection) as history_queries:
+            history = self.client.get(url, {'scheme': simulations[-1].pk})
+        history_sql = [query['sql'] for query in history_queries]
+        for response, statements in ((listing, list_sql), (history, history_sql)):
+            self.assertContains(response, '1,234')
+            self.assertNotContains(response, '配置已变化')
+            content_column = f'{connection.ops.quote_name("simc_content_template")}.{connection.ops.quote_name("content")}'
+            self.assertEqual(sum(content_column in sql for sql in statements), 1)
+            self.assertFalse(any('validation_diagnostics' in sql for sql in statements))
+        self.assertContains(history, 'Short · 20 目标 · 40 秒', count=7)
+        self.assertEqual(sum('simc_profile' in sql and 'player_equipment' in sql for sql in history_sql), 1)
+        row_query = next(sql for sql in history_sql if 'simcreferencesimulation' in sql
+                         and connection.ops.quote_name('snapshot') in sql and ' LIMIT ' in sql)
+        self.assertNotIn('player_equipment', row_query)
+        self.assertNotIn('simc_apl', row_query)
 
     def test_invalid_formset_is_atomic_and_keeps_input(self):
         scene = self.create_scene()
