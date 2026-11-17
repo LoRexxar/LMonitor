@@ -81,6 +81,37 @@ def main():
         assert not tip.is_visible()
         receipts.append({'viewport':[390,664], 'touch_scroll_and_dismiss':True, 'passed':True})
         context.close()
+
+        page = browser.new_page()
+        requests = []
+
+        def preview(route):
+            requests.append(route.request.url.rsplit('/', 1)[-1])
+            route.fulfill(json={'name': '天赋预览', 'description': '已加载的预览'})
+
+        page.route('https://preview.test/', lambda route: route.fulfill(content_type='text/html', body='''
+            <button id="first" data-wow-item-tooltip="加载中" data-wow-item-tooltip-url="/preview/first">第一套</button>
+            <button id="second" data-wow-item-tooltip="加载中" data-wow-item-tooltip-url="/preview/second">第二套</button>
+        '''))
+        page.route('https://preview.test/preview/*', preview)
+        page.goto('https://preview.test/')
+        page.add_style_tag(path=str(ROOT / 'static/shared/css/wow-item-tooltip.css'))
+        page.add_script_tag(path=str(ROOT / 'static/shared/js/wow-item-tooltip.js'))
+        # Keep the pointer on the first item for less than the preview delay.
+        first = page.locator('#first').bounding_box()
+        second = page.locator('#second').bounding_box()
+        page.mouse.move(first['x'] + 5, first['y'] + 5)
+        page.mouse.move(second['x'] + 5, second['y'] + 5)
+        page.get_by_text('已加载的预览').wait_for()
+        assert requests == ['second'], requests
+        page.locator('#first').focus()
+        page.wait_for_function("document.querySelector('#first').hasAttribute('aria-describedby')")
+        page.get_by_text('已加载的预览').wait_for()
+        assert requests == ['second', 'first'], requests
+        page.keyboard.press('Escape')
+        assert not page.locator('.wow-item-tooltip').is_visible()
+        receipts.append({'remote_preview_hover_and_focus': True, 'passed': True})
+        page.close()
         browser.close()
     print(json.dumps(receipts))
 

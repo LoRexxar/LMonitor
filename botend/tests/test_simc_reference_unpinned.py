@@ -116,7 +116,12 @@ class UnpinnedReferenceTests(TestCase):
         self.assertLessEqual(len(queries), 4)
         self.assertEqual(len(ranks), 64)
         for page_number in (1, 2):
-            page = scheme_results(config, page_number)
+            with CaptureQueriesContext(connection) as queries:
+                page = scheme_results(config, page_number)
+            self.assertLessEqual(len(queries), 24)
+            json_queries = [query['sql'] for query in queries if 'JSON_EXTRACT' in query['sql'].upper()]
+            self.assertTrue(json_queries)
+            self.assertTrue(all('$."resources"' not in sql for sql in json_queries))
             self.assertEqual(page.paginator.count, 32)
             for group in page:
                 for scene in group['scenes']:

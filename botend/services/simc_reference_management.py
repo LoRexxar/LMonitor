@@ -7,8 +7,8 @@ from django.db.models import Count, Exists, Max, OuterRef, Q
 
 from botend.models import SimcApl, SimcProfile, SimcTalentString, SimcReferenceSimulation, SimcTaskArtifact
 from botend.services.simc_reference_simulations import (
-    ACTIVE, snapshot, normalized_snapshot, matching_simulations, active_scenarios,
-    scenario_for_snapshot, scenario_simulation_params, public_combination_keys,
+    ACTIVE, active_scenarios, normalized_snapshot, public_combination_keys, public_spec,
+    scenario_for_snapshot, scenario_simulation_params, snapshot,
 )
 from botend.services.simc_task_service import _compute_content_hash
 
@@ -20,8 +20,28 @@ def with_report(queryset):
     )))
 
 
+def _latest_successes(base, wanted, signatures):
+    if not signatures:
+        return {}
+    completed = base.filter(wanted, status='completed', dps__gt=0).order_by()
+    # 现行输入使用签名索引。仅在本页组合中兼容含版本号的旧后端输入。
+    candidates = []
+    for queryset in (completed.filter(signature__in=signatures),
+                     completed.exclude(signature__in=signatures).filter(snapshot__backend__1__isnull=False)):
+        candidates.extend(queryset.values('signature').annotate(latest_id=Max('pk')).values_list('latest_id', flat=True))
+    latest = {}
+    for row in base.only('id', 'snapshot').in_bulk(candidates).values():
+        if not isinstance(row.snapshot, dict):
+            continue
+        signature = _compute_content_hash(normalized_snapshot(row.snapshot))
+        if signature in signatures:
+            latest[signature] = max(row.pk, latest.get(signature, 0))
+    results = with_report(completed).defer('snapshot', 'error').in_bulk(latest.values())
+    return {signature: results[pk] for signature, pk in latest.items()
+            if pk in results and math.isfinite(results[pk].dps)}
 
-def scheme_results(config, page_number):
+
+def scheme_results(config, page_number, *, spec=None, scenarios=None):
     from botend.services.simc_reference_details import resource_links
     from botend.services.simc_reference_rankings import current_rankings
     base = SimcReferenceSimulation.objects.filter(config=config)
@@ -30,7 +50,8 @@ def scheme_results(config, page_number):
     ).order_by('-latest_id')
     key_for = lambda row: (row['profile_id'], row['talent_id'], row['apl_id'])
     recorded = {key_for(row): row for row in historical}
-    public_keys = public_combination_keys(config)
+    spec = public_spec(config.spec_key) if spec is None else spec
+    public_keys = public_combination_keys(config, spec=spec)
     grouped = []
     for profile_id, talent_id, apl_id in public_keys:
         row = recorded.pop((profile_id, talent_id, apl_id), {
@@ -46,8 +67,11 @@ def scheme_results(config, page_number):
     from botend.services.simc_talent_titles import apply_talent_display_names
     apply_talent_display_names(list(talents.values()))
     apls = SimcApl.objects.in_bulk(g['apl_id'] for g in groups if g['apl_id'])
-    wanted, successful_candidates = Q(pk__in=[]), base.none()
-    scenarios = active_scenarios(config)
+    wanted, signatures = Q(pk__in=[]), set()
+    scenarios = active_scenarios(config) if scenarios is None else scenarios
+    scenarios_by_id = {scenario.pk: scenario for scenario in scenarios}
+    published = {kind: {row['id'] for row in spec.get(kind, [])}
+                 for kind in ('profiles', 'talents', 'apls')}
     for group in groups:
         profile, talent, apl = profiles.get(group['profile_id']), talents.get(group['talent_id']), apls.get(group['apl_id'])
         group.update(profile=profile, talent=talent, apl=apl, scenes=[], issue='', has_active=False)
@@ -58,37 +82,36 @@ def scheme_results(config, page_number):
             scene = {'scenario_id': scenario.pk, 'name': scenario.name, 'targets': params['desired_targets'],
                      'duration': params['max_time'], 'iterations': params['iterations'], 'signature': ''}
             try:
-                frozen = snapshot(config, profile, talent, apl, scenario)
+                frozen = snapshot(config, profile, talent, apl, scenario, published_resources=published)
                 scene['signature'] = _compute_content_hash(frozen)
-                successful_candidates |= matching_simulations(config, frozen).filter(status='completed', dps__gt=0)
+                signatures.add(scene['signature'])
             except ValueError as exc:
                 group['issue'] = str(exc)
             group['scenes'].append(scene)
     # Group historical status by stable scene identity, never by target count.
     latest_by_scene = {}
     status_keys = ('profile_id', 'talent_id', 'apl_id', 'scenario_id')
-    status_ids = base.filter(wanted, scenario__in=scenarios).values(*status_keys).annotate(latest_id=Max('pk')).values('latest_id')
+    status_ids = list(base.filter(wanted, scenario__in=scenarios).values(
+        *status_keys,
+    ).annotate(latest_id=Max('pk')).values_list('latest_id', flat=True))
     legacy_params = []
     for scenario in scenarios:
         try:
             legacy_params.append(scenario_simulation_params(scenario))
         except ValueError:
             continue
-    legacy_ids = base.filter(wanted, scenario__isnull=True, snapshot__simulation_params__in=legacy_params).values(
+    legacy_ids = list(base.filter(wanted, scenario__isnull=True, snapshot__simulation_params__in=legacy_params).values(
         *status_keys, 'snapshot__simulation_params',
-    ).annotate(latest_id=Max('pk')).values('latest_id')
-    for row in with_report(base.filter(Q(pk__in=status_ids) | Q(pk__in=legacy_ids))).select_related('scenario').order_by('-pk'):
-        scenario = row.scenario or scenario_for_snapshot(config, row.snapshot)
-        if scenario:
+    ).annotate(latest_id=Max('pk')).values_list('latest_id', flat=True))
+    status_rows = base.defer('error').in_bulk(status_ids + legacy_ids).values()
+    for row in sorted(status_rows, key=lambda row: row.pk, reverse=True):
+        scenario = scenarios_by_id.get(row.scenario_id) if row.scenario_id else scenario_for_snapshot(
+            config, row.snapshot, scenarios=scenarios,
+        )
+        if scenario is not None:
             key = (row.profile_id, row.talent_id, row.apl_id, scenario.pk)
             latest_by_scene.setdefault(key, row)
-    successful_ids = successful_candidates.order_by().values(
-        'profile_id', 'talent_id', 'apl_id', 'snapshot__simulation_params',
-    ).annotate(latest_id=Max('pk')).values('latest_id')
-    success_by_signature = {
-        _compute_content_hash(normalized_snapshot(row.snapshot)): row
-        for row in with_report(base.filter(pk__in=successful_ids)) if math.isfinite(row.dps)
-    }
+    success_by_signature = _latest_successes(base, wanted, signatures)
     rankings = current_rankings(config) if success_by_signature else {}
     for group in groups:
         for scene in group['scenes']:

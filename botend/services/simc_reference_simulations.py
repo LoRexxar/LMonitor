@@ -27,6 +27,12 @@ def catalog(*, public_only=True):
     return reference_catalog(public_only=public_only)[1]
 
 
+def public_spec(spec_key):
+    from botend.services.simc_reference import reference_catalog
+    return reference_catalog(published_spec_key=spec_key, project_talent_titles=False,
+                             include_talent_codes=False)[1].get(spec_key, {})
+
+
 def initialize_configs():
     """仅在管理员明确同步目录时创建配置，不在前台 GET 写库。"""
     for key, spec in catalog(public_only=False).items():
@@ -102,10 +108,11 @@ def scenario_simulation_params(scenario):
     return params
 
 
-def scenario_for_snapshot(config, frozen):
+def scenario_for_snapshot(config, frozen, *, scenarios=None):
     """Match the complete input, never just target count; ambiguity is not a match."""
+    scenarios = active_scenarios(config) if scenarios is None else scenarios
     matches = []
-    for scene in active_scenarios(config):
+    for scene in scenarios:
         try:
             if scenario_simulation_params(scene) == frozen.get('simulation_params'):
                 matches.append(scene)
@@ -130,11 +137,19 @@ def _resolve_scenario(config, scenario):
 def public_combination_keys(config, *, spec=None):
     """公开装备 × 天赋 × APL；缺 APL 时保留待配置行，不回退天赋默认值。"""
     if spec is None:
-        spec = catalog().get(config.spec_key, {})
+        spec = public_spec(config.spec_key)
     apl_ids = [row['id'] for row in spec.get('apls', [])] or [None]
     return [(profile['id'], talent['id'], apl_id)
             for profile in spec.get('profiles', []) if profile['use_ptr'] == config.use_ptr
             for talent in spec.get('talents', []) for apl_id in apl_ids]
+
+
+def is_public_combination(config, combination):
+    spec = public_spec(config.spec_key)
+    profile_id, talent_id, apl_id = combination
+    return (any(row['id'] == profile_id and row['use_ptr'] == config.use_ptr for row in spec.get('profiles', []))
+            and any(row['id'] == talent_id for row in spec.get('talents', []))
+            and apl_id in ([row['id'] for row in spec.get('apls', [])] or [None]))
 
 
 def _public_resources(config, profile, talent, apl, published_resources=None):

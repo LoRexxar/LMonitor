@@ -13,6 +13,20 @@ from botend.services.simc_apl.readable import display_symbols, readable_apl
 RESOURCE_LABELS = {'profile': '装备', 'talent': '天赋', 'apl': 'APL'}
 
 
+def _talent_thumbnail(model):
+    if model is None:
+        return None
+    node_keys = ('node_key', 'tree_type', 'node_id', 'talent_id', 'spell_id',
+                 'x', 'y', 'width', 'height', 'points', 'selected', 'display_name', 'name')
+    path_keys = ('parent_key', 'child_key', 'svg_path')
+    return {'trees': [
+        {'tree_type': tree['tree_type'],
+         'nodes': [{key: node[key] for key in node_keys if key in node} for node in tree.get('nodes', [])],
+         'paths': [{key: path[key] for key in path_keys if key in path} for path in tree.get('paths', [])]}
+        for tree in model.get('trees', [])
+    ]}
+
+
 def resource_is_shared(resource, kind, config):
     if resource is None:
         return False
@@ -81,7 +95,7 @@ def resource_preview(kind, resource, spec, config, *, is_public):
             lines.append(tree_display['message'])
         from botend.services.simc_talent_titles import talent_display_name
         return {'name': talent_display_name(resource), 'description': '\n'.join(lines),
-                'talent_render_model': tree_display.get('render_model')}
+                'talent_render_model': _talent_thumbnail(tree_display.get('render_model'))}
     else:
         groups = display['apl_display']['groups']
         for group in groups[:6]:

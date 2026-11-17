@@ -10,9 +10,14 @@ from django.views import View
 
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, effective_dashboard_permissions, permission_catalog
 from botend.models import SimcBackendBinary, SimcContentTemplate, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferencePublication, SimcReferenceSimulationSettings, SimcReferenceSimulationScenario, SimcProfile, SimcTalentString, SimcApl, SimcTaskArtifact
-from botend.services.simc_reference_simulations import catalog, enqueue_configs, initialize_configs, validate_config, validate_settings, snapshot, active_scenarios, scenario_for_snapshot, scenario_simulation_params
+from botend.services.simc_reference import ReferenceTimings, reference_catalog, reference_spec_catalog
+from botend.services.simc_reference_simulations import (
+    active_scenarios, enqueue_configs, initialize_configs, is_public_combination,
+    normalized_snapshot, public_spec, scenario_for_snapshot, scenario_simulation_params,
+    snapshot, validate_config, validate_settings,
+)
 from botend.services.simc_task_service import _compute_content_hash
-from botend.services.simc_reference_management import public_combination_keys, scheme_results, with_report
+from botend.services.simc_reference_management import scheme_results, with_report
 from botend.services.simc_reference_details import RESOURCE_LABELS, resource_is_shared, resource_preview
 from botend.services.simc_reference_workflow import workflow_context, publication_sections, editor_url
 
@@ -28,6 +33,10 @@ class SimcReferenceResourcePreviewView(DashboardPermissionRequiredMixin, View):
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request, spec_key, kind, resource_id):
+        with ReferenceTimings({'spec': spec_key}, surface='admin-preview') as timings:
+            return self.render_preview(request, spec_key, kind, resource_id, timings)
+
+    def render_preview(self, request, spec_key, kind, resource_id, timings):
         if kind not in RESOURCE_LABELS:
             raise Http404('资料类型不存在')
         config = get_object_or_404(SimcReferenceSimulationConfig,
@@ -37,21 +46,21 @@ class SimcReferenceResourcePreviewView(DashboardPermissionRequiredMixin, View):
         if ids[kind] != resource_id:
             raise Http404('资料不属于该组合')
         combination = tuple(ids.values())
-        is_public = combination in public_combination_keys(config)
+        is_public = is_public_combination(config, combination)
         if not is_public and not SimcReferenceSimulation.objects.filter(
             config=config, **{key + '_id': value for key, value in ids.items()},
         ).exists():
             raise Http404('配置组合不存在')
-        resources = {key: model.objects.filter(pk=ids[key]).first() for key, model in (
-            ('profile', SimcProfile), ('talent', SimcTalentString), ('apl', SimcApl),
-        )}
-        resource = resources[kind]
+        model = {'profile': SimcProfile, 'talent': SimcTalentString, 'apl': SimcApl}[kind]
+        resource = model.objects.filter(pk=resource_id).first()
         if not resource_is_shared(resource, kind, config):
             raise Http404('该共享资料已不可用')
-        spec = catalog(public_only=False).get(spec_key)
+        spec = reference_spec_catalog()[1].get(spec_key)
         if not spec:
             raise Http404('专精不存在')
+        timings.mark('selection')
         response = JsonResponse(resource_preview(kind, resource, spec, config, is_public=is_public))
+        timings.mark(kind)
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'
         return response
@@ -62,6 +71,10 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request, config_id=None, signature=None, scope='overall'):
+        with ReferenceTimings({}, surface='admin-rankings') as timings:
+            return self.render_rankings(request, config_id, signature, timings)
+
+    def render_rankings(self, request, config_id, signature, timings):
         from botend.dashboard.dashboard import DashboardView
         from botend.services.simc_reference_rankings import (
             admin_ranking_page_context, apply_ranking_role, validate_ranking_role, ranking_role_url,
@@ -91,6 +104,7 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
             response['X-Robots-Tag'] = 'noindex, nofollow'
             return response
         board = admin_ranking_page_context(settings_id, scene_id)
+        timings.mark('ranking')
         if board is None:
             raise Http404('模拟配置或场景不存在、已停用，或场景不属于该配置')
         apply_ranking_role(board, role, request.get_full_path())
@@ -101,6 +115,7 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
         context.update(dashboard_permissions=sorted(effective_dashboard_permissions(request.user)),
                        dashboard_permission_catalog=permission_catalog(), dashboard_default_section='frontend-rankings')
         response = render(request, 'dashboard/simc_reference_rankings.html', context)
+        timings.mark('render')
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'
         return response
@@ -281,7 +296,8 @@ class PublicationForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        candidates = catalog(public_only=False).get(self.instance.spec_key, {})
+        candidates = reference_catalog(public_only=False, project_talent_titles=False,
+                                       include_talent_codes=False)[1].get(self.instance.spec_key, {})
         for kind, model in (('profiles', SimcProfile), ('talents', SimcTalentString), ('apls', SimcApl)):
             self.fields[kind].queryset = model.objects.filter(pk__in=[r['id'] for r in candidates.get(kind, [])]).order_by('name', 'pk')
             self.fields[kind].label_from_instance = lambda obj: obj.name
@@ -295,9 +311,15 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
     def get(self, request, **kwargs):
         return self.render_page(request)
 
-    def render_page(self, request, *, form=None, publication_form=None, result=None, status=200):
-        directory = catalog(public_only=False)
-        public_directory = catalog()
+    def render_page(self, request, **kwargs):
+        with ReferenceTimings({'spec': self.kwargs.get('spec_key', '')},
+                              surface=f'admin-{self.view_mode}') as timings:
+            return self.render_management(request, timings, **kwargs)
+
+    def render_management(self, request, timings, *, form=None, publication_form=None, result=None, status=200):
+        directory = reference_spec_catalog()[1]
+        public_directory = (reference_catalog(project_talent_titles=False, include_talent_codes=False)[1]
+                            if self.view_mode == 'publication' else {})
         configs = list(SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').order_by('spec_key', 'use_ptr'))
         spec_key = self.kwargs.get('spec_key')
         spec_groups = {}
@@ -313,6 +335,8 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             configs = [row for row in configs if row.spec_key == spec_key]
             if not configs:
                 raise Http404('专精不存在')
+            if self.view_mode == 'results':
+                public_directory[spec_key] = public_spec(spec_key)
         for config in configs:
             spec = directory.get(config.spec_key, {})
             config.label = spec.get('label', config.spec_key)
@@ -342,12 +366,19 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             for specs in spec_groups.values():
                 for spec in specs:
                     spec['url'] = reverse('simc_reference_publication') + f"?config={primary_configs[spec['key']].pk}"
-        if publication_form is None and selected and self.view_mode == 'publication':
+        publication = None
+        if selected and self.view_mode == 'publication':
             publication = SimcReferencePublication.objects.filter(spec_key=selected.spec_key).first()
-            publication_form = PublicationForm(instance=publication or SimcReferencePublication(spec_key=selected.spec_key))
+            if publication_form is None:
+                publication_form = PublicationForm(instance=publication or SimcReferencePublication(spec_key=selected.spec_key))
+        timings.mark('catalog')
         history_scheme, page, scheme_page = None, None, None
+        scenarios = active_scenarios(selected) if selected and self.view_mode == 'results' else []
         if selected and self.view_mode == 'results':
+            public = public_directory.get(selected.spec_key, {})
             if request.GET.get('scheme'):
+                published = {kind: {row['id'] for row in public.get(kind, [])}
+                             for kind in ('profiles', 'talents', 'apls')}
                 history_scheme = get_object_or_404(SimcReferenceSimulation, pk=_positive_id(request.GET['scheme']), config=selected)
                 if history_scheme.talent_id:
                     from botend.services.simc_talent_titles import apply_talent_display_names
@@ -355,18 +386,22 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
                 simulations = with_report(SimcReferenceSimulation.objects.filter(
                     config=selected, profile_id=history_scheme.profile_id,
                     talent_id=history_scheme.talent_id, apl_id=history_scheme.apl_id,
-                )).select_related('profile', 'talent', 'apl', 'config__settings__backend', 'config__settings__template').order_by('-pk')
+                )).select_related('profile', 'talent', 'apl').order_by('-pk')
                 page = Paginator(simulations, 40).get_page(request.GET.get('page'))
                 for row in page:
                     try:
-                        scene = scenario_for_snapshot(row.config, row.snapshot)
+                        scene = scenario_for_snapshot(selected, row.snapshot, scenarios=scenarios)
                         row.scene_name = scene.name if scene else '历史场景'
-                        current = snapshot(row.config, row.profile, row.talent, row.apl, scene) if scene else None
-                        row.is_stale = current is None or _compute_content_hash(current) != row.signature
+                        current = snapshot(selected, row.profile, row.talent, row.apl, scene,
+                                           published_resources=published) if scene else None
+                        row.is_stale = current is None or _compute_content_hash(current) != _compute_content_hash(
+                            normalized_snapshot(row.snapshot),
+                        )
                     except (ValueError, KeyError):
                         row.is_stale = True
             else:
-                scheme_page = scheme_results(selected, request.GET.get('page'))
+                scheme_page = scheme_results(selected, request.GET.get('page'), spec=public, scenarios=scenarios)
+            timings.mark('history' if history_scheme else 'schemes')
         from botend.dashboard.dashboard import DashboardView
         dashboard = DashboardView()
         dashboard.setup(request)
@@ -379,7 +414,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             'view_mode': self.view_mode, 'management_title': self.management_title,
             'management_description': self.management_description, 'management_url': request.path,
             'spec_groups': spec_groups.items(), 'spec_count': sum(len(rows) for rows in spec_groups.values()),
-            'configs': configs, 'selected': selected, 'active_scenarios': active_scenarios(selected) if selected else [], 'form': form, 'result': result, 'page': page,
+            'configs': configs, 'selected': selected, 'active_scenarios': scenarios, 'form': form, 'result': result, 'page': page,
             'publication_form': publication_form, 'scheme_page': scheme_page, 'history_scheme': history_scheme,
             'module_section': 'publication' if self.view_mode == 'publication' else 'reference', 'admin_ranking': True,
             'module_reference_url': (reverse('simc_reference_results') + (f'?config={selected.pk}' if selected else '')) if self.view_mode == 'publication' else request.get_full_path(),
@@ -387,7 +422,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
         })
         workflow = workflow_context(request, selected, page=self.view_mode)
         context['workflow'] = workflow
-        context['selected_publication'] = SimcReferencePublication.objects.filter(spec_key=selected.spec_key).first() if selected else None
+        context['selected_publication'] = publication
         if publication_form is not None and selected:
             context['publication_sections'] = publication_sections(publication_form, selected, workflow)
         if scheme_page is not None:
@@ -399,6 +434,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
                 scheme['editor_links'] = {kind: editor_url(kind, scheme[kind + '_id'], config=selected, page='results')
                                           for kind in ('profile', 'talent', 'apl') if scheme[kind + '_id']} if workflow['can_edit'] else {}
         response = render(request, self.template_name, context, status=status)
+        timings.mark('render')
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'
         return response
@@ -434,7 +470,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             combination = None
             if action == 'start_scheme':
                 combination = tuple(_positive_id(request.POST.get(kind)) for kind in ('profile', 'talent', 'apl'))
-                if combination not in public_combination_keys(result_config):
+                if not is_public_combination(result_config, combination):
                     raise Http404('该组合不属于当前专精的公开配置')
             if action == 'rerun_scheme':
                 scheme = get_object_or_404(SimcReferenceSimulation, pk=_positive_id(request.POST.get('scheme')), config=result_config)

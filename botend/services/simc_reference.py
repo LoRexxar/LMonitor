@@ -21,12 +21,20 @@ from botend.services.simc_reference_heroes import (
 class ReferenceTimings:
     """记录资料页处理阶段，超时排查无需打印天赋代码、请求凭据或用户信息。"""
 
-    def __init__(self, params):
+    def __init__(self, params, *, surface='portal'):
         self.request_id = uuid4().hex[:12]
+        self.surface = surface
         self.identity = {key: str(params.get(key, ''))[:80] for key in ('spec', 'profile', 'talent', 'apl')}
         self.started = self.previous = perf_counter()
         self.stages = {}
-        logger.info('[SimcReference] request=%s event=start selection=%r', self.request_id, self.identity)
+        logger.info('[SimcReference] request=%s surface=%s event=start selection=%r',
+                    self.request_id, self.surface, self.identity)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, error, traceback):
+        self.finish(error)
 
     def mark(self, stage):
         now = perf_counter()
@@ -34,16 +42,17 @@ class ReferenceTimings:
         self.stages[stage] = round(elapsed, 3)
         self.previous = now
         if elapsed >= 1:
-            logger.warning('[SimcReference] request=%s stage=%s seconds=%.3f', self.request_id, stage, elapsed)
+            logger.warning('[SimcReference] request=%s surface=%s stage=%s seconds=%.3f',
+                           self.request_id, self.surface, stage, elapsed)
 
     def finish(self, error=None):
-        logger.info('[SimcReference] request=%s event=finish seconds=%.3f stages=%r error=%s',
-                    self.request_id, perf_counter() - self.started, self.stages,
+        logger.info('[SimcReference] request=%s surface=%s event=finish seconds=%.3f stages=%r error=%s',
+                    self.request_id, self.surface, perf_counter() - self.started, self.stages,
                     type(error).__name__ if error else '')
 
 
-def reference_catalog(*, public_only=True, project_talent_titles=True, include_talent_codes=True):
-    """读取目录；页面可延后标题投影，管理调用默认仍返回完整展示名称。"""
+def reference_spec_catalog():
+    """只构建专精导航，无须查询装备、天赋和 APL。"""
     groups, by_key = [], {}
     for class_name, specs in CLASS_SPEC_MAP.items():
         group = {'name': CLASS_CN[class_name], 'specs': []}
@@ -61,7 +70,13 @@ def reference_catalog(*, public_only=True, project_talent_titles=True, include_t
             group['specs'].append(row)
             by_key[key] = row
         groups.append(group)
+    return groups, by_key
 
+
+def reference_catalog(*, public_only=True, project_talent_titles=True, include_talent_codes=True,
+                      published_spec_key=None):
+    """读取目录；页面可延后标题投影，或只读取一个已公开专精。"""
+    groups, by_key = reference_spec_catalog()
     querysets = {
         'profiles': SimcProfile.objects.filter(is_active=True, user_id__isnull=True).values(
             'id', 'name', 'spec', 'class_name', 'system_key', 'source', 'version', 'profile_set', 'use_ptr',
@@ -77,6 +92,8 @@ def reference_catalog(*, public_only=True, project_talent_titles=True, include_t
     allowed = {}
     if public_only:
         published = SimcReferencePublication.objects.filter(is_published=True)
+        if published_spec_key is not None:
+            published = published.filter(spec_key=published_spec_key)
         for kind in querysets:
             allowed[kind] = {}
             for spec_key, resource_id in published.values_list('spec_key', f'{kind}__pk'):

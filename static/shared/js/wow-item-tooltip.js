@@ -10,6 +10,7 @@
   const tooltip = template.content.firstElementChild;
   let activeTrigger = null;
   let hideTimer = null;
+  let previewTimer = null;
   let lastPointerType = "";
   const previews = new Map();
 
@@ -21,6 +22,11 @@
   function scheduleHide() {
     cancelHide();
     hideTimer = window.setTimeout(() => hide(), 120);
+  }
+
+  function cancelPreview() {
+    window.clearTimeout(previewTimer);
+    previewTimer = null;
   }
 
   function ensureTooltipMounted() {
@@ -75,6 +81,7 @@
   }
 
   function show(trigger) {
+    cancelPreview();
     cancelHide();
     const description = String(trigger?.dataset.wowItemTooltip || "").trim();
     if (!description) return;
@@ -127,6 +134,7 @@
   }
 
   function hide(trigger = null) {
+    cancelPreview();
     cancelHide();
     if (trigger && trigger !== activeTrigger) return;
     activeTrigger?.removeAttribute("aria-describedby");
@@ -144,12 +152,21 @@
   document.addEventListener("pointerover", (event) => {
     if (event.pointerType === "touch") return;
     const trigger = triggerFor(event.target);
-    if (trigger && !trigger.contains(event.relatedTarget)) show(trigger);
+    if (!trigger || trigger.contains(event.relatedTarget)) return;
+    if (trigger.dataset.wowItemTooltipUrl && !previews.has(trigger.dataset.wowItemTooltipUrl)) {
+      hide();
+      previewTimer = window.setTimeout(() => show(trigger), 150);
+    } else {
+      show(trigger);
+    }
   });
   document.addEventListener("pointerout", (event) => {
     if (event.pointerType === "touch") return;
     const trigger = triggerFor(event.target);
-    if (trigger && !trigger.contains(event.relatedTarget) && !tooltip.contains(event.relatedTarget)) scheduleHide();
+    if (trigger && !trigger.contains(event.relatedTarget)) {
+      cancelPreview();
+      if (!tooltip.contains(event.relatedTarget)) scheduleHide();
+    }
   });
   document.addEventListener("focusin", (event) => {
     if (lastPointerType === "touch") return;

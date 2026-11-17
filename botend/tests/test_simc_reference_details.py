@@ -116,5 +116,8 @@ class ReferenceDetailsPresentationTests(TestCase):
                 model = response.json()['talent_render_model']
                 self.assertEqual({t['tree_type'] for t in model['trees']}, {'class', 'spec', 'hero'})
                 self.assertTrue(any(n['selected'] for t in model['trees'] for n in t['nodes']))
+                for tree in model['trees']:
+                    self.assertEqual(set(tree), {'tree_type', 'nodes', 'paths'})
+                    self.assertTrue(all({'node_key', 'x', 'y'} <= node.keys() for node in tree['nodes']))
             else:
                 self.assertIn(expected, response.json()['description'])
