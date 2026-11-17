@@ -514,8 +514,11 @@ class GuideFlowTests(TestCase):
             create_name(game_version=version, kind='spell', object_id=30451,
                 name_en='Arcane Blast', name_zh=name, evidence='版本对照')
         endpoint = '/api/dashboard/wow-localization/'
-        data = self.client.get(endpoint, {'q': '30451', 'kind': 'spell'}).json()
+        with CaptureQueriesContext(connection) as queries:
+            data = self.client.get(endpoint, {'q': '30451', 'kind': 'spell'}).json()
         self.assertEqual(data['total'], 1)
+        self.assertIn('description_zh', data['records'][0])
+        self.assertNotIn(connection.ops.quote_name('parents_json'), ' '.join(q['sql'] for q in queries))
         self.assertIn('12.1', data['versions'])
         filtered = self.client.get(endpoint, {'version': '12.2', 'q': '30451'}).json()
         self.assertEqual(filtered['total'], 1)

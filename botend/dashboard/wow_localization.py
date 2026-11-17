@@ -36,7 +36,7 @@ class WowLocalizationAPI(DashboardPermissionRequiredMixin, View):
         return response
 
     def get(self, request):
-        versions = sorted({version_label(v, v.key) for v in WowTalentVersion.objects.all()})
+        versions = sorted({version_label(v, v.key) for v in WowTalentVersion.objects.only('key', 'major_version')})
         version = version_label(None, request.GET.get('version', ''))
         query, kind = request.GET.get('q', '').strip(), request.GET.get('kind', '')
         rows = WowTalentNodeMetadata.all_objects.exclude(name_zh='').select_related('talent_version')
@@ -87,6 +87,12 @@ class WowLocalizationAPI(DashboardPermissionRequiredMixin, View):
             representatives = {
                 obj.pk: obj for obj in WowTalentNodeMetadata.all_objects.filter(
                     pk__in=selected_pks).select_related('talent_version')
+                .only(
+                    'id', 'talent_version__major_version', 'name_kind', 'localization_only',
+                    'name', 'name_zh', 'icon', 'localization_evidence', 'description', 'description_zh',
+                    'reference_id', 'reference_aliases', 'class_name', 'spec_name', 'tree_type',
+                    'talent_id', 'node_id', 'spell_id', 'display_spell_id',
+                )
             }
             if all(pk in representatives for pk in selected_pks):
                 break

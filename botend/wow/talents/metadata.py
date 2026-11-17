@@ -600,7 +600,7 @@ class TalentMetadataProvider:
             return matches[0]['name_zh'], row.icon or matches[0]['icon']
         return row.name, row.icon
 
-    def _as_dict(self, row):
+    def display_fields(self, row):
         from botend.services.wow_spell_display import plain_text, node_spell_id
         spell_id = node_spell_id(row)
         desc = getattr(row, 'description', '') or ''
@@ -620,22 +620,29 @@ class TalentMetadataProvider:
             desc = display.get('description', plain_text(desc))
             desc_zh = display.get('description_zh', plain_text(desc_zh))
         return {
+            'name': localized_name, 'name_zh': name_zh, 'icon': localized_icon,
+            'description': desc, 'description_zh': desc_zh,
+        }
+
+    def _as_dict(self, row):
+        display = self.display_fields(row)
+        return {
             'talent_version_id': getattr(row, 'talent_version_id', None),
             'talent_version_key': self.version_cache_key,
             'node_id': row.node_id,
             'spell_id': row.spell_id,
             'display_spell_id': row.display_spell_id,
             'talent_id': row.talent_id,
-            'name': localized_name,
-            'name_zh': name_zh,
-            'icon': localized_icon,
+            'name': display['name'],
+            'name_zh': display['name_zh'],
+            'icon': display['icon'],
             'tree_type': row.tree_type,
             'row': row.row,
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
-            'description': desc,
-            'description_zh': desc_zh,
+            'description': display['description'],
+            'description_zh': display['description_zh'],
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'db2_tree_id': getattr(row, 'db2_tree_id', None),
             'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,

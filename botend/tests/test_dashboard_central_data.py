@@ -189,11 +189,16 @@ class CentralDataTests(TestCase):
             item = WowItemSnapshot.objects.create(item_id=991000 + index, name_zh=f'分页装备{index}')
             WowItemVariantSnapshot.objects.create(item=item, season=self.season, batch_key='current',
                 variant_key=str(index), variant_type='drop_equipment')
-        with CaptureQueriesContext(connection) as queries, patch(
-                'botend.wow.spell_text.SpellTextResolver.resolve', side_effect=AssertionError('不得重新解析')):
-            result = self.query(page_size=10, page=2)
-            self.query(resource='talents')
-            self.query(resource='talents', id=990020)
+        with patch('botend.wow.spell_text.SpellTextResolver.resolve', side_effect=AssertionError('不得重新解析')):
+            with CaptureQueriesContext(connection) as queries:
+                result = self.query(page_size=10, page=2)
+                self.query(resource='talents')
+            with CaptureQueriesContext(connection) as detail_queries:
+                self.query(resource='talents', id=990020)
         self.assertEqual(result['pagination']['total'], 12)
         self.assertEqual(len(result['records']), 2)
-        self.assertFalse(any(query['sql'].lstrip().upper().startswith(('UPDATE', 'INSERT', 'DELETE')) for query in queries))
+        list_sql = ' '.join(query['sql'] for query in queries)
+        for field in ('variant_text_templates', 'parents_json'):
+            self.assertNotIn(connection.ops.quote_name(field), list_sql)
+        self.assertFalse(any(query['sql'].lstrip().upper().startswith(('UPDATE', 'INSERT', 'DELETE'))
+                             for query in [*queries, *detail_queries]))

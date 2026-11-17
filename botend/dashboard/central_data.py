@@ -162,7 +162,9 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
                     'effects': effects, 'effects_status': status, 'sources': row.source_json,
                     'source_build': row.game_build, 'updated_at': row.updated_at.isoformat()})
             return {'record': result, 'entries': entries, 'pagination': pagination}
-        selected, pagination = page_rows(rows.order_by('item_id'), params)
+        selected, pagination = page_rows(rows.only(
+            'id', 'item_id', 'name', 'name_zh', 'slot_key', 'quality', 'icon', 'source', 'metadata',
+        ).order_by('item_id'), params)
         counts = {}
         for row in variants.filter(item_id__in=[item.pk for item in selected]).order_by().values('item_id', '_quality').annotate(
                 count=Count('pk'), minimum=Min('item_level'), maximum=Max('item_level')):
@@ -239,7 +241,13 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
                                'source_build': getattr(version, 'current_build', '')}, 'entries': entries, 'pagination': pagination}
         groups, pagination = page_rows(rows.order_by().values('identity', 'identity_kind').annotate(
             representative=Min('pk'), count=Count('pk')).order_by('identity_kind', 'identity'), params)
-        representatives = list(WowTalentNodeMetadata.objects.filter(pk__in=[row['representative'] for row in groups]))
+        representatives = WowTalentNodeMetadata.objects.filter(
+            pk__in=[row['representative'] for row in groups],
+        ).only(
+            'id', 'node_id', 'talent_id', 'spell_id', 'display_spell_id',
+            'name', 'name_zh', 'description', 'description_zh', 'icon',
+            'tree_type', 'class_name', 'spec_name', 'source', 'last_updated',
+        )
         by_pk = {row.pk: self.talent_summary(row, provider) for row in provider._prime_display(representatives)}
         records = [{**by_pk[row['representative']], 'id': row['identity'], 'identity_kind': row['identity_kind'], 'count': row['count']}
                    for row in groups if row['representative'] in by_pk]
@@ -250,7 +258,7 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
 
     @staticmethod
     def talent_summary(row, provider):
-        display = provider._as_dict(row)
+        display = provider.display_fields(row)
         return {'id': node_spell_id(row) or row.node_id, 'node_id': row.node_id,
                 'talent_id': row.talent_id, 'spell_id': node_spell_id(row),
                 'name': display['name'] or f'天赋 {row.node_id}', 'name_zh': display['name_zh'],
