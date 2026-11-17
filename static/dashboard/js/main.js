@@ -9300,6 +9300,8 @@ function initLogFilePage() {
     let currentFilename = '';
     let currentPage = 1;
     let filesLoaded = false;
+    let logFiles = [];
+    let readSequence = 0;
 
     const listEl = document.getElementById('log-file-list');
     const emptyEl = document.getElementById('log-file-empty');
@@ -9360,7 +9362,8 @@ function initLogFilePage() {
         if (emptyEl) emptyEl.classList.add('hidden');
         listEl.innerHTML = files.map(file => {
             const activeCls = file.filename === currentFilename ? 'bg-blue-50 border-l-4 border-blue-500' : 'hover:bg-gray-50 border-l-4 border-transparent';
-            const lineCount = file.line_count >= 0 ? `${file.line_count} 行` : '行数未知';
+            const lineCount = file.line_count >= 0
+                ? `<span><i class="fas fa-list-ol mr-1"></i>${escapeHtml(file.line_count)} 行</span>` : '';
             return `
                 <button type="button" data-log-filename="${escapeHtml(file.filename)}" class="w-full text-left px-5 py-4 transition-colors duration-150 ${activeCls}">
                     <div class="flex items-start justify-between gap-3">
@@ -9369,7 +9372,7 @@ function initLogFilePage() {
                             <div class="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
                                 <span><i class="fas fa-clock mr-1"></i>${escapeHtml(file.mtime_human || '')}</span>
                                 <span><i class="fas fa-weight-hanging mr-1"></i>${escapeHtml(file.size_human || '')}</span>
-                                <span><i class="fas fa-list-ol mr-1"></i>${escapeHtml(lineCount)}</span>
+                                ${lineCount}
                             </div>
                         </div>
                         <i class="fas fa-chevron-right text-gray-300 mt-1"></i>
@@ -9392,12 +9395,12 @@ function initLogFilePage() {
                 if (listEl) listEl.innerHTML = `<div class="px-5 py-8 text-center text-red-600">${escapeHtml(data.message || '加载失败')}</div>`;
                 return;
             }
-            const files = data.data || [];
-            if (listHintEl) listHintEl.textContent = `按修改时间倒序，共 ${files.length} 个日志文件`;
-            renderLogFileList(files);
-            if (files.length && !currentFilename) {
-                readLogFile(files[0].filename, 1);
-            } else if (!files.length && contentEmptyEl) {
+            logFiles = data.data || [];
+            if (listHintEl) listHintEl.textContent = `按修改时间倒序，共 ${logFiles.length} 个日志文件`;
+            renderLogFileList(logFiles);
+            if (logFiles.length && !currentFilename) {
+                readLogFile(logFiles[0].filename, 1);
+            } else if (!logFiles.length && contentEmptyEl) {
                 contentEmptyEl.classList.remove('hidden');
                 if (contentEl) contentEl.innerHTML = '';
             }
@@ -9408,8 +9411,10 @@ function initLogFilePage() {
 
     async function readLogFile(filename, page) {
         if (!filename) return;
+        const sequence = ++readSequence;
         currentFilename = filename;
         currentPage = page || 1;
+        renderLogFileList(logFiles);
         if (contentEmptyEl) contentEmptyEl.classList.add('hidden');
         if (contentEl) contentEl.innerHTML = '<div class="px-5 py-8 text-center text-slate-400"><i class="fas fa-spinner fa-spin mr-2"></i>读取日志...</div>';
         if (currentNameEl) currentNameEl.textContent = filename;
@@ -9422,13 +9427,21 @@ function initLogFilePage() {
                 page: currentPage,
                 page_size: getLogPageSize()
             });
+            if (sequence !== readSequence) return;
             if (data.status !== 'success') {
                 if (contentEl) contentEl.innerHTML = `<div class="px-5 py-8 text-center text-red-300">${escapeHtml(data.message || '读取失败')}</div>`;
                 return;
             }
-            renderLogContent(data.data || {});
-            loadLogFiles(true);
+            const file = logFiles.find(row => row.filename === filename);
+            if (file) {
+                file.line_count = data.data.total_lines;
+                file.size_human = data.data.size_human;
+                file.mtime_human = data.data.mtime_human;
+                renderLogFileList(logFiles);
+            }
+            renderLogContent(data.data);
         } catch (e) {
+            if (sequence !== readSequence) return;
             if (contentEl) contentEl.innerHTML = '<div class="px-5 py-8 text-center text-red-300">读取日志失败</div>';
         }
     }

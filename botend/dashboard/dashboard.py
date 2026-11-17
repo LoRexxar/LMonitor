@@ -1097,19 +1097,13 @@ class DashboardView(View):
                     mtime = stat_info.st_mtime
                     mtime_dt = datetime.datetime.fromtimestamp(mtime)
 
-                    # 行数用于展示，不读取文本内容；超大文件也用二进制块计数，避免一次性载入内存。
-                    try:
-                        line_count = self._count_file_lines(file_path)
-                    except Exception:
-                        line_count = -1
-
                     log_files.append({
                         'filename': filename,
                         'size': file_size,
                         'size_human': self._format_size(file_size),
                         'mtime': mtime,
                         'mtime_human': mtime_dt.strftime('%Y-%m-%d %H:%M:%S'),
-                        'line_count': line_count,
+                        'line_count': -1,  # 打开单个日志时再统计行数。
                     })
                 except Exception as e:
                     logger.warning(f"获取日志文件信息失败 {filename}: {str(e)}")

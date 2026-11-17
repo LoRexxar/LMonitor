@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
@@ -92,6 +93,24 @@ class DashboardPageAccessTests(TestCase):
             ).status_code,
             200,
         )
+
+    def test_log_file_listing_uses_metadata_without_scanning_contents(self):
+        from botend.dashboard.dashboard import DashboardView
+
+        view = DashboardView()
+        existing_file = Path(__file__).resolve()
+        with (
+            patch.object(view, '_get_logs_dir', return_value=str(existing_file.parent)),
+            patch.object(view, '_resolve_log_path', return_value=(str(existing_file.parent), str(existing_file))),
+            patch('botend.dashboard.dashboard.os.listdir', return_value=['server.log']),
+            patch.object(view, '_count_file_lines') as count_lines,
+        ):
+            result = json.loads(view.list_log_files({}).content)
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data'][0]['size'], existing_file.stat().st_size)
+        self.assertEqual(result['data'][0]['line_count'], -1)
+        count_lines.assert_not_called()
 
     def test_system_alert_api_requires_system_alert_permission(self):
         self.client.force_login(self.user)
