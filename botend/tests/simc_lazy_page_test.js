@@ -46,6 +46,7 @@ test('real history loader starts only history and its filter, then navigation ca
 });
 
 test('profile query scopes only explicit spec and retains every matching record',async t=>{
- const h=await setup(t);const p=h.w.simcWbFetchProfilesForWorkbench(undefined,'mage_fire');assert.equal(h.requests[0].url,'/api/simc-profile/?spec=mage_fire');h.requests[0].resolve({ok:true,json:async()=>({success:true,data:[{id:1},{id:2}]})});assert.equal((await p).length,2);
- const all=h.w.simcWbFetchProfilesForWorkbench();assert.equal(h.requests[1].url,'/api/simc-profile/');h.requests[1].resolve({ok:true,json:async()=>({success:true,data:[]})});await all;
+ const h=await setup(t),controller=new h.w.AbortController();const p=h.w.simcWbFetchProfilesForWorkbench(controller.signal,'mage_fire');assert.equal(h.requests[0].url,'/api/simc-profile/?view=summary&spec=mage_fire');assert.equal(h.requests[0].options.signal,controller.signal);
+ const profiles=[{id:1,canonical_spec:'mage_fire',has_player_equipment:true},{id:2,canonical_spec:'mage_fire',has_player_equipment:false}];h.requests[0].resolve({ok:true,json:async()=>({success:true,data:profiles})});assert.deepEqual(await p,profiles);assert.ok(profiles.every(row=>!Object.hasOwn(row,'player_equipment')));
+ const all=h.w.simcWbFetchProfilesForWorkbench();assert.equal(h.requests[1].url,'/api/simc-profile/?view=summary');h.requests[1].resolve({ok:true,json:async()=>({success:true,data:[]})});await all;
 });

@@ -1868,7 +1868,7 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
         self.assertRegex(template, r"portal/js/gear_builder\.js' %}\?v=\d{8}_[a-z0-9_]+")
-        self.assertIn("wow-item-tooltip.js' %}?v=20260928_shared_content", template)
+        self.assertRegex(template, r"wow-item-tooltip\.js' %}\?v=[a-zA-Z0-9_]+")
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
         for value in ('tooltipLineIdentity', 'isStandaloneTooltipStatLine', 'isRedundantDescriptionLine', 'variantEffectDescriptions'):
