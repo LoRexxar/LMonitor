@@ -1,7 +1,7 @@
 """Dashboard 职业配装管理接口。"""
 
 from django.core.paginator import EmptyPage, Paginator
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views import View
@@ -40,10 +40,12 @@ class DashboardGearBuilderManagementAPIView(DashboardPermissionRequiredMixin, Vi
 
     @staticmethod
     def _summary():
+        shares = GearBuilderShareLink.objects.aggregate(
+            shares=Count('pk'), active_shares=Count('pk', filter=Q(is_active=True)),
+        )
         return {
             'loadouts': GearBuilderUserLoadout.objects.count(),
-            'shares': GearBuilderShareLink.objects.count(),
-            'active_shares': GearBuilderShareLink.objects.filter(is_active=True).count(),
+            **shares,
         }
 
     @staticmethod
@@ -95,7 +97,15 @@ class DashboardGearBuilderManagementAPIView(DashboardPermissionRequiredMixin, Vi
         model = self._resource_model(resource)
         if model is None:
             return self._not_found()
-        queryset = model.objects.select_related('user')
+        summary_fields = (
+            'id', 'user__id', 'user__username', 'class_name', 'spec_name',
+            'batch_key', 'state_hash', 'created_at', 'updated_at',
+        )
+        resource_fields = (('name',) if resource == 'loadouts'
+                           else ('token', 'access_count', 'is_active', 'last_accessed_at'))
+        queryset = model.objects.select_related('user').only(
+            *summary_fields, *resource_fields, *(['encoded_state'] if object_id is not None else []),
+        )
         if object_id is not None:
             row = queryset.filter(pk=object_id).first()
             if row is None:

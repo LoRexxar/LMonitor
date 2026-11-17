@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from botend.models import (
     DashboardUserGroup,
@@ -77,7 +79,8 @@ class DashboardGearBuilderManagementTests(TestCase):
 
     def test_lists_both_resources_without_returning_encoded_state(self):
         self.client.force_login(self.admin)
-        response = self.client.get('/api/dashboard/gear-builder/loadouts/?q=gear-owner')
+        with CaptureQueriesContext(connection) as loadout_queries:
+            response = self.client.get('/api/dashboard/gear-builder/loadouts/?q=gear-owner')
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload['pagination']['total'], 1)
@@ -85,11 +88,15 @@ class DashboardGearBuilderManagementTests(TestCase):
         self.assertEqual(payload['records'][0]['name'], '团本单体')
         self.assertEqual(payload['summary'], {'loadouts': 1, 'shares': 1, 'active_shares': 1})
 
-        response = self.client.get('/api/dashboard/gear-builder/shares/?q=GearShort')
+        with CaptureQueriesContext(connection) as share_queries:
+            response = self.client.get('/api/dashboard/gear-builder/shares/?q=GearShort')
         payload = response.json()
         self.assertEqual(payload['records'][0]['short_path'], '/g/GearShort001/')
         self.assertEqual(payload['records'][0]['access_count'], 7)
         self.assertNotIn('code', payload['records'][0])
+        encoded_column = connection.ops.quote_name('encoded_state')
+        for queries in (loadout_queries, share_queries):
+            self.assertFalse(any(encoded_column in query['sql'] for query in queries))
 
     def test_detail_returns_code_only_on_demand(self):
         self.client.force_login(self.admin)
