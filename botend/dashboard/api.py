@@ -466,7 +466,12 @@ class WagoHotfixReportListAPIView(View):
             except Exception:
                 limit = 20
 
-            state_rows = WowWagoMonitorState.objects.filter(branch='wow').order_by('locale', 'id')
+            state_rows = WowWagoMonitorState.objects.filter(branch='wow').only(
+                'id', 'branch', 'locale', 'build', 'hotfix_push_id',
+                'hotfix_last_run_at', 'hotfix_last_run_status', 'hotfix_last_event_at',
+                'hotfix_last_event_status', 'hotfix_report_url', 'hotfix_wago_url',
+                'hotfix_summary_title',
+            ).order_by('locale', 'id')
             latest_known_push = max(
                 WowHotfixReport.objects.filter(branch='wow').aggregate(v=models.Max('to_push')).get('v') or 0,
                 WowWagoHotfixEvent.objects.filter(branch='wow').aggregate(v=models.Max('to_push')).get('v') or 0,
@@ -508,7 +513,11 @@ class WagoHotfixReportListAPIView(View):
                     'created_at': _fmt_dt(r.created_at),
                     'updated_at': _fmt_dt(r.updated_at),
                 }
-                for r in WowHotfixReport.objects.filter(branch='wow').order_by('-created_at')[:limit]
+                for r in WowHotfixReport.objects.filter(branch='wow').only(
+                    'id', 'branch', 'locale', 'build_num', 'build_str', 'from_push', 'to_push',
+                    'summary_title', 'content_html_path', 'report_url', 'wago_url',
+                    'table_count', 'entry_count', 'created_at', 'updated_at',
+                ).order_by('-created_at')[:limit]
             ]
 
             events = [
@@ -533,7 +542,12 @@ class WagoHotfixReportListAPIView(View):
                     'last_attempt_at': _fmt_dt(e.last_attempt_at),
                     'updated_at': _fmt_dt(e.updated_at),
                 }
-                for e in WowWagoHotfixEvent.objects.filter(branch='wow').select_related('report').order_by('-created_at')[:limit]
+                for e in WowWagoHotfixEvent.objects.filter(branch='wow').select_related('report').only(
+                    'id', 'branch', 'locale', 'from_push', 'to_push', 'push_id', 'build_num',
+                    'build_str', 'status', 'wago_url', 'report_id', 'report__content_html_path',
+                    'report__report_url', 'table_count', 'entry_count', 'summary_title',
+                    'error_message', 'detected_at', 'last_attempt_at', 'updated_at',
+                ).order_by('-created_at')[:limit]
             ]
 
             return JsonResponse({'success': True, 'states': states, 'reports': reports, 'events': events})
@@ -1387,7 +1401,9 @@ class WowDailyReportListAPIView(View):
                 limit = max(1, min(200, int(limit)))
             except ValueError:
                 limit = 30
-            rows = list(WowDailyReport.objects.all().order_by("-report_date", "-updated_at", "-id")[:limit])
+            rows = WowDailyReport.objects.only(
+                'id', 'report_date', 'md_path', 'updated_at',
+            ).order_by('-report_date', '-updated_at', '-id')[:limit]
             data = []
             for r in rows:
                 data.append(

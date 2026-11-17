@@ -3,10 +3,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
-from botend.models import DashboardUserGroup, DashboardUserGroupMembership
+from botend.models import (
+    DashboardUserGroup, DashboardUserGroupMembership, WowHotfixReport,
+    WowWagoHotfixEvent, WowWagoMonitorState,
+)
 
 
 User = get_user_model()
@@ -121,6 +125,25 @@ class DashboardPageAccessTests(TestCase):
         )
         DashboardUserGroupMembership.objects.create(user=self.user, group=group)
         self.assertEqual(self.client.get('/api/system-alert/').status_code, 200)
+
+    def test_wago_list_reads_report_links_without_loading_facts(self):
+        report = WowHotfixReport.objects.create(to_push=12, content_md='正文',
+                                               source_facts_json='来源', report_url='/report.html')
+        WowWagoMonitorState.objects.create(hotfix_push_id=12)
+        WowWagoHotfixEvent.objects.create(to_push=12, report=report, changed_tables_json='变更')
+        self.client.force_login(self.admin)
+        with CaptureQueriesContext(connection) as queries:
+            payload = self.client.get('/api/wago-hotfix-reports/').json()
+
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['states'][0]['latest_known_push'], 12)
+        self.assertEqual(payload['events'][0]['report_url'], payload['reports'][0]['report_url'])
+        self.assertTrue(payload['events'][0]['report_url'])
+        sql = ' '.join(query['sql'] for query in queries)
+        for field in ('content_md', 'source_facts_json', 'changed_tables_json', 'ext'):
+            self.assertNotIn(connection.ops.quote_name(field), sql)
+        self.assertEqual(sum('wow_hotfix_report' in q['sql'] or 'wow_wago_hotfix_event' in q['sql']
+                             or 'wow_wago_monitor_state' in q['sql'] for q in queries), 5)
 
     def test_wago_apis_require_their_dashboard_permissions(self):
         self.client.force_login(self.user)

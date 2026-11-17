@@ -5,7 +5,9 @@ from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from botend.models import (
@@ -29,12 +31,14 @@ class WowDailyReportDashboardListTest(TestCase):
             md_path='portal/reports/wow_daily_report_2026-07-01.html',
         )
 
-        response = self.client.get('/api/wow-daily-report/list/')
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/wow-daily-report/list/')
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'])
         self.assertEqual(payload['data'][0]['portal_url'], '/portal/reports/wow_daily_report_2026-07-01.html')
+        self.assertNotIn(connection.ops.quote_name('ext_json'), ' '.join(q['sql'] for q in queries))
 
     def test_latest_public_report_url_changes_only_when_the_edition_changes(self):
         from datetime import timedelta
