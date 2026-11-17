@@ -12,7 +12,7 @@ from django.core.exceptions import ValidationError
 from django.core.cache import cache
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import BooleanField, Case, Count, F, Func, JSONField, Max, OuterRef, Q, Subquery, Value, When
+from django.db.models import BooleanField, Case, CharField, Count, F, Func, JSONField, Max, OuterRef, Q, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone
 
@@ -307,19 +307,14 @@ def list_analyses(params):
     # Deliberately do NOT call _detail/frozen_ai/build_evidence on list pages.
     page, page_size = _page(params)
     tag = _text(params.get('tag', ''), 'tag', 200)  # Exact label, not a substring or trimmed alias.
+    menu_only = params.get('view') == 'tag-options'
+    automatic = Q(manual_json={})
+    manual = ~automatic
     query = _base_query().defer('evidence_json', 'manual_json', 'result_json').annotate(
-        summary_has_manual=Case(When(manual_json={}, then=Value(False)), default=Value(True), output_field=BooleanField()),
-        summary_manual_labels=_ManualTagColumn('label'),
-        summary_manual_values=_ManualTagColumn('value'),
-        summary_strengths=KeyTransform('evidence_strengths', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json'))),
-        summary_labels=KeyTransform('eligible_labels', 'evidence_json'),
-        summary_observations=KeyTransform('observations', 'result_json'),
-        summary_result_source=KeyTextTransform.from_lookup('result_json__metadata__source_kind'),
-        # 只有仍可能匹配的人工复核需要完整结果来校验原始摘要。
-        summary_review_result=Case(
-            When(reviewed_at__isnull=False, reviewed_evidence_hash=F('evidence_hash'), then=F('result_json')),
-            default=Value(None), output_field=JSONField(),
-        ),
+        summary_has_manual=Case(When(automatic, then=Value(False)), default=Value(True), output_field=BooleanField()),
+        summary_manual_labels=Case(When(manual, then=_ManualTagColumn('label')), output_field=JSONField()),
+        summary_labels=Case(When(automatic, then=KeyTransform('eligible_labels', 'evidence_json')), output_field=JSONField()),
+        summary_observations=Case(When(automatic, then=KeyTransform('observations', 'result_json')), output_field=JSONField()),
     )
     q = _text(params.get('q', ''), 'q', 200).strip()
     if q:
@@ -347,7 +342,7 @@ def list_analyses(params):
     # 标签菜单与分页分离；同一筛选条件翻页不再扫描全部 JSON。
     options = None
     total = None
-    if params.get('include_tag_options', '1') != '0':
+    if menu_only or params.get('include_tag_options', '1') != '0':
         signature = query.aggregate(count=Count('pk'), last_id=Max('pk'), updated=Max('updated_at'))
         if not tag:
             total = signature['count']
@@ -368,8 +363,23 @@ def list_analyses(params):
                 before = batch[-1]['id']
             options = sorted(labels)
             cache.set(key, options, 60)
+    if menu_only:
+        return {'tag_options': options}
     if tag:
-        query = query.annotate(matches_tag=_MatchesTag(tag)).filter(matches_tag=True)
+        query = query.alias(matches_tag=_MatchesTag(tag)).filter(matches_tag=True)
+
+    query = query.annotate(
+        summary_manual_values=Case(When(manual, then=_ManualTagColumn('value')), output_field=JSONField()),
+        summary_strengths=Case(When(automatic, then=KeyTransform('evidence_strengths',
+            KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json')))), output_field=JSONField()),
+        summary_result_source=Case(When(automatic, then=KeyTextTransform.from_lookup(
+            'result_json__metadata__source_kind')), output_field=CharField()),
+        # 只有仍可能匹配的人工复核需要完整结果来校验原始摘要。
+        summary_review_result=Case(
+            When(reviewed_at__isnull=False, reviewed_evidence_hash=F('evidence_hash'), then=F('result_json')),
+            output_field=JSONField(),
+        ),
+    )
 
     def summary(row):
         from botend.services.player_observation_resolution import LABELS

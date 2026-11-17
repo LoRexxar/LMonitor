@@ -70,6 +70,26 @@ test('tag options follow server metadata; exact selection persists through pagin
   assert.deepEqual(Array.from(select.options).map(n=>n.value),['','新选项']);assert.equal(f.doc.querySelector('.pa-filters img'),null);
  }finally{closeDOM(f.dom,f.app);}
 });
+test('标签选项未返回时，角色列表已经展示且可操作',async()=>{
+ const dom=createDOM('<main></main>',{url:'https://example.com/dashboard/player-analyses/'});
+ const doc=dom.window.document;
+ let release;
+ const app=mount(doc.querySelector('main'),{fetch:async(url)=>{
+  const params=new URL(url,'https://example.com').searchParams;
+  if(params.get('view')==='tag-options')return new Promise(resolve=>{release=resolve;});
+  assert.equal(params.get('include_tag_options'),'0');
+  return response(page([record()]));
+ }});
+ try {
+  await tick();
+  assert.ok(doc.querySelector('[data-row-id="7"] [data-action="open"]'));
+  assert.equal(doc.querySelector('.pa-results').hasAttribute('aria-busy'),false);
+  assert.equal(doc.querySelector('[data-field="tag"]').options.length,1);
+  release(response({tag_options:['其他页标签']}));
+  await app.ready;
+  assert.equal(doc.querySelector('[data-field="tag"]').options[1].value,'其他页标签');
+ }finally{closeDOM(dom,app);}
+});
 test('PATCH only changes, preserves manual; explicit restoration and publication gate',()=>{
  const row=record();
  assert.deepEqual(buildPatch(row,{review_status:'approved',review_note:'',is_published:false}),{revision:3,review_status:'approved'});
@@ -86,9 +106,9 @@ test('输入防抖、中文组合输入和筛选自动更新，翻页复用标�
  const dispatch=type=>input.dispatchEvent(new f.dom.window.Event(type,{bubbles:true}));
  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  dispatch('compositionstart');input.value='阿';dispatch('input');await wait(330);
- assert.equal(f.calls.length,1);
- input.value='阿诺';dispatch('compositionend');dispatch('input');await wait(330);await f.app.settled();
  assert.equal(f.calls.length,2);
+ input.value='阿诺';dispatch('compositionend');dispatch('input');await wait(330);await f.app.settled();
+ assert.equal(f.calls.length,3);
  assert.equal(new URL(f.calls.at(-1)[0],'https://example.com').searchParams.get('q'),'阿诺');
  assert.equal(new URL(f.calls.at(-1)[0],'https://example.com').searchParams.get('include_tag_options'),'0');
  const select=f.doc.querySelector('[data-field="review_status"]');select.value='pending';
@@ -131,10 +151,10 @@ test('401/403/409 are explicit; readback failure is not success',async()=>{
 });
 test('DOM list is lazy; detail safe text, edit form, unchanged manual omitted; restore confirmed',async()=>{
  const {doc,calls,click}=await fixture({confirm:()=>false});
- assert.equal(calls.length,1);assert.match(calls[0][0],/page_size=20/);
+ assert.equal(calls.length,2);assert.match(calls[0][0],/page_size=20/);
  assert.equal(doc.querySelector('img'),null);
  await click('[data-action="open"]');
- assert.equal(calls.length,3);assert.match(doc.body.textContent,/冻结证据/);
+ assert.equal(calls.length,4);assert.match(doc.body.textContent,/冻结证据/);
  assert.equal(doc.querySelector('a[href^="javascript"]'),null);
  doc.querySelector('.pa-edit-form [data-field="review_status"]').value='approved';
  await click('[data-action="save"]');

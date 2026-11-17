@@ -333,15 +333,14 @@
             const sequence=++readSequence;
             Object.assign(filters,{q:query.value,page:String(page),page_size:pageSize.value});
             for (const key of Object.keys(selects)) filters[key]=selects[key].value;
-            // 输入和筛选复用已加载的标签菜单，避免每次按键遍历全部匹配 JSON。
-            const requestedMenu='loaded';
-            filters.include_tag_options=requestedMenu===menuKey?'0':'1';
+            // 先显示当前页，再单独加载可复用的标签选项。
+            filters.include_tag_options='0';
+            const requestParams=new URLSearchParams(filters);
             results.setAttribute('aria-busy','true');
             listStatus.textContent='正在更新…';
             try {
-                const data=await client.request('?'+new URLSearchParams(filters),'GET',undefined,listRequest.signal);
+                const data=await client.request('?'+requestParams,'GET',undefined,listRequest.signal);
                 if(sequence!==readSequence)return;
-                if(data.tag_options){refreshTagOptions(data.tag_options);menuKey=requestedMenu;}
                 listStatus.textContent=`共 ${data.total} 个角色 · 输入后自动搜索，筛选即时生效`;
                 listPage=data.page;results.replaceChildren();
                 if(!data.items.length)results.append(el('p','没有匹配的分析记录。试试其他名字，或重置筛选。',{class:'pa-empty'}));
@@ -369,6 +368,19 @@
                 if(sequence!==readSequence || error.name==='AbortError')return;
                 listStatus.textContent='更新失败，当前列表仍为上次结果。请点击刷新重试。';throw error;
             } finally { if(sequence===readSequence)results.removeAttribute('aria-busy'); }
+            if(menuKey!==null)return;
+            requestParams.set('view','tag-options');
+            try {
+                const data=await client.request('?'+requestParams,'GET',undefined,listRequest.signal);
+                if(sequence!==readSequence)return;
+                refreshTagOptions(data.tag_options);
+                selects.tag.removeAttribute('title');
+                menuKey='loaded';
+            } catch(error) {
+                if(sequence===readSequence && error.name!=='AbortError') {
+                    selects.tag.title='标签筛选加载失败，请点击刷新重试。';
+                }
+            }
         }
         async function open(id,focusEditor=false,force=false) {
             if(client.busy)return;

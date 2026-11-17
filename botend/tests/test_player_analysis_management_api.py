@@ -106,7 +106,11 @@ class PlayerAnalysisManagementAPITests(TestCase):
         with self.assertNumQueries(5):
             response = self.client.get(COLLECTION, {'q': row['id']})
         with self.assertNumQueries(4):
-            self.client.get(COLLECTION, {'q': row['id'], 'include_tag_options': '0'})
+            listing = self.client.get(COLLECTION, {'q': row['id'], 'include_tag_options': '0'})
+        self.assertNotIn('tag_options', self.success(listing))
+        with self.assertNumQueries(3):
+            options = self.client.get(COLLECTION, {'q': row['id'], 'view': 'tag-options'})
+        self.assertEqual(self.success(options), {'tag_options': ['固定队']})
         item = self.success(response)['items'][0]
         self.assertEqual(item['tags'], [{'label': '固定队', 'value': '低'}])
         self.assertEqual(self.success(response)['tag_options'], ['固定队'])

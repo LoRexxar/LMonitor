@@ -37,7 +37,7 @@ test('证据不足回读终态后停止轮询，GET不重发，人工重新检�
     assert.equal(calls.filter(call => call.url.endsWith('/recheck/')).length, 1);
     // The terminal readback includes both the exact detail and the list.
     assert.equal(calls.filter(call => call.url.endsWith('/7/')).length, 2);
-    assert.equal(calls.filter(call => call.url.includes('?')).length, 2);
+    assert.equal(calls.filter(call => call.url.includes('?') && !call.url.includes('view=tag-options')).length, 2);
     assert.equal(pollTimers, 0);
     assert.ok(calls.every(call => call.method === 'GET'));
 
