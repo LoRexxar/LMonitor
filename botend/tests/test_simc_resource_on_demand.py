@@ -113,3 +113,36 @@ class SimcResourceOnDemandTests(TestCase):
         self.assertNotIn('pagination', all_rows)
         self.assertIn('talent_versions', all_rows)
         self.assertEqual(self.client.get('/api/simc-profile/', {'spec': 'invalid'}).status_code, 400)
+
+    def test_profile_summary_keeps_legacy_modes_and_does_not_select_equipment_body(self):
+        legacy = SimcProfile.objects.create(
+            user_id=self.user.pk, name='历史属性配置', spec='frost', class_name='mage',
+            player_config_mode='battlenet', gear_crit=1400,
+        )
+        equipment = 'head=,id=123\n\nneck=,id=456\n'
+        manual = SimcProfile.objects.create(
+            user_id=self.user.pk, name='手动配置', spec='frost', class_name='mage',
+            player_config_mode='', player_equipment=equipment, talent='talent-code',
+        )
+        with CaptureQueriesContext(connection) as queries:
+            summary = self.client.get('/api/simc-profile/', {'view': 'summary', 'spec': 'mage_frost'}).json()
+        quote = connection.ops.quote_name
+        profile_reads = [q['sql'] for q in queries if f'FROM {quote("simc_profile")}' in q['sql']]
+        self.assertEqual(len(profile_reads), 2)
+        equipment_column = f'{quote("simc_profile")}.{quote("player_equipment")}'
+        self.assertEqual(sum(sql.count(equipment_column) for sql in profile_reads), 1)
+        self.assertTrue(any(f'LENGTH({equipment_column})' in sql for sql in profile_reads))
+        rows = {row['id']: row for row in summary['data']}
+        self.assertEqual(rows[legacy.pk]['player_config_mode'], 'attribute_only')
+        self.assertFalse(rows[legacy.pk]['has_player_equipment'])
+        self.assertEqual(rows[manual.pk]['player_config_mode'], 'manual_equipment')
+        self.assertTrue(rows[manual.pk]['has_player_equipment'])
+        self.assertNotIn('player_equipment', rows[manual.pk])
+        self.assertNotIn('talent', rows[manual.pk])
+        self.assertNotIn('gear_crit', rows[legacy.pk])
+        full = self.client.get('/api/simc-profile/').json()
+        full_row = next(row for row in full['data'] if row['id'] == manual.pk)
+        self.assertEqual(full_row['equipment_line_count'], 2)
+        self.assertEqual(full_row['player_equipment'], equipment)
+        detail = self.client.get(f'/api/simc-profile/{manual.pk}/').json()
+        self.assertEqual(detail['player_equipment'], equipment)

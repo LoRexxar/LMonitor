@@ -3723,10 +3723,11 @@ class SimcProfileAPIView(View):
     """
     
     @staticmethod
-    def _profile_mode(profile):
+    def _profile_mode(profile, *, has_equipment=None):
         """Infer the legal legacy attribute-only form without rewriting stored data."""
         mode = (getattr(profile, 'player_config_mode', '') or '').strip()
-        has_equipment = bool(getattr(profile, 'player_equipment', ''))
+        if has_equipment is None:
+            has_equipment = bool(profile.player_equipment)
         has_battlenet_identity = any(
             getattr(profile, field, '') for field in ('battlenet_region', 'battlenet_realm', 'battlenet_character')
         )
@@ -3799,7 +3800,8 @@ class SimcProfileAPIView(View):
             else:
                 # 用户配置与迁移后的 SimC 上游默认玩家属于同一 Profile 资源库。
                 # 系统记录只在列表中展示，写接口仍严格按 user_id 校验所有权。
-                if _is_simc_admin(request.user):
+                is_admin = _is_simc_admin(request.user)
+                if is_admin:
                     # 管理后台是资源审计入口，停用记录也必须可见；状态由列表表达。
                     profiles = SimcProfile.objects.all().order_by('user_id', 'class_name', 'spec', '-id')
                 else:
@@ -3826,14 +3828,22 @@ class SimcProfileAPIView(View):
                             matching |= models.Q(spec=stored_spec, class_name=stored_class)
                     profiles = profiles.filter(matching)
 
+                summary = request.GET.get('view') == 'summary'
+                if summary:
+                    profiles = profiles.only(
+                        'user_id', 'name', 'spec', 'class_name', 'version', 'use_ptr',
+                        'player_config_mode', 'battlenet_region', 'battlenet_realm',
+                        'battlenet_character', 'is_active', 'source', 'sync_version',
+                    ).annotate(equipment_length=Length('player_equipment'))
+
                 profile_list = []
                 for profile in profiles:
                     is_system = (
                         profile.user_id is None
                         and profile.source == SimcProfile.SOURCE_SIMC_UPSTREAM
                     )
-                    player_equipment = getattr(profile, 'player_equipment', '') or ''
-                    profile_list.append({
+                    has_equipment = bool(profile.equipment_length) if summary else bool(profile.player_equipment)
+                    row = {
                         'id': profile.id,
                         'name': profile.name,
                         'spec': profile.spec,
@@ -3843,27 +3853,32 @@ class SimcProfileAPIView(View):
                         'version': profile.version,
                         'use_ptr': bool(profile.use_ptr),
                         'class_name': getattr(profile, 'class_name', '') or '',
-                        'player_config_mode': self._profile_mode(profile),
+                        'player_config_mode': self._profile_mode(profile, has_equipment=has_equipment),
                         'battlenet_region': getattr(profile, 'battlenet_region', '') or '',
                         'battlenet_realm': getattr(profile, 'battlenet_realm', '') or '',
                         'battlenet_character': getattr(profile, 'battlenet_character', '') or '',
-                        'player_equipment': player_equipment,
-                        'talent': profile.talent,
-                        'gear_strength': profile.gear_strength,
-                        'gear_crit': profile.gear_crit,
-                        'gear_haste': profile.gear_haste,
-                        'gear_mastery': profile.gear_mastery,
-                        'gear_versatility': profile.gear_versatility,
                         'is_active': profile.is_active,
                         'is_system': is_system,
-                        'can_edit': _is_simc_admin(request.user) or not is_system,
+                        'can_edit': is_admin or not is_system,
                         'can_delete': not is_system,
                         'source': profile.source,
                         'sync_version': getattr(profile, 'sync_version', '') or '',
-                        'equipment_line_count': len([
-                            line for line in player_equipment.splitlines() if line.strip()
-                        ]),
-                    })
+                    }
+                    if summary:
+                        row['has_player_equipment'] = has_equipment
+                    else:
+                        player_equipment = profile.player_equipment or ''
+                        row.update({
+                            'player_equipment': player_equipment,
+                            'talent': profile.talent,
+                            'gear_strength': profile.gear_strength,
+                            'gear_crit': profile.gear_crit,
+                            'gear_haste': profile.gear_haste,
+                            'gear_mastery': profile.gear_mastery,
+                            'gear_versatility': profile.gear_versatility,
+                            'equipment_line_count': sum(bool(line.strip()) for line in player_equipment.splitlines()),
+                        })
+                    profile_list.append(row)
                 
                 return JsonResponse({
                     'success': True,

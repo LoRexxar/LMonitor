@@ -1968,7 +1968,7 @@ function loadSimcWorkbenchProfiles(page) {
     const csrf = getCSRFToken();
     if (!csrf) { tbody.innerHTML = '<tr><td colspan="6" class="text-center py-6 text-red-500">无法获取 CSRF Token</td></tr>'; return; }
 
-    fetch('/api/simc-profile/', {
+    fetch('/api/simc-profile/?view=summary', {
         method: 'GET',
         headers: { 'X-CSRFToken': csrf },
         signal: abortController.signal,
@@ -2012,14 +2012,16 @@ function loadSimcWorkbenchProfiles(page) {
             const mode = row.player_config_mode || 'battlenet';
             const isSystem = row.is_system === true;
             const equipmentLineCount = Number(row.equipment_line_count || 0);
+            const hasEquipment = row.has_player_equipment ?? Boolean(row.player_equipment);
+            const equipmentLabel = equipmentLineCount ? ` · ${equipmentLineCount} 行` : '';
             const versionLabel = row.version ? ` · 版本 ${row.version}` : '';
             const syncLabel = row.sync_version ? ` · 同步 ${row.sync_version}` : '';
             const sourceText = isSystem
-                ? `系统默认配置${versionLabel}${syncLabel}${equipmentLineCount ? ` · ${equipmentLineCount} 行` : ''}`
+                ? `系统默认配置${versionLabel}${syncLabel}${equipmentLabel}`
                 : mode === 'manual_equipment'
-                    ? ('手动配置 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : ''))
+                    ? ('手动配置' + equipmentLabel)
                     : mode === 'attribute_only'
-                        ? ('冻结玩家基线 + 绿字覆盖 ' + (row.player_equipment ? ('(' + String(row.player_equipment).split('\n').filter(Boolean).length + ' 行)') : '(历史配置缺少基线)'))
+                        ? ('冻结玩家基线 + 绿字覆盖' + (hasEquipment ? equipmentLabel : '（历史配置缺少基线）'))
                         : ('Battle.net ' + [row.battlenet_region, row.battlenet_realm, row.battlenet_character].filter(Boolean).join('/'));
             const sourceTitle = escapeHtml(sourceText || '-');
             const statusText = row.is_active ? '生效中' : '未生效';
@@ -3616,7 +3618,7 @@ async function loadSimcAplCandidates(spec, control = null) {
 }
 
 async function simcWbFetchProfilesForWorkbench(signal = undefined, spec = '') {
-    const url = '/api/simc-profile/' + (spec ? '?spec=' + encodeURIComponent(spec) : '');
+    const url = '/api/simc-profile/' + '?view=summary' + (spec ? '&spec=' + encodeURIComponent(spec) : '');
     const response = await fetch(url, signal ? { signal } : {});
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '加载 Profile 失败');
