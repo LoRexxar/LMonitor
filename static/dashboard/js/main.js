@@ -716,6 +716,7 @@ function loadNewsWowArticles(page = 1) {
     const requestData = {
         action: 'get_table_data',
         table_name: 'WowArticle',
+        view: 'summary',
         page: page,
         page_size: newsWowState.pageSize || 20,
     };

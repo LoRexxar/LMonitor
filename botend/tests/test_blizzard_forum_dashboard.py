@@ -95,6 +95,29 @@ class BlizzardForumDashboardTests(TestCase):
                     if row.source != 'blizzard_tracker' or not row.blizzard_topic_id:
                         self.assertIsNone(item['forum_category'])
 
+    def test_news_summary_projects_preview_fields_and_keeps_full_body_search(self):
+        row, _ = self.article()
+        with CaptureQueriesContext(connection) as captured:
+            summary = self.list_payload(view='summary', wow_source=row.source)
+        quote = connection.ops.quote_name
+        page_sql = next(q['sql'] for q in captured
+                        if f'FROM {quote(WowArticle._meta.db_table)}' in q['sql'] and ' LIMIT ' in q['sql'])
+        full = self.list_payload(wow_source=row.source)
+        item = summary['data'][0]
+        self.assertEqual(item['id'], row.pk)
+        self.assertEqual(item['description'], row.description)
+        self.assertEqual(item['game_version_label'], '正式服')
+        self.assertEqual(item, {name: full['data'][0][name] for name in item})
+        self.assertEqual(summary['wow_filter_options'], full['wow_filter_options'])
+        detail = self.detail(row)
+        for field in ('content', 'content_cn', 'content_blocks', 'content_blocks_cn'):
+            self.assertNotIn(quote(field), page_sql)
+            self.assertNotIn(field, item)
+            self.assertEqual(full['data'][0][field], getattr(row, field))
+            self.assertEqual(detail[field], getattr(row, field))
+        search = self.list_payload(view='summary', search='完整中文正文')
+        self.assertEqual(search['data'], [item])
+
     def test_pagination_and_filters_keep_fixed_query_count_and_scalar_joins(self):
         row, _ = self.article()
         view = DashboardView()

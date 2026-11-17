@@ -43,6 +43,11 @@ from botend.dashboard.permissions import (
 )
 
 
+WOW_ARTICLE_SUMMARY_FIELDS = (
+    'id', 'title', 'title_cn', 'url', 'author', 'description',
+    'publish_time', 'reply_count', 'source', 'category',
+)
+
 WOW_ARTICLE_CHANNEL_FIELDS = tuple(
     f'blizzard_topic__category__{field}'
     for field in ('game_version', 'external_id', 'name', 'url')
@@ -564,10 +569,14 @@ class DashboardView(View):
             model = registry_entry['model']
             
             # 获取字段名和字段类型信息
-            fields = [field.name for field in model._meta.fields]
+            summary = table_name == 'WowArticle' and data.get('view') == 'summary'
+            model_fields = model._meta.fields
+            if summary:
+                model_fields = [model._meta.get_field(name) for name in WOW_ARTICLE_SUMMARY_FIELDS]
+            fields = [field.name for field in model_fields]
             field_types = {}
             field_labels = {}
-            for field in model._meta.fields:
+            for field in model_fields:
                 field_type = field.__class__.__name__
                 sensitive = self._is_sensitive_field(field, table_name)
                 field_editable = bool(
@@ -694,7 +703,7 @@ class DashboardView(View):
                         item[key] = value.strftime('%Y-%m-%d %H:%M:%S')
                 if item.get('author') == 'LMonitor':
                     item['author'] = ''
-                for field in model._meta.fields:
+                for field in model_fields:
                     if self._is_sensitive_field(field, table_name) and field.name in item:
                         item[field.name] = '••••••' if item[field.name] not in (None, '') else ''
                 if table_name == 'WowArticle':
