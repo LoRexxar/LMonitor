@@ -13,7 +13,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, Client, override_settings, SimpleTestCase
 from django.utils import timezone
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.core.management.base import CommandError
 from botend.constants.wow import SPEC_IDENTITY_MAP, resolve_spec_identity
 from botend.services.class_guide_authors import extract_author_profile
@@ -22,7 +23,7 @@ from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
 from botend.plugin_sync import claim_monitor_task
 from bs4 import BeautifulSoup
 
-from botend.guide_models import ClassGuide, ClassGuideTag, ClassGuideTranslation
+from botend.guide_models import ClassGuide, ClassGuideSyncRun, ClassGuideTag, ClassGuideTranslation
 from botend.services.wow_localization import write_name, effective_names
 from botend.models import (
     SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot, WowTalentNodeMetadata,
@@ -69,6 +70,26 @@ class GuideFlowTests(TestCase):
         self.client.force_login(self.user)
         self.url = 'https://maxroll.gg/wow/class-guides/arcane-mage-raid-guide'
         self.guide, _ = import_post(source_post(), self.url)
+
+    def test_catalog_only_reads_summary_columns_with_and_without_tag(self):
+        tag = ClassGuideTag.objects.create(name='副本测试', disclaimer='列表用不到的声明')
+        self.guide.tags.add(tag)
+        ClassGuideSyncRun.objects.create(
+            discovered=[{'url': self.url}], results=[{'article': self.guide.id}], coverage={'total': 1},
+        )
+
+        for params in ({}, {'tag': tag.name, 'q': self.guide.author}):
+            with self.subTest(params=params), CaptureQueriesContext(connection) as queries:
+                response = self.client.get('/api/dashboard/class-guides/', params)
+                self.assertEqual(response.status_code, 200)
+                result = response.json()
+                self.assertEqual(result['total'], 1)
+                self.assertIn(tag.name, result['records'][0]['tags'])
+                self.assertEqual(result['coverage'], {'total': 1})
+            sql = ' '.join(query['sql'] for query in queries)
+            for column in ('content_markdown', 'source_markdown', 'source_payload',
+                           'check_data', 'disclaimer', 'discovered', 'results'):
+                self.assertNotIn(connection.ops.quote_name(column), sql)
 
     def test_reference_tooltips_read_native_tables_by_version_kind_and_id(self):
         version, _ = WowTalentVersion.objects.update_or_create(

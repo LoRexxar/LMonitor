@@ -6,7 +6,7 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.db import transaction, IntegrityError
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -53,9 +53,19 @@ def payload(request):
     return value
 
 
+SUMMARY_FIELDS = (
+    'id', 'title', 'slug', 'spec_id', 'class_name', 'spec_name',
+    'game_version', 'guide_type', 'source_url', 'author',
+)
+
+
 def summary(guide):
-    return {'is_visible': not guide.archived, 'updated_at': guide.updated_at.isoformat(), 'author_display_name': author_profile_for(guide)['name'], 'specialization_label': guide.specialization_label, 'tags': [tag.name for tag in guide.tags.all()], **{key: getattr(guide, key) for key in ['id', 'title', 'slug', 'spec_id', 'class_name', 'spec_name',
-        'game_version', 'guide_type', 'source_url', 'author']}}
+    return {
+        'is_visible': not guide.archived, 'updated_at': guide.updated_at.isoformat(),
+        'author_display_name': author_profile_for(guide)['name'],
+        'specialization_label': guide.specialization_label, 'tags': [tag.name for tag in guide.tags.all()],
+        **{key: getattr(guide, key) for key in SUMMARY_FIELDS},
+    }
 
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
@@ -70,7 +80,9 @@ class GuidePage(GuideAccess, View):
 
 class GuideCatalogAPI(GuideAccess, View):
     def get(self, request):
-        query = ClassGuide.objects.prefetch_related('tags').order_by('class_name', 'spec_name', 'title', 'id')
+        query = ClassGuide.objects.only(
+            *SUMMARY_FIELDS, 'archived', 'updated_at', 'author_profile', 'source_author_profile',
+        ).order_by('class_name', 'spec_name', 'title', 'id')
         visibility = request.GET.get('visible', '')
         if visibility not in ('', '0', '1'):
             raise ValueError('显示筛选值无效')
@@ -85,13 +97,15 @@ class GuideCatalogAPI(GuideAccess, View):
                 query = query.filter(**{lookup: request.GET[key]})
         if request.GET.get('q'):
             query = query.filter(Q(title__icontains=request.GET['q']) | Q(author__icontains=request.GET['q']) | Q(author_profile__name__icontains=request.GET['q']))
-        for tag in request.GET.getlist('tag'):
-            if tag.strip():
-                query = query.filter(tags__name=tag.strip())
-        query = query.distinct()
+        tags = [tag.strip() for tag in request.GET.getlist('tag') if tag.strip()]
+        for tag in tags:
+            query = query.filter(tags__name=tag)
+        if tags:
+            query = query.distinct()
         page = max(1, int(request.GET.get('page', 1)))
-        latest_run = ClassGuideSyncRun.objects.first()
-        return JsonResponse({'records': [summary(g) for g in query[(page - 1) * 100:page * 100]],
+        latest_run = ClassGuideSyncRun.objects.only('coverage').first()
+        records = query.prefetch_related(Prefetch('tags', queryset=ClassGuideTag.objects.only('name')))
+        return JsonResponse({'records': [summary(g) for g in records[(page - 1) * 100:page * 100]],
             'total': query.count(), 'page': page,
             'versions': list(ClassGuide.objects.order_by('game_version').values_list('game_version', flat=True).distinct()),
             'tags': list(ClassGuideTag.objects.values_list('name', flat=True)),
