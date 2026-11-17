@@ -7,9 +7,13 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcAgentMaintenanceTask, SimcBackendBinary
+from botend.models import (
+    SimcAgent, SimcAgentEnrollmentCode, SimcAgentMaintenanceTask, SimcBackendBinary,
+    SimcReferenceSimulationSettings,
+)
 from botend.services.simc_agent_control import create_enrollment_code, register_agent
 
 
@@ -30,6 +34,7 @@ class SimcAgentAPITests(TestCase):
     def setUp(self):
         SimcAgentEnrollmentCode.objects.all().delete()
         SimcAgent.objects.all().delete()
+        SimcReferenceSimulationSettings.objects.update(backend=None)
         SimcBackendBinary.objects.all().delete()
 
     def register_payload(self, **overrides):
@@ -548,13 +553,17 @@ class SimcAgentAPITests(TestCase):
         staff = get_user_model().objects.create_user(username='staff', password='x', is_staff=True)
         self.client.force_login(staff)
 
-        response = self.client.get(MANAGEMENT_URL)
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(MANAGEMENT_URL)
 
         self.assertEqual(response.status_code, 200, response.content)
         row = response.json()['data'][0]
         self.assertEqual([lease['run_id'] for lease in row['leases']], [
             run.pk for run in SimulationRun.objects.filter(task=task).order_by('id')
         ])
+        sql = ' '.join(q['sql'] for q in queries)
+        for field in ('resource_manifest', 'analysis_result', 'token_hash'):
+            self.assertNotIn(connection.ops.quote_name(field), sql)
 
     def test_management_list_requires_staff_and_shows_agents_and_leases(self):
         self.enroll(host_identifier=HOST_A, name='Node A')

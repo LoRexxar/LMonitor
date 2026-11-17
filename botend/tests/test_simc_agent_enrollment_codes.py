@@ -7,7 +7,7 @@ from django.db.models.query import QuerySet
 from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
-from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcBackendBinary
+from botend.models import SimcAgent, SimcAgentEnrollmentCode, SimcBackendBinary, SimcReferenceSimulationSettings
 
 
 REGISTER_URL = '/api/simc-agent/v1/register/'
@@ -24,6 +24,7 @@ class SimcAgentEnrollmentCodeAPITests(TestCase):
     def setUp(self):
         SimcAgentEnrollmentCode.objects.all().delete()
         SimcAgent.objects.all().delete()
+        SimcReferenceSimulationSettings.objects.update(backend=None)
         SimcBackendBinary.objects.all().delete()
         self.backend = SimcBackendBinary.objects.create(
             identifier='production', name='Production', platform='linux64',

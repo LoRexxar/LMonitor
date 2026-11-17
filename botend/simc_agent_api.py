@@ -259,10 +259,16 @@ class SimcAgentManagementListAPIView(View):
         leases_by_agent = {}
         for row in SimulationRun.objects.filter(
             status='running', lease_agent__isnull=False, lease_expires_at__gt=now,
-        ).select_related('task').order_by('lease_agent_id', 'lease_expires_at', 'id'):
+        ).only('id', 'task_id', 'lease_agent_id', 'lease_expires_at', 'lease_instance_id').order_by(
+            'lease_agent_id', 'lease_expires_at', 'id',
+        ):
             leases_by_agent.setdefault(row.lease_agent_id, []).append(row)
         rows = []
-        for agent in SimcAgent.objects.select_related('backend').order_by('id'):
+        for agent in SimcAgent.objects.select_related('backend').only(
+            'id', 'name', 'backend__identifier', 'backend__name', 'is_active', 'task_scope',
+            'status', 'platform', 'agent_version', 'agent_revision', 'protocol_version',
+            'current_version', 'capabilities', 'binary_available', 'last_seen_at', 'registered_at',
+        ).order_by('id'):
             agent_leases = leases_by_agent.get(agent.pk, [])
             lease_payloads = [
                 {'run_id': lease.pk, 'task_id': lease.task_id,
@@ -359,14 +365,17 @@ class SimcAgentEnrollmentCodeListAPIView(View):
         if not _staff_required(request):
             return _no_store(JsonResponse({'success': False, 'error': 'Staff access required'}, status=403))
         rows = SimcAgentEnrollmentCode.objects.select_related(
-            'backend', 'created_by', 'consumed_by_agent',
+            'backend', 'created_by',
+        ).only(
+            'id', 'backend__identifier', 'backend__name', 'created_by__username',
+            'created_at', 'expires_at', 'consumed_at', 'consumed_by_agent_id', 'revoked_at',
         ).order_by('-created_at', '-id')[:100]
         return _no_store(JsonResponse({
             'success': True,
             'data': [_serialize_enrollment_code(row) for row in rows],
             'backends': [
                 {'id': row.pk, 'identifier': row.identifier, 'name': row.name}
-                for row in SimcBackendBinary.objects.filter(is_active=True).order_by('id')
+                for row in SimcBackendBinary.objects.filter(is_active=True).only('id', 'identifier', 'name').order_by('id')
             ],
         }))
 
