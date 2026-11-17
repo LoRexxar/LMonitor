@@ -7,9 +7,14 @@ from unittest.mock import patch
 from pathlib import Path
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
-from botend.models import SimcBackendBinary, SimcResourceVersion, SimcTask, SimulationRun, SimcBenchmarkPanel, SimcBenchmarkExecution, SimcBenchmarkCase
-from botend.dashboard.api import SimcRegularCompareAPIView, SimcWorkbenchAPIView
+from botend.models import (
+    SimcBackendBinary, SimcResourceVersion, SimcTask, SimcTaskArtifact, SimulationRun,
+    SimcBenchmarkPanel, SimcBenchmarkExecution, SimcBenchmarkCase,
+)
+from botend.dashboard.api import SimcRegularCompareAPIView, SimcTaskAPIView, SimcWorkbenchAPIView
 import json
 
 
@@ -265,6 +270,36 @@ class SimcHistoryBackendPaginationTests(TestCase):
             player_config_mode='attribute_only',
             is_active=True
         )
+
+    def test_task_list_batches_runs_keeps_cap_and_uses_latest_success(self):
+        tasks = SimcTask.objects.bulk_create([
+            SimcTask(user_id=self.user.pk, simc_profile_id=self.profile.pk, backend=self.backend, name=f'任务 {n}')
+            for n in range(6)
+        ])
+        SimulationRun.objects.bulk_create([
+            SimulationRun(task=task, sequence=seq, status='completed', result_summary={'dps': seq})
+            for task in tasks for seq in range(1, 102 if task == tasks[0] else 2)
+        ])
+        report = SimcTaskArtifact.objects.create(
+            task=tasks[0], artifact_type='html_report', file_path='simc_results/test.html',
+        )
+        request = self.factory.get('/api/simc-workbench/tasks/')
+        request.user = self.user
+        with CaptureQueriesContext(connection) as workbench_queries:
+            rows = json.loads(self.view.get(request, resource='tasks').content)['data']
+        self.assertEqual(len(workbench_queries), 5)
+        selected = next(row for row in rows if row['id'] == report.task_id)
+        self.assertEqual(len(selected['runs']), 100)
+        self.assertEqual(selected['result_summary']['dps'], 101)
+        self.assertTrue(selected['has_report'])
+
+        with CaptureQueriesContext(connection) as legacy_queries:
+            legacy = json.loads(SimcTaskAPIView().get(request).content)['data']
+        self.assertEqual(len(legacy_queries), 3)
+        self.assertEqual(len(next(row for row in legacy if row['id'] == report.task_id)['simulation_runs']), 101)
+        sql = ' '.join(q['sql'] for q in [*workbench_queries, *legacy_queries])
+        for field in ('analysis_result', 'resource_manifest'):
+            self.assertNotIn(connection.ops.quote_name(field), sql)
 
     def test_task_rerun_form_projection_is_owner_scoped_and_uses_frozen_params(self):
         frozen_profile = SimcResourceVersion.objects.create(
@@ -1161,7 +1196,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
                 task=task, sequence=1, candidate_key=f'candidate-{index}', status='pending')
         request = self.factory.get('/api/simc-workbench/tasks/?page_size=20')
         request.user = self.user
-        with self.assertNumQueries(20):
+        with self.assertNumQueries(5):
             response = self.view.get(request, resource='tasks')
         self.assertEqual(response.status_code, 200)
 

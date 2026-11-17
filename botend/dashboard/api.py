@@ -1536,8 +1536,17 @@ class SimcTaskAPIView(View):
     def get(self, request):
         """获取当前用户的SimC任务列表"""
         try:
-            # 获取当前用户的所有SimC任务
-            tasks = SimcTask.objects.filter(user_id=request.user.id, is_active=True).order_by('-modified_time')
+            runs = SimulationRun.objects.only(
+                'id', 'task_id', 'sequence', 'candidate_key', 'candidate_label', 'round_number',
+                'status', 'result_summary', 'started_at', 'completed_at',
+            ).order_by('sequence')
+            tasks = SimcTask.objects.filter(user_id=request.user.id, is_active=True).only(
+                'id', 'name', 'simc_profile_id', 'task_type', 'ext', 'current_status', 'mode',
+                'profile_id', 'template_id', 'apl_id', 'profile_version_id', 'template_version_id',
+                'apl_version_id', 'simulation_params', 'mode_params', 'create_time', 'modified_time',
+            ).prefetch_related(models.Prefetch(
+                'simulation_runs', queryset=runs, to_attr='dashboard_runs',
+            )).order_by('-modified_time')
             profile_ids = [t.simc_profile_id for t in tasks if t.simc_profile_id]
             profile_map = {
                 p['id']: p
@@ -1584,7 +1593,7 @@ class SimcTaskAPIView(View):
                         'error_summary': '任务执行失败' if run.status == 'failed' else '',
                         'started_at': _fmt_dt(run.started_at),
                         'completed_at': _fmt_dt(run.completed_at),
-                    } for run in task.simulation_runs.order_by('sequence')],
+                    } for run in task.dashboard_runs],
                     'ext_detail': ext_detail,
                     'create_time': _fmt_dt(task.create_time),
                     'modified_time': _fmt_dt(task.modified_time),
@@ -2460,13 +2469,18 @@ class SimcComparisonTaskAPIView(View):
             if not task_id:
                 return JsonResponse({'success': False, 'error': 'task_id不能为空'}, status=400)
             try:
-                task = SimcTask.objects.get(
+                task = SimcTask.objects.only(
+                    'id', 'name', 'mode', 'current_status', 'create_time', 'completed_at',
+                ).get(
                     id=int(task_id), is_active=True,
                     mode__in=('comparison', 'attribute_sweep'),
                 )
             except (TypeError, ValueError, SimcTask.DoesNotExist):
                 return JsonResponse({'success': False, 'error': '任务不存在或无权限访问'}, status=404)
-            runs = list(task.simulation_runs.order_by('sequence'))
+            runs = list(task.simulation_runs.only(
+                'id', 'sequence', 'candidate_label', 'round_number', 'status',
+                'result_summary', 'started_at', 'completed_at',
+            ).order_by('sequence'))
             status_counts = {'pending': 0, 'running': 0, 'completed': 0, 'failed': 0}
             run_details = []
             for run in runs:
@@ -7019,9 +7033,12 @@ class SimcWorkbenchAPIView(View):
         }
 
     @staticmethod
-    def _task_row(task):
+    def _task_row(task, *, runs=None, latest_run=None, report_artifact=None):
+        if runs is None:
+            runs = task.simulation_runs.order_by('sequence')[:100]
+            latest_run = task.simulation_runs.filter(status='completed').order_by('-sequence').first()
+            report_artifact = task.artifacts.filter(artifact_type='html_report').order_by('-id').first()
         summary = {}
-        latest_run = task.simulation_runs.filter(status='completed').order_by('-sequence').first()
         if latest_run and isinstance(latest_run.result_summary, dict):
             summary = SimcWorkbenchAPIView._safe_summary(latest_run.result_summary)
         else:
@@ -7030,7 +7047,6 @@ class SimcWorkbenchAPIView(View):
                 summary = SimcWorkbenchAPIView._safe_summary(parsed) if isinstance(parsed, dict) else {}
             except (TypeError, ValueError):
                 pass
-        report_artifact = task.artifacts.filter(artifact_type='html_report').order_by('-id').first()
         report_preview_url = ''
         if report_artifact is not None:
             if report_artifact.file_path.startswith('simc_agent_results/'):
@@ -7054,7 +7070,7 @@ class SimcWorkbenchAPIView(View):
             'candidate_label': task.candidate_label, 'result_summary': summary,
             'runs': [
                 SimcWorkbenchAPIView._run_row(run)
-                for run in task.simulation_runs.order_by('sequence')[:100]
+                for run in runs
             ],
             'has_report': has_report,
             'report_preview_url': report_preview_url,
@@ -7591,10 +7607,32 @@ class SimcWorkbenchAPIView(View):
             total_pages = (total + page_size - 1) // page_size
             offset = (page - 1) * page_size
 
-            tasks = qs[offset:offset + page_size]
+            run_summaries = SimulationRun.objects.only(
+                'id', 'task_id', 'sequence', 'round_number', 'candidate_key', 'candidate_label',
+                'candidate_params', 'status', 'input_hash', 'result_summary', 'error_detail',
+                'started_at', 'completed_at',
+            ).order_by('sequence')
+            latest_success = SimulationRun.objects.filter(status='completed').only(
+                'id', 'task_id', 'result_summary',
+            ).order_by('-sequence')[:1]
+            report_links = SimcTaskArtifact.objects.filter(artifact_type='html_report').only(
+                'id', 'task_id', 'file_path',
+            ).order_by('-id')[:1]
+            tasks = qs.only(
+                'id', 'name', 'current_status', 'ext', 'mode', 'error_detail', 'candidate_label',
+                'result_summary', 'is_active', 'create_time', 'modified_time',
+            ).prefetch_related(
+                models.Prefetch('simulation_runs', queryset=run_summaries[:100], to_attr='dashboard_runs'),
+                models.Prefetch('simulation_runs', queryset=latest_success, to_attr='dashboard_latest_success'),
+                models.Prefetch('artifacts', queryset=report_links, to_attr='dashboard_report'),
+            )[offset:offset + page_size]
             return JsonResponse({
                 'success': True,
-                'data': [self._task_row(row) for row in tasks],
+                'data': [self._task_row(
+                    row, runs=row.dashboard_runs,
+                    latest_run=next(iter(row.dashboard_latest_success), None),
+                    report_artifact=next(iter(row.dashboard_report), None),
+                ) for row in tasks],
                 'pagination': {
                     'page': page,
                     'page_size': page_size,
@@ -7616,7 +7654,9 @@ class SimcWorkbenchAPIView(View):
                 })
             qs = SimcTaskArtifact.objects.filter(
                 task__user_id=request.user.id,
-            ).select_related('task').order_by('-created_at')
+            ).select_related('task').only(
+                'id', 'task_id', 'task__name', 'artifact_type', 'file_path', 'file_size', 'created_at',
+            ).order_by('-created_at')
             try:
                 page = int(request.GET.get('page', 1))
                 page_size = int(request.GET.get('page_size', 20))
