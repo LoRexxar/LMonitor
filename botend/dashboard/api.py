@@ -44,6 +44,7 @@ from botend.alerting import upsert_system_alert
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, has_dashboard_permission
 from django.db import IntegrityError, models, transaction
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Length, SHA256, Substr
 from core.glm import GLMClient
 from botend.monitor_env import is_task_runnable, env_limit_hint
 from botend.wow_daily_report.generator import generate_wow_daily_report
@@ -3080,14 +3081,16 @@ def _list_selectable_apl_for_spec(spec_key='', class_name='', spec='', owner_use
     if class_name:
         qs = qs.filter(models.Q(class_name='') | models.Q(class_name=class_name))
     rows = []
-    for item in qs.order_by('source', 'name', 'id')[:50]:
+    for item in qs.only('id', 'name', 'source', 'spec', 'class_name').annotate(
+        display_content_length=Length('content'),
+    ).order_by('source', 'name', 'id')[:50]:
         rows.append({
             'id': item.id,
             'name': item.name or item.spec,
             'source': item.source,
             'spec': item.spec,
             'class_name': item.class_name,
-            'content_length': len(item.content or ''),
+            'content_length': item.display_content_length,
             'is_default': False,
         })
     return rows
@@ -3104,7 +3107,7 @@ def _resolve_home_creation_defaults(spec_key, class_name='', owner_user_id=None)
     apl_count = default_apls.count()
     if apl_count != 1:
         raise ValueError(f'专精 {spec_key} 需要且只能有一个系统默认 APL，当前为 {apl_count} 个')
-    default_apl = default_apls.get()
+    default_apl = default_apls.only('id').get()
 
     templates = SimcContentTemplate.objects.filter(
         is_active=True, is_selectable=True,
@@ -3117,7 +3120,7 @@ def _resolve_home_creation_defaults(spec_key, class_name='', owner_user_id=None)
     if template_count != 1:
         detail = '缺少' if template_count == 0 else f'存在多个（{template_count} 个）'
         raise ValueError(f'专精 {spec_key} 基础模板{detail}，需要且只能解析到一个')
-    return default_apl, candidates.get()
+    return default_apl, candidates.only('id').get()
 
 
 def _get_simc_content_by_id(content_id, owner_user_id=None):
@@ -3289,7 +3292,7 @@ class AplStorageAPIView(View):
             apl_list = apl_list.order_by('-id')
 
             result = []
-            for apl in apl_list:
+            for apl in apl_list.only('id', 'name', 'spec'):
                 result.append({
                     'id': apl.id,
                     'title': apl.name,
@@ -6388,8 +6391,10 @@ class SimcTemplateAPIView(View):
                 })
 
             template_list = []
-            for template in templates:
-                preview = template.content[:100] + '...' if len(template.content) > 100 else template.content
+            for template in templates.only(
+                'id', 'spec', 'class_name', 'name', 'source', 'is_active', 'is_selectable',
+            ).annotate(preview_text=Substr('content', 1, 100), preview_length=Length('content')):
+                preview = template.preview_text + ('...' if template.preview_length > 100 else '')
                 template_list.append({
                     'id': template.id,
                     'preview': preview,
@@ -7677,6 +7682,15 @@ class SimcWorkbenchAPIView(View):
                     'validation_stale_reason': apl.validation_staleness(current_validation_identity()),
                     'can_use_for_task': apl.is_active and (not apl.is_system or apl.is_selectable),
                 }, 'can_write': _is_simc_admin(request.user) or not apl.is_system})
+            rows = list(qs.only(
+                'id', 'name', 'spec', 'class_name', 'source', 'is_system', 'is_active',
+                'is_selectable', 'validation_status', 'validation_stale_reason',
+                'validated_content_hash', 'validation_revision', 'validation_game_build',
+            ).annotate(current_content_hash=models.Case(
+                models.When(validation_status=SimcApl.VALIDATION_VALID, then=SHA256('content')),
+                default=models.Value(''), output_field=models.CharField(),
+            )))
+            identity = current_validation_identity() if rows else None
             return JsonResponse({'success': True, 'data': [{
                 'id': apl.id, 'name': apl.name, 'spec': apl.spec,
                     'spec_label': _simc_spec_label(apl.spec, apl.class_name),
@@ -7685,11 +7699,11 @@ class SimcWorkbenchAPIView(View):
                 'is_system': apl.is_system, 'is_active': apl.is_active,
                 'is_selectable': apl.is_selectable,
                 'validation_status': apl.validation_status,
-                'validation_stale_reason': apl.validation_staleness(current_validation_identity()),
+                'validation_stale_reason': apl.validation_staleness(identity, content_hash=apl.current_content_hash),
                 'can_use_for_task': apl.is_active and (not apl.is_system or apl.is_selectable),
                 'read_only': apl.is_system and not _is_simc_admin(request.user),
                 'can_copy': apl.is_system and apl.is_active and apl.is_selectable,
-            } for apl in qs], 'can_write': True})
+            } for apl in rows], 'can_write': True})
 
         if resource == 'templates':
             # 工作台只展示和维护 SimC 输入框架；默认玩家配置是内部导入资源，
@@ -7699,6 +7713,8 @@ class SimcWorkbenchAPIView(View):
             ).order_by('spec', 'name')
             if object_id:
                 qs = qs.filter(id=object_id)
+            else:
+                qs = qs.defer('content')
             rows = []
             for row in qs:
                 item = {
@@ -7750,6 +7766,9 @@ class SimcWorkbenchAPIView(View):
                     'apl_code': row.content,
                     'is_active': row.is_active,
                 }})
+            summary_only = request.GET.get('summary') == '1'
+            if summary_only:
+                qs = qs.only('id', 'name', 'spec', 'class_name', 'is_active')
             rows = []
             for row in qs:
                 rows.append({
@@ -7758,7 +7777,7 @@ class SimcWorkbenchAPIView(View):
                     'spec': row.spec,
                     'spec_label': _simc_spec_label(row.spec, row.class_name),
                     'class_label': _simc_class_label(row.spec, row.class_name),
-                    'apl_code': row.content,
+                    **({} if summary_only else {'apl_code': row.content}),
                     'is_active': row.is_active,
                 })
             return JsonResponse({'success': True, 'data': rows})
@@ -11085,6 +11104,8 @@ def _benchmark_options_payload(owner_id=None, ownership_context=None):
     # Benchmark resource selection is global. Keep the parameters temporarily
     # for call-site/API compatibility, but never use them to scope content.
     querysets = benchmark_resource_querysets()
+    querysets['apls'] = querysets['apls'].defer('content', 'validation_diagnostics')
+    querysets['templates'] = querysets['templates'].defer('content')
     resources = {name: list(queryset) for name, queryset in querysets.items()}
     apply_talent_display_names(resources['talent_strings'])
     specs = _benchmark_spec_options()
@@ -11260,7 +11281,7 @@ class SimcBenchmarkItemLookupAPIView(_BenchmarkAdminAPIView):
             return JsonResponse({'success': True, 'data': None})
         if not raw.isdigit() or int(raw) <= 0:
             return _benchmark_error('item_id 必须是正整数', 400)
-        item = WowItemSnapshot.objects.filter(item_id=int(raw)).first()
+        item = WowItemSnapshot.objects.filter(item_id=int(raw)).only('item_id', 'name', 'name_zh', 'icon').first()
         if item is None:
             return JsonResponse({'success': True, 'data': None})
         return JsonResponse({'success': True, 'data': {

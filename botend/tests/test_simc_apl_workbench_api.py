@@ -2,11 +2,13 @@ import json
 from unittest import mock
 
 from django.contrib.auth.models import User
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.middleware.csrf import _get_new_csrf_string
 from django.test import Client, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from botend.models import SimcApl, SimcContentTemplate
+from botend.services.simc_apl.publish import content_hash
 
 
 class SimcAplWorkbenchApiTests(TestCase):
@@ -14,6 +16,48 @@ class SimcAplWorkbenchApiTests(TestCase):
         self.user = User.objects.create_user(username="apl-owner", password="test-password")
         self.other = User.objects.create_user(username="apl-other", password="test-password")
         self.client.force_login(self.user)
+
+    def test_apl_lists_use_summary_columns_and_keep_content_validation(self):
+        identity = ('a' * 40, '12.1.0')
+        content = '# 中文\nactions=/auto_attack'
+        apl = SimcApl.objects.create(
+            owner_user_id=self.user.pk, name='摘要测试', spec='warrior_fury', content=content,
+            validation_status=SimcApl.VALIDATION_VALID, validated_content_hash=content_hash(content),
+            validation_revision=identity[0], validation_game_build=identity[1],
+        )
+        with self.settings(SIMC_APL_CURRENT_IDENTITY=identity), CaptureQueriesContext(connection) as queries:
+            row = self.client.get('/api/simc-workbench/apls/').json()['data'][0]
+        self.assertEqual(row['validation_stale_reason'], '')
+        self.assertNotIn('content', row)
+        self.assertNotIn(connection.ops.quote_name('validation_diagnostics'), ' '.join(q['sql'] for q in queries))
+
+        SimcApl.objects.filter(pk=apl.pk).update(content=content + '\nactions+=/bloodthirst')
+        row = self.client.get('/api/simc-workbench/apls/').json()['data'][0]
+        self.assertEqual(row['validation_stale_reason'], 'content_changed')
+        with CaptureQueriesContext(connection) as summary_queries:
+            summary = self.client.get('/api/simc-workbench/apl-storage/?summary=1').json()['data'][0]
+            self.client.get('/api/apl-storage/')
+        self.assertNotIn('apl_code', summary)
+        self.assertNotIn(connection.ops.quote_name('content'), ' '.join(q['sql'] for q in summary_queries))
+        detail = self.client.get(f'/api/simc-workbench/apl-storage/{apl.pk}/').json()['data']
+        self.assertEqual(detail['apl_code'], content + '\nactions+=/bloodthirst')
+
+    def test_candidate_length_and_template_preview_keep_unicode_character_limits(self):
+        content = '龙🐉' * 52
+        apl = SimcApl.objects.create(
+            name='默认测试', spec='warrior_fury', class_name='warrior', content=content,
+            is_system=True, is_selectable=True,
+        )
+        template = SimcContentTemplate.objects.create(
+            name='模板测试', spec='warrior_fury', class_name='warrior', content=content,
+        )
+        candidates = self.client.get('/api/simc-apl-candidates/', {'spec': 'warrior_fury'}).json()
+        self.assertEqual(candidates['default_apl_id'], apl.pk)
+        self.assertEqual(candidates['default_template_id'], template.pk)
+        self.assertEqual(candidates['data'][0]['content_length'], len(content))
+        templates = self.client.get('/api/simc-template/').json()['templates']
+        self.assertEqual(next(item['preview'] for item in templates if item['id'] == template.pk),
+                         content[:100] + '...')
 
     def test_apl_write_requires_csrf(self):
         client = Client(enforce_csrf_checks=True)

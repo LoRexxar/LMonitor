@@ -1501,11 +1501,12 @@ class SimcApl(models.Model):
             kwargs['update_fields'] = list(update_fields) + ['active_unique_key']
         super().save(*args, **kwargs)
 
-    def validation_staleness(self, identity):
-        current_hash = hashlib.sha256(str(self.content or '').encode('utf-8')).hexdigest()
+    def validation_staleness(self, identity, *, content_hash=None):
         if self.validation_status != self.VALIDATION_VALID:
             return self.validation_stale_reason or 'not_validated'
-        if self.validated_content_hash != current_hash:
+        if content_hash is None:
+            content_hash = hashlib.sha256(str(self.content or '').encode('utf-8')).hexdigest()
+        if self.validated_content_hash != content_hash:
             return 'content_changed'
         if not identity:
             return 'revision_unavailable'

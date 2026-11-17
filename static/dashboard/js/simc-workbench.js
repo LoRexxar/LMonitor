@@ -898,7 +898,7 @@
             renderState(host, 'loading', '正在加载规则数据…');
         }
         let data;
-        try { data = await json(resourceUrl(resource), { signal: request.controller.signal }); }
+        try { data = await json(resourceUrl(resource) + (unifiedApl ? '?summary=1' : ''), { signal: request.controller.signal }); }
         catch (error) {
             if (error.name === 'AbortError') return;
             if (isCurrentResourceRequest(request)) {
