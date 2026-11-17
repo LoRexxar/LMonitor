@@ -43,6 +43,13 @@ const catalog = [
 ];
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const response = (body, ok = true) => ({ ok, json: async () => body });
+const summaryUrl = '/api/simc-profile/?view=summary';
+function summaryResponse(profiles) {
+    for (const profile of profiles) for (const field of ['player_equipment', 'talent', 'custom_content', 'equipment_line_count', 'gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery', 'gear_versatility']) {
+        assert.equal(Object.hasOwn(profile, field), false, `summary must omit ${field}`);
+    }
+    return response({ success: true, data: profiles });
+}
 
 async function harness(t) {
     const dom = new JSDOM(fixture, { url: 'https://dashboard.invalid/', runScripts: 'outside-only' });
@@ -55,7 +62,7 @@ async function harness(t) {
     const unexpected = [];
     const handlers = new Map([
         ['GET /api/simc-spec-options/', () => response({ success: true, data: catalog })],
-        ['GET /api/simc-profile/', () => response({ success: true, data: [] })],
+        [`GET ${summaryUrl}`, () => summaryResponse([])],
     ]);
     window.fetch = async (url, options = {}) => {
         const call = { url, method: options.method || 'GET', ...options };
@@ -141,10 +148,12 @@ test('list filters before pagination; changing catalog selection resets the page
         id: i + 1, canonical_spec: 'mage_frost', spec: i % 2 ? 'mage_frost' : 'frost',
         name: `Profile ${i + 1}`, is_system: i === 0, is_active: true,
         can_edit: i !== 0, can_delete: i !== 0,
+        player_config_mode: i === 1 ? 'manual_equipment' : 'attribute_only',
+        has_player_equipment: i === 1,
     }));
     profiles.splice(0, 0, { id: 99, canonical_spec: 'deathknight_frost', spec: 'frost', name: 'Other frost' });
     profiles.push({ id: 100, canonical_spec: '', spec: 'mage_frost', name: 'Unresolved' });
-    h.handlers.set('GET /api/simc-profile/', () => response({ success: true, data: profiles }));
+    h.handlers.set(`GET ${summaryUrl}`, () => summaryResponse(profiles));
     h.window.bindSimcWorkbenchProfilesControls();
     await tick();
     h.window.loadSimcWorkbenchProfiles(2);
@@ -160,6 +169,11 @@ test('list filters before pagination; changing catalog selection resets the page
     assert.equal(first.querySelector('[data-profile-row-action="edit"]'), null);
     assert.equal(first.querySelector('[data-profile-row-action="simulate"]').dataset.profileSpec, 'mage_frost');
     assert.ok(h.select('[data-profile-row-action="delete"][data-profile-id="2"]'));
+    const manual = h.select('[data-profile-row-action="view"][data-profile-id="2"]').closest('tr');
+    assert.match(manual.textContent, /手动配置/);
+    assert.doesNotMatch(manual.textContent, /历史配置缺少基线|\d+ 行/);
+    const missing = h.select('[data-profile-row-action="view"][data-profile-id="3"]').closest('tr');
+    assert.match(missing.textContent, /历史配置缺少基线/);
     h.select('#simc-wb-profile-pagination [data-page="2"]').click();
     await tick();
     assert.deepEqual(h.rows(), [21]);
@@ -168,7 +182,11 @@ test('list filters before pagination; changing catalog selection resets the page
     await tick();
     assert.deepEqual(h.rows(), []);
     assert.match(h.select('#simc-wb-profile-list').textContent, /暂无配置/);
-    for (const call of h.calls.filter(call => call.url === '/api/simc-profile/')) {
+    const listCalls = h.calls.filter(call => call.url.startsWith('/api/simc-profile/'));
+    assert.ok(listCalls.length > 0);
+    for (const call of listCalls) {
+        assert.equal(call.url, summaryUrl);
+        assert.ok(call.signal instanceof h.window.AbortSignal);
         assert.equal(call.method, 'GET');
         assert.equal(call.headers['X-CSRFToken'], 'test-csrf');
     }
@@ -214,6 +232,8 @@ test('detail GET consumes top-level API fields and PUT preserves canonical ident
     assert.equal(h.select('#simc-wb-profile-form [name="player_config_mode"]').value, 'manual_equipment');
     assert.equal(h.select('#simc-wb-profile-form [name="gear_strength"]').value, '0');
     assert.equal(h.select('#simc-wb-profile-form [name="gear_crit"]').value, '');
+    assert.equal(h.select('#simc-wb-profile-form [name="player_equipment"]').value, profile.player_equipment);
+    assert.ok(h.calls.some(call => call.method === 'GET' && call.url === '/api/simc-profile/42/'));
     setField(h, 'name', 'Edited');
     await h.window.simcWbSaveProfile();
     const call = h.calls.find(call => call.method === 'PUT');
@@ -250,9 +270,9 @@ test('legacy disambiguated edit specs select canonical catalog identities, witho
 
 test('rendered delete action confirms before sending dedicated DELETE with numeric id', async t => {
     const h = await harness(t);
-    h.handlers.set('GET /api/simc-profile/', () => response({ success: true, data: [
+    h.handlers.set(`GET ${summaryUrl}`, () => summaryResponse([
         { id: 42, name: 'Deletable', canonical_spec: 'mage_frost', can_delete: true },
-    ] }));
+    ]));
     h.handlers.set('DELETE /api/simc-profile/', () => response({ success: true }));
     h.window.bindSimcWorkbenchProfilesControls();
     h.window.loadSimcWorkbenchProfiles(1);
@@ -272,14 +292,37 @@ test('rendered delete action confirms before sending dedicated DELETE with numer
 test('saved-profile loader propagates signal, returns API data and rejects HTTP/application failures', async t => {
     const h = await harness(t);
     const profiles = [{ id: 7, canonical_spec: 'mage_frost', is_system: true }];
-    h.handlers.set('GET /api/simc-profile/', () => response({ success: true, data: profiles }));
+    h.handlers.set(`GET ${summaryUrl}`, () => summaryResponse(profiles));
     const controller = new h.window.AbortController();
     assert.deepEqual(await h.window.simcWbFetchProfilesForWorkbench(controller.signal), profiles);
     assert.equal(h.calls[0].signal, controller.signal);
-    h.handlers.set('GET /api/simc-profile/', () => response({ success: true, data: null }));
+    assert.equal(h.calls[0].url, summaryUrl);
+    h.handlers.set(`GET ${summaryUrl}`, () => response({ success: true, data: null }));
     assert.equal((await h.window.simcWbFetchProfilesForWorkbench()).length, 0);
     for (const [ok, success] of [[false, true], [true, false]]) {
-        h.handlers.set('GET /api/simc-profile/', () => response({ success, error: 'cannot load' }, ok));
+        h.handlers.set(`GET ${summaryUrl}`, () => response({ success, error: 'cannot load' }, ok));
         await assert.rejects(h.window.simcWbFetchProfilesForWorkbench(), /cannot load/);
     }
+});
+
+test('shared tooltip script entrypoints use one nonempty cache version', () => {
+    const entries = [];
+    function visit(directory) {
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+            const filename = path.join(directory, entry.name);
+            if (entry.isDirectory()) visit(filename);
+            else if (entry.name.endsWith('.html')) {
+                const source = fs.readFileSync(filename, 'utf8');
+                for (const match of source.matchAll(/<script\b[^>]*\bsrc="([^"]*shared\/js\/wow-item-tooltip\.js[^"]*)"[^>]*>/g)) {
+                    const version = match[1].match(/\?v=([^&"\s]+)/)?.[1];
+                    assert.ok(version, `${path.relative(root, filename)} needs a cache version`);
+                    entries.push({ filename, version });
+                }
+            }
+        }
+    }
+    visit(path.join(root, 'templates'));
+    assert.ok(entries.some(entry => entry.filename === path.join(root, 'templates/dashboard/index.html')));
+    assert.ok(entries.some(entry => entry.filename === path.join(root, 'templates/dashboard/simc_reference_results.html')));
+    assert.equal(new Set(entries.map(entry => entry.version)).size, 1, JSON.stringify(entries));
 });
