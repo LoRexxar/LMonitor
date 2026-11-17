@@ -10423,8 +10423,9 @@ class _BenchmarkAdminAPIView(View):
         return response
 
     @staticmethod
-    def panel_or_404(panel_id):
-        panel = SimcBenchmarkPanel.objects.filter(pk=panel_id).first()
+    def panel_or_404(panel_id, *, fields=()):
+        queryset = SimcBenchmarkPanel.objects.filter(pk=panel_id)
+        panel = (queryset.only(*fields) if fields else queryset).first()
         if panel is None:
             return None, _benchmark_error('not_found', 404)
         if panel_has_active_purge(panel.id):
@@ -10568,9 +10569,9 @@ def _benchmark_progress_case_queryset():
         models.Prefetch('task__simulation_runs', queryset=SimulationRun.objects.only(
             'id', 'task_id', 'status', 'error_detail',
         )),
-        models.Prefetch('task__artifacts', queryset=SimcTaskArtifact.objects.only(
-            'id', 'task_id', 'artifact_type',
-        )),
+        models.Prefetch('task__artifacts', queryset=SimcTaskArtifact.objects.filter(
+            artifact_type='html_report',
+        ).only('id', 'task_id', 'artifact_type')),
     ).order_by('id')
 
 
@@ -11520,7 +11521,7 @@ class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
 
 class SimcBenchmarkPanelExecutionListAPIView(_BenchmarkAdminAPIView):
     def get(self, request, panel_id):
-        panel, error = self.panel_or_404(panel_id)
+        panel, error = self.panel_or_404(panel_id, fields=('id', 'published_execution_id'))
         if error:
             return error
         try:
@@ -11536,10 +11537,13 @@ class SimcBenchmarkPanelExecutionListAPIView(_BenchmarkAdminAPIView):
         queryset = panel.executions.order_by('-created_at', '-id')
         total = queryset.count()
         offset = (page - 1) * size
-        execution_ids = list(queryset.values_list('pk', flat=True)[offset:offset + size])
+        execution_ids = list(queryset.values_list('pk', flat=True)[offset:offset + size]) if offset < total else []
         execution_by_id = {
             row.pk: row for row in SimcBenchmarkExecution.objects.filter(
                 pk__in=execution_ids,
+            ).only(
+                'id', 'panel_id', 'trigger', 'status', 'scheduled_slot', 'created_at', 'completed_at',
+                'config_snapshot', 'config_hash', 'result_hash', 'results_finalized_at',
             ).order_by().prefetch_related(models.Prefetch(
                 'cases', queryset=case_queryset, to_attr='_dashboard_cases',
             ))
