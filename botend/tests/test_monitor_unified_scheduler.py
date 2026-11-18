@@ -28,7 +28,7 @@ DAILY_TASKS = {
     'MythicDungeonToolsMonitor', 'RioStatisticsMonitor',
     'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
     'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor',
-    'WowDailyReportMonitor',
+    'WowDailyReportMonitor', 'MythicRouteMonitor',
 }
 SHORT_TASKS = (
     'wowheadMonitor', 'PortalPostMonitor', 'PortalArticleTranslateMonitor',

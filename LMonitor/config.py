@@ -39,6 +39,7 @@ from botend.controller.plugins.wow.WowDailyReportMonitor import WowDailyReportMo
 from botend.controller.plugins.wow.WowTodayMonitor import WowTodayMonitor
 from botend.controller.plugins.wow.MaxrollClassGuideMonitor import MaxrollClassGuideMonitor
 from botend.controller.plugins.wow.AdventureJournalMonitor import AdventureJournalMonitor
+from botend.controller.plugins.wow.MythicRouteMonitor import MythicRouteMonitor
 from botend.controller.plugins.wow.MythicDungeonToolsMonitor import MythicDungeonToolsMonitor
 from botend.controller.plugins.wow.WowDataVersionMonitor import WowDataVersionMonitor
 
@@ -99,4 +100,5 @@ Monitor_Type_BaseObject_List = [
     RaidBurstAggregationMonitor,
     PlayerRaiderIOActivityMonitor,
     RioStatisticsMonitor,
+    MythicRouteMonitor,
 ]

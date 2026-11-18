@@ -32,6 +32,7 @@ from botend.models import (
     MythicDungeonSpell,
     MythicDungeonSpawn,
     MythicPlannerConfig,
+    MythicRouteTarget,
 )
 from botend.mythic_planner.importer import import_mythic_dungeon_payload
 from botend.mythic_planner.asset_urls import normalize_asset_source_url
@@ -2903,6 +2904,27 @@ class MythicPlannerPublicApiTests(TestCase):
             'annotations': [],
         }
 
+    def test_collected_route_preserves_original_code_and_updates_one_public_entry(self):
+        from botend.mythic_planner.rio_routes import publish
+
+        target = MythicRouteTarget.objects.get(level=12, spec_id=0)
+        dungeon = get_active_dungeon('gloamvault')
+        info = {'slug': dungeon.key, 'challenge_mode_id': dungeon.map_id}
+        code = encode_share_code(self.share_payload())
+        winner = (code, 12, '来源：第一场；阵容：五名队员')
+        publish(target, info, winner)
+        publish(target, info, winner)
+        public = serialize_catalog()['default_routes']
+        self.assertEqual(len(public), 1)
+        self.assertEqual((public[0]['route_code'], public[0]['revision']), (code, 1))
+        with self.assertRaises(ValueError):
+            publish(target, info, ('损坏的字符串', 12, '错误来源'))
+        self.assertEqual(serialize_catalog()['default_routes'][0]['description'], winner[2])
+        publish(target, info, (code, 12, '来源：新场次'))
+        self.assertEqual(serialize_catalog()['default_routes'][0]['revision'], 2)
+        publish(target, info, None)
+        self.assertEqual(serialize_catalog()['default_routes'], [])
+
     def test_catalog_and_dungeon_payload_include_planning_data(self):
         guardian_record = MythicDungeonEnemy.objects.get(
             dungeon__key='gloamvault',
@@ -3329,6 +3351,21 @@ class MythicPlannerDashboardTests(TestCase):
             user=cls.staff,
             group=cls.management_group,
         )
+
+    def test_route_target_management_and_validation(self):
+        self.client.force_login(self.staff)
+        url = '/api/mythic-planner/manage/'
+        body = dict(resource='route_targets', snapshot_resources=['route_targets', 'spec_options'],
+                    data=dict(level=18, spec_id=62, is_active=True))
+        result = self.client.post(url, body, content_type='application/json').json()
+        self.assertTrue(result['success'])
+        self.assertIn([62, '法师 · 奥术'], result['snapshot']['spec_options'])
+        self.assertFalse(self.client.post(url, body, content_type='application/json').json()['success'])
+        target_url = url + str(result['data']['id']) + '/'
+        body['data']['spec_id'] = 9999
+        self.assertFalse(self.client.patch(target_url, body, content_type='application/json').json()['success'])
+        self.assertTrue(self.client.delete(target_url, body, content_type='application/json').json()['success'])
+        self.assertFalse(MythicRouteTarget.objects.get(level=18, spec_id=62).is_active)
 
     def test_management_sections_use_dashboard_single_page_navigation(self):
         self.client.force_login(self.staff)
