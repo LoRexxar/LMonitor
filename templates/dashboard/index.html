@@ -776,6 +776,9 @@
                             </li>
                         </ul>
                     </li>
+                    <li class="nav-item" data-section="mythic-composition" data-dashboard-url="{% url 'dashboard_mythic_composition' %}">
+                        <a href="{% url 'dashboard_mythic_composition' %}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-users mr-3" aria-hidden="true"></i>五人阵容查询</a>
+                    </li>
                     {% if user.is_superuser %}
                     <li class="nav-item" data-section="player-analyses">
                         <a href="?section=player-analyses" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600">

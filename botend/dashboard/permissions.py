@@ -20,6 +20,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'system.alerts', 'label': '系统报警', 'section': 'error-logs', 'parent': '系统'},
     {'code': 'system.logs', 'label': '日志文件', 'section': 'log-files', 'parent': '系统'},
     {'code': 'system.analytics', 'label': '站内统计', 'section': 'site-analytics', 'parent': '系统'},
+    {'code': 'tools.mythic-composition', 'label': '五人阵容查询', 'section': 'mythic-composition', 'parent': '工具箱'},
     {'code': 'mythic.config', 'label': '规划器设置', 'section': 'mythic-planner-config', 'parent': '大秘境规划器'},
     {'code': 'mythic.positions', 'label': '位置标记', 'section': 'mythic-planner-positions', 'parent': '大秘境规划器'},
     {'code': 'mythic.routes', 'label': '路线管理', 'section': 'mythic-planner-routes', 'parent': '大秘境规划器'},
