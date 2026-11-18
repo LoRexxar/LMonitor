@@ -21,6 +21,7 @@ from urllib.parse import urlencode, urlsplit
 
 import requests
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -64,6 +65,8 @@ def _positive_setting(name, default):
 
 class WagoSkillDiffMonitor(BaseScan):
     FAILURE_RETRY_DELAY = timedelta(minutes=30)
+    HOTFIX_AUTO_SEGMENT = 'hotfix_auto_segment'
+    HOTFIX_AUTO_OBSERVED_TIP = 'hotfix_auto_observed_tip'
     RETRYABLE_FAILURES = frozenset({
         'diff_unavailable', 'generate_failed', 'save_report_failed', 'publish_failed',
         'rerun_failed', 'generate_failed_fallback_report', 'no_data_fallback_report',
@@ -488,6 +491,11 @@ class WagoSkillDiffMonitor(BaseScan):
                 logger.warning('[WagoSkillDiffMonitor] region %s Hotfix scan already running', region_id)
                 return False
             try:
+                if backfill_interval is None and isinstance(st, WowWagoMonitorState) and st.pk:
+                    # The scheduler read its state before acquiring the region lock.
+                    st.refresh_from_db(fields=['build', 'hotfix_push_id', 'hotfix_region_id'])
+                    if st.hotfix_region_id != region_id or st.build != current_build:
+                        return False
                 return self._scan_hotfix_locked(
                     st, branch, current_build, backfill_interval=backfill_interval,
                     expected_source_count=expected_source_count,
@@ -495,6 +503,38 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _hotfix_discovery_target(self, branch, locale, region_id, current_build, last_push):
+        # One durable witness per region, protected by the same lock as the
+        # cursor. Do not rediscover until the previously observed push is covered.
+        path = Path(settings.BASE_DIR) / 'var' / f'wago-hotfix-target-r{region_id}'
+        try:
+            with path.open('rb') as stream:
+                encoded = stream.read(20)
+            if len(encoded) > 19 or not encoded.isdigit() or not 0 < int(encoded) < 2**63:
+                raise WagoDiffUnavailable(f'Hotfix discovery target invalid for region={region_id}')
+            pinned = int(encoded)
+            if pinned > last_push:
+                return pinned
+        except FileNotFoundError:
+            pass
+        observed = self._run_stage('hotfix_discovery', lambda: self._fetch_latest_hotfix_push_id(
+            locale=locale, region_id=region_id, current_build=current_build, after_push=last_push,
+        ), branch=branch, locale=locale, region_id=region_id, from_push=last_push)
+        if observed > last_push:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pending = path.with_suffix('.pending')
+            with pending.open('w', encoding='ascii') as stream:
+                stream.write(str(observed))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(pending, path)
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        return observed
 
     def _scan_hotfix_locked(self, st, branch, current_build, *, backfill_interval=None,
                             expected_source_count=None, expected_source_sha256=None):
@@ -525,25 +565,49 @@ class WagoSkillDiffMonitor(BaseScan):
                 raise ValueError('Hotfix backfill interval must start at the supplied state cursor')
         else:
             try:
-                latest_push = self._run_stage('hotfix_discovery', lambda: self._fetch_latest_hotfix_push_id(
-                    locale=hotfix_locale, region_id=region_id, current_build=current_build,
-                    after_push=last_push,
-                ), branch=branch, locale=hotfix_locale, region_id=region_id, from_push=last_push)
+                latest_push = self._hotfix_discovery_target(branch, hotfix_locale, region_id, current_build, last_push)
             except WagoHotfixRateLimited as exc:
                 logger.info('[WagoSkillDiffMonitor] %s', exc)
                 return False
-            except (HotfixSourceIncomplete, WagoDiffUnavailable) as exc:
+            except (HotfixSourceIncomplete, WagoDiffUnavailable, OSError) as exc:
                 logger.warning('[WagoSkillDiffMonitor] Hotfix discovery incomplete: %s', exc)
                 st.hotfix_last_run_status = 'failed'
                 st.hotfix_last_event_status = 'source_incomplete'
                 st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
                 return False
+        observed_push = latest_push
+        is_init = last_push <= 0
+        event_scope = {'branch': branch, 'locale': hotfix_locale, 'region_id': region_id}
+        attempt_kind = ''
         if backfill_interval is None and latest_push > last_push:
-            previous = WowWagoHotfixEvent.objects.filter(
-                branch=branch, locale=hotfix_locale, region_id=region_id,
-                to_push=latest_push,
-            ).first()
-            if (previous and (last_push <= 0 or previous.from_push == last_push)
+            events = WowWagoHotfixEvent.objects.filter(**event_scope)
+            if not is_init:
+                span = min(self._hotfix_max_push_span(), _positive_setting('WAGO_HOTFIX_AUTO_PUSH_SPAN', 64))
+                bound = min(observed_push, last_push + span)
+                occupied = set(WowHotfixReport.objects.filter(
+                    **event_scope, collection_complete=True, to_push__gt=last_push, to_push__lte=bound,
+                ).values_list('to_push', flat=True))
+                # Preserve retry/checkpoint coordinates if the endpoint is
+                # still available. Never reuse a complete report's endpoint.
+                pending = events.filter(
+                    from_push=last_push, to_push__gt=last_push, to_push__lte=bound,
+                    ext__in=(self.HOTFIX_AUTO_SEGMENT, self.HOTFIX_AUTO_OBSERVED_TIP),
+                    status__in=self.RETRYABLE_FAILURES | {'detected', 'report_generated'},
+                ).exclude(to_push__in=occupied).order_by('to_push').first()
+                latest_push = pending.to_push if pending else bound
+                while latest_push in occupied:
+                    latest_push -= 1
+                if latest_push <= last_push:
+                    logger.warning('[WagoSkillDiffMonitor] no free endpoint in (%s, %s]; '
+                                   'region=%s observed_tip=%s', last_push, bound, region_id, observed_push)
+                    st.hotfix_last_run_status = 'failed'
+                    st.hotfix_last_event_status = 'complete_report_preserved'
+                    st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+                    return False
+            attempt_kind = (self.HOTFIX_AUTO_OBSERVED_TIP if latest_push == observed_push
+                            else self.HOTFIX_AUTO_SEGMENT)
+            previous = events.filter(to_push=latest_push).first()
+            if (previous and (is_init or previous.from_push == last_push)
                     and self._event_retry_deferred(previous, now=now)):
                 return False
         st.hotfix_last_run_at = now
@@ -569,13 +633,21 @@ class WagoSkillDiffMonitor(BaseScan):
 
         report = None
         class_report = None
-        is_init = last_push <= 0
         from_push = last_push
         if is_init:
             prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale, region_id=region_id)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
 
         hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
+        # The DB/report filenames are unique by endpoint, not interval. Never
+        # repurpose a complete report (even after a prior cursor-write crash).
+        if backfill_interval is None and WowHotfixReport.objects.filter(
+            **event_scope, to_push=latest_push, collection_complete=True,
+        ).exists():
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'complete_report_preserved'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            return False
         hotfix_event, _ = WowWagoHotfixEvent.objects.update_or_create(
             branch=branch,
             locale=hotfix_locale,
@@ -588,15 +660,21 @@ class WagoSkillDiffMonitor(BaseScan):
                 'wago_url': hotfix_wago_url,
                 'error_message': '',
                 'last_attempt_at': now,
+                'ext': attempt_kind,
             },
         )
         fallback_status = ''
         fallback_error = ''
+        verified_empty = False
         try:
             hotfix_rows = self._run_stage('hotfix_collect', lambda: self._collect_hotfix_interval_rows(
                 from_push, latest_push, region_id=region_id, locale=hotfix_locale,
             ), event=hotfix_event)
-            if not hotfix_rows:
+            if attempt_kind == self.HOTFIX_AUTO_OBSERVED_TIP and not any(
+                self._to_int(row.get('push_id')) == observed_push for row in hotfix_rows
+            ):
+                raise WagoDiffUnavailable(f'Hotfix interval missing verified rows for observed push {observed_push}')
+            if not hotfix_rows and attempt_kind != self.HOTFIX_AUTO_SEGMENT:
                 raise WagoDiffUnavailable('Hotfix interval has no verified rows for selected region')
             if backfill_interval is not None and expected_source_count is not None:
                 ids = [int(row['id']) for row in hotfix_rows]
@@ -605,29 +683,33 @@ class WagoSkillDiffMonitor(BaseScan):
                     raise WagoDiffUnavailable(
                         f'Hotfix interval source identity mismatch: count={len(ids)} sha256={digest}'
                     )
-            facts = self._run_stage('hotfix_resolve', lambda: self._resolve_hotfix_facts(
-                hotfix_rows, db2_build=current_build,
-                interval_only=backfill_interval is not None,
-                recover_spell_history=backfill_interval is not None,
-            ), event=hotfix_event, source_rows=len(hotfix_rows))
-            class_report = self._run_stage('hotfix_class_report', lambda: self._generate_hotfix_class_report(
-                branch, current_build, from_push, latest_push,
-                region_id=region_id, facts=facts, locale=hotfix_locale,
-                stage_for_publication=True,
-            ), event=hotfix_event)
-            report = self._run_stage('hotfix_full_report', lambda: self._generate_hotfix_full_report(
-                branch, current_build, from_push, latest_push, locale=hotfix_locale,
-                region_id=region_id, hotfix_rows=hotfix_rows, facts=facts,
-                stage_for_publication=True,
-            ), event=hotfix_event)
-            if not report or not report.get('content_html_path') or int(report.get('entry_count') or 0) != len(hotfix_rows):
-                raise WagoDiffUnavailable('Hotfix full report incomplete after verified collection')
-            report.update({
-                'class_content_html_path': class_report['content_html_path'],
-                'class_spell_count': class_report['spell_count'],
-                'class_class_count': class_report['class_count'],
-                'class_unresolved_count': class_report['unresolved_count'],
-            })
+            if not hotfix_rows:
+                verified_empty = True
+            else:
+                facts = self._run_stage('hotfix_resolve', lambda: self._resolve_hotfix_facts(
+                    hotfix_rows, db2_build=current_build,
+                    interval_only=backfill_interval is not None,
+                    recover_spell_history=backfill_interval is not None,
+                ), event=hotfix_event, source_rows=len(hotfix_rows))
+                class_report = self._run_stage('hotfix_class_report', lambda: self._generate_hotfix_class_report(
+                    branch, current_build, from_push, latest_push,
+                    region_id=region_id, facts=facts, locale=hotfix_locale,
+                    stage_for_publication=True,
+                ), event=hotfix_event)
+                report = self._run_stage('hotfix_full_report', lambda: self._generate_hotfix_full_report(
+                    branch, current_build, from_push, latest_push, locale=hotfix_locale,
+                    region_id=region_id, hotfix_rows=hotfix_rows, facts=facts,
+                    stage_for_publication=True,
+                ), event=hotfix_event)
+                if (not report or not report.get('content_html_path')
+                        or int(report.get('entry_count') or 0) != len(hotfix_rows)):
+                    raise WagoDiffUnavailable('Hotfix full report incomplete after verified collection')
+                report.update({
+                    'class_content_html_path': class_report['content_html_path'],
+                    'class_spell_count': class_report['spell_count'],
+                    'class_class_count': class_report['class_count'],
+                    'class_unresolved_count': class_report['unresolved_count'],
+                })
         except Exception as e:
             self._discard_hotfix_staging(report, class_report)
             st.hotfix_last_run_status = 'failed'
@@ -647,6 +729,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 region_id=region_id,
                 reason=f'Hotfix 明细报告生成失败，已生成 fallback 报告：{e}',
             )
+
+        if verified_empty:
+            return self._commit_verified_empty_hotfix(st, hotfix_event, now, last_push)
 
         # An exception fallback intentionally has zero entries; keep its
         # original diagnostic instead of replacing it with a no-data report.
@@ -696,9 +781,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 branch=branch,
                 locale=hotfix_locale,
                 region_id=region_id,
-                to_push=int(report.get('to_push') or latest_push),
+                to_push=latest_push,
                 defaults={
-                    'from_push': int(report.get('from_push') or from_push),
+                    'from_push': from_push,
                     'build_num': report.get('build_num') or '',
                     'build_str': report.get('build_str') or '',
                     'summary_title': (report.get('summary_title') or '')[:255],
@@ -725,47 +810,97 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_last_run_status = 'failed'
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
-            st.hotfix_report_url = ''
-            st.hotfix_wago_url = hotfix_wago_url
-            st.hotfix_spell_count = 0
-            st.hotfix_class_count = 0
-            st.hotfix_summary_title = ''
             st.save(
                 update_fields=[
                     'hotfix_last_run_status',
                     'hotfix_last_event_at',
                     'hotfix_last_event_status',
-                    'hotfix_report_url',
-                    'hotfix_wago_url',
-                    'hotfix_spell_count',
-                    'hotfix_class_count',
-                    'hotfix_summary_title',
                 ]
             )
             return False
 
-        if not fallback_status:
-            published = []
-            try:
-                published = self._run_stage('hotfix_publish', lambda: self._publish_staged_hotfix_reports(
-                    report, class_report), event=hotfix_event) or []
+        if fallback_status:
+            self._finalize_hotfix_event(st, hotfix_event, row, report, now, is_init, advance_cursor=False,
+                                        fallback_status=fallback_status, fallback_error=fallback_error)
+            return False
+
+        published = []
+        body_finished = False
+        try:
+            published = self._run_stage('hotfix_publish', lambda: self._publish_staged_hotfix_reports(
+                report, class_report), event=hotfix_event) or []
+            # The public files are ready, but a complete report and the
+            # cursor must become authoritative in the same DB commit.
+            with transaction.atomic():
                 row.collection_complete = True
                 row.save(update_fields=['collection_complete'])
-            except Exception as e:
-                for path in published:
-                    try:
-                        os.unlink(path)
-                    except OSError:
-                        logger.exception('[WagoSkillDiffMonitor] failed to remove unpublished Hotfix file %s', path)
-                self._discard_hotfix_staging(report, class_report)
-                row.collection_complete = False
-                row.save(update_fields=['collection_complete'])
-                self._mark_event(hotfix_event, status='publish_failed', report=None, error_message=e)
-                st.hotfix_last_run_status = 'failed'
-                st.hotfix_last_event_status = 'publish_failed'
-                st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
-                return False
+                self._finalize_hotfix_event(st, hotfix_event, row, report, now, is_init,
+                                            advance_cursor=backfill_interval is None)
+                body_finished = True
+        except Exception as e:
+            # A body error cannot commit. An exit/commit error can, so only
+            # that case needs authoritative readback before removing files.
+            if body_finished:
+                try:
+                    row.refresh_from_db(fields=['collection_complete'])
+                except Exception:
+                    logger.exception('[WagoSkillDiffMonitor] Hotfix commit unconfirmed for event=%s; preserve files',
+                                     hotfix_event.pk)
+                    return False
+                if row.collection_complete:
+                    return True
+            for path in published:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    logger.exception('[WagoSkillDiffMonitor] failed to remove unpublished Hotfix file %s', path)
+            self._discard_hotfix_staging(report, class_report)
+            return self._record_hotfix_publish_failure(st, hotfix_event, last_push, e)
+        return True
 
+    def _record_hotfix_publish_failure(self, st, event, last_push, error):
+        st.hotfix_push_id = last_push
+        self._mark_event(event, status='publish_failed', report=None, error_message=error)
+        st.hotfix_last_run_status = 'failed'
+        st.hotfix_last_event_status = 'publish_failed'
+        st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+        return False
+
+    def _commit_verified_empty_hotfix(self, st, event, now, last_push):
+        body_finished = False
+        try:
+            with transaction.atomic():
+                self._mark_event(event, status='verified_empty', report=None, table_count=0,
+                                 entry_count=0, changed_tables_json='', summary_title='',
+                                 build_str='', build_num='', error_message='')
+                st.hotfix_push_id = event.to_push
+                st.hotfix_last_run_status = 'success'
+                st.hotfix_last_event_at = now
+                st.hotfix_last_event_status = 'verified_empty'
+                st.save(update_fields=['hotfix_push_id', 'hotfix_last_run_status',
+                                       'hotfix_last_event_at', 'hotfix_last_event_status'])
+                body_finished = True
+        except Exception as e:
+            if body_finished:
+                try:
+                    st.refresh_from_db(fields=['hotfix_push_id', 'hotfix_last_event_status'])
+                    event.refresh_from_db(fields=['status', 'report'])
+                except Exception:
+                    logger.exception('[WagoSkillDiffMonitor] verified-empty Hotfix commit unconfirmed for event=%s',
+                                     event.pk)
+                    return False
+                if (st.hotfix_push_id == event.to_push and st.hotfix_last_event_status == 'verified_empty'
+                        and event.status == 'verified_empty' and event.report_id is None):
+                    return True
+                if st.hotfix_push_id != last_push or event.status != 'detected':
+                    logger.error('[WagoSkillDiffMonitor] inconsistent verified-empty Hotfix readback for event=%s',
+                                 event.pk)
+                    return False
+            return self._record_hotfix_publish_failure(st, event, last_push, e)
+        return True
+
+    def _finalize_hotfix_event(self, st, hotfix_event, row, report, now, is_init, *, advance_cursor,
+                               fallback_status='', fallback_error=''):
         self._mark_event(
             hotfix_event,
             status=fallback_status or 'report_generated',
@@ -783,15 +918,10 @@ class WagoSkillDiffMonitor(BaseScan):
         state_update_fields = [
             'hotfix_last_event_at',
             'hotfix_last_event_status',
-            'hotfix_report_url',
-            'hotfix_wago_url',
-            'hotfix_spell_count',
-            'hotfix_class_count',
-            'hotfix_summary_title',
         ]
-        if not fallback_status and backfill_interval is None:
-            st.hotfix_push_id = latest_push
-            st.hotfix_region_id = region_id
+        if advance_cursor:
+            st.hotfix_push_id = hotfix_event.to_push
+            st.hotfix_region_id = hotfix_event.region_id
             state_update_fields[:0] = ['hotfix_push_id', 'hotfix_region_id']
         st.hotfix_last_run_status = 'failed' if fallback_status else 'success'
         state_update_fields.append('hotfix_last_run_status')
@@ -802,13 +932,15 @@ class WagoSkillDiffMonitor(BaseScan):
             ('has_class_change' if int(report.get('class_spell_count') or 0) > 0 else
              ('init_has_update' if is_init else 'has_update'))
         )
-        st.hotfix_report_url = (report.get('report_url') or '') if report else ''
-        st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
-        st.hotfix_spell_count = int(report.get('class_spell_count') or 0)
-        st.hotfix_class_count = int(report.get('class_class_count') or 0)
-        st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
+        if not fallback_status:
+            st.hotfix_report_url = report.get('report_url') or ''
+            st.hotfix_wago_url = hotfix_event.wago_url
+            st.hotfix_spell_count = int(report.get('class_spell_count') or 0)
+            st.hotfix_class_count = int(report.get('class_class_count') or 0)
+            st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
+            state_update_fields += ['hotfix_report_url', 'hotfix_wago_url', 'hotfix_spell_count',
+                                    'hotfix_class_count', 'hotfix_summary_title']
         st.save(update_fields=state_update_fields)
-        return not bool(fallback_status)
 
     def _hotfix_day_key(self, dt):
         try:
@@ -1364,11 +1496,15 @@ class WagoSkillDiffMonitor(BaseScan):
                     fact['before_source_build'] = self._full_hotfix_source_build(fact['before_source'], db2_build)
         return facts
 
+    @staticmethod
+    def _hotfix_max_push_span():
+        return max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSH_SPAN', 512) or 512))
+
     def _collect_hotfix_interval_rows(self, from_push, to_push, *, region_id, locale, build_number=None):
         from_push, to_push = int(from_push), int(to_push)
         if to_push <= from_push:
             return []
-        max_span = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSH_SPAN', 512) or 512))
+        max_span = self._hotfix_max_push_span()
         if to_push - from_push > max_span:
             raise WagoDiffUnavailable(f'Hotfix push span limit: {from_push}→{to_push} > {max_span}')
         max_entries = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000))

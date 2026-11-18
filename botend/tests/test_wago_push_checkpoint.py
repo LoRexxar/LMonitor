@@ -4,6 +4,7 @@ import html
 import json
 import tempfile
 import threading
+from datetime import timedelta
 from email.utils import formatdate
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,9 +13,10 @@ from unittest.mock import patch
 
 import requests
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor, WagoDiffUnavailable
-from botend.models import WowWagoMonitorState, WowHotfixReport
+from botend.models import WowWagoMonitorState, WowHotfixReport, WowWagoHotfixEvent
 
 
 class WagoPushCheckpointTests(TestCase):
@@ -455,6 +457,11 @@ class WagoPushCheckpointTests(TestCase):
         with patch.object(first, '_fetch_latest_hotfix_push_id', return_value=101):
             self.assertFalse(first._scan_hotfix_if_needed(state, 'wow', state.build))
         self.fail_push = None
+        # Discovery observed 101; recovery must corroborate that endpoint.
+        self.rows.append(dict(self.rows[-1], id=5, push_id=101))
+        WowWagoHotfixEvent.objects.filter(region_id=3, from_push=99, to_push=101).update(
+            updated_at=timezone.now() - first.FAILURE_RETRY_DELAY - timedelta(seconds=1),
+        )
         self.requests.clear()
         monitor = self.monitor()
         with override_settings(WAGO_HOTFIX_REPORT_ENRICH_MAX=0), \
