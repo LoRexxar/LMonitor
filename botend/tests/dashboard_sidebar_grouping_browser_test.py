@@ -11,10 +11,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SidebarGroupingBrowserTests(unittest.TestCase):
     def test_grouped_navigation_preserves_entries_links_and_active_branch(self):
-        template = (ROOT / 'templates/dashboard/index.html').read_text()
+        template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')
         sidebar = str(BeautifulSoup(template, 'html.parser').select_one('#sidebar'))
         # The all-access fixture includes every conditional entry, without a server
         # or API mocks; grouping consumes the real template nodes and real script.
+        sidebar = sidebar.replace("{% url 'dashboard_mythic_composition' %}", '/dashboard/mythic-composition/')
         sidebar = re.sub(r'{%.*?%}', '', sidebar, flags=re.S)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -31,11 +32,14 @@ class SidebarGroupingBrowserTests(unittest.TestCase):
             }))''')
             self.assertEqual(groups, [
                 {'key': 'overview', 'label': '概览统计', 'entries': ['dashboard-home', 'site-analytics']},
-                {'key': 'content', 'label': '内容运营', 'entries': ['class-guide-module', 'player-analyses', 'news', 'site']},
-                {'key': 'tools', 'label': '游戏工具', 'entries': ['simc', 'mythic-planner', 'gear-builder-management', 'tools']},
-                {'key': 'access', 'label': '账号权限', 'entries': ['user-management', 'user-groups', 'bilibili-binding']},
+                {'key': 'content', 'label': '内容运营', 'entries': ['class-guide-module', 'player-analyses', 'frontend-simulations', 'news', 'site']},
+                {'key': 'tools', 'label': '游戏工具', 'entries': ['mythic-composition', 'simc', 'mythic-planner', 'gear-builder-management', 'tools']},
+                {'key': 'access', 'label': '账号权限', 'entries': ['my-characters', 'user-management', 'user-groups', 'character-bindings', 'bilibili-binding']},
                 {'key': 'operations', 'label': '运行维护', 'entries': ['MonitorTask', 'logs', 'ai-management', 'central-data', 'database-tables']},
             ])
+            entry = page.locator('[data-sidebar-group="tools"] [data-section="mythic-composition"] > a')
+            self.assertTrue(entry.is_visible())
+            self.assertEqual(entry.get_attribute('href'), '/dashboard/mythic-composition/')
             # Three grouping folders add only their own header links; no entry lost.
             self.assertEqual(page.locator('#dashboard-primary-nav a').count(), before + 3)
             self.assertEqual(page.locator('[data-section="bilibili-binding"] > a').get_attribute('href'), '?section=bilibili-binding')

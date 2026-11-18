@@ -113,7 +113,7 @@
                 folder('news', '资讯与报告', 'fa-newspaper', [section('news'), section('wow-daily-reports'), section('wago-hotfix-reports')]),
                 folder('site', '站点编排', 'fa-compass', [section('wow-today-settings'), section('portal-navigation')]),
             ]},
-            {key: 'tools', label: '游戏工具', entries: [section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
+            {key: 'tools', label: '游戏工具', entries: [section('mythic-composition'), section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
             {key: 'access', label: '账号权限', entries: [
                 section('my-characters'), section('user-management'), section('user-groups'),
                 section('character-bindings'), section('bilibili-binding'),
