@@ -10,6 +10,7 @@
         if (table) params.set('table', table);
         else if (tool) params.set('tool', tool);
         else if (section) params.set('section', section);
+        if (item.dataset.mythicResource) params.set('resource', item.dataset.mythicResource);
         const query = params.toString();
         return query ? `/dashboard/?${query}` : '/dashboard/';
     }

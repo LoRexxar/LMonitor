@@ -2,7 +2,6 @@
     'use strict';
 
     const $ = (selector, root = document) => root.querySelector(selector);
-    const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
     const escapeHtml = (value) => String(value ?? '')
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
@@ -365,13 +364,9 @@
         pois: ['versions', 'dungeons', 'floors', 'pois'],
     };
 
-    const requestedResource = new URLSearchParams(window.location.search).get('resource');
     const state = {
         snapshot: null,
-        resource: (
-            requestedResource
-            && Object.prototype.hasOwnProperty.call(RESOURCE_CONFIG, requestedResource)
-        ) ? requestedResource : 'versions',
+        resource: 'versions',
         editingId: null,
         routeDetail: null,
         toastTimer: null,
@@ -476,29 +471,20 @@
     }
 
     function renderAll() {
-        renderSidebar();
+        renderVersionInfo();
         renderFilters();
         renderResource();
     }
 
-    function renderSidebar() {
+    function renderVersionInfo() {
         const active = activeVersion();
         els.activeVersionLabel.textContent = active?.label || '尚未初始化';
         els.activeVersionMeta.textContent = active
             ? [active.game_version, active.season].filter(Boolean).join(' · ') || `版本 key：${active.key}`
             : '运行初始化命令或导入数据包';
-        Object.keys(RESOURCE_CONFIG).forEach((resource) => {
-            const count = (
-                state.snapshot?.counts?.[resource]
-                ?? state.snapshot?.[resource]?.length
-                ?? 0
-            );
-            const counter = $(`#count-${resource}`);
-            if (counter) counter.textContent = String(count);
-        });
-        $$('[data-resource]', els.resourceNav).forEach((button) => {
-            button.classList.toggle('is-active', button.dataset.resource === state.resource);
-        });
+        const versions = state.resource === 'versions';
+        $('#mdt-version-info').hidden = !versions;
+        $('#import-package').hidden = !versions;
     }
 
     function renderFilters() {
@@ -570,6 +556,7 @@
         els.resourceDescription.textContent = config.description;
         els.addResource.textContent = `＋ 新增${config.singular}`;
         els.addResource.hidden = Boolean(config.readOnly);
+        els.addResource.disabled = !snapshotResources().every(key => state.loadedResources.has(key));
         if (state.resource === 'configs' && (state.snapshot?.configs || []).length) {
             els.addResource.textContent = '编辑默认配置';
         }
@@ -1243,7 +1230,6 @@
         Object.assign(els, {
             activeVersionLabel: $('#active-version-label'),
             activeVersionMeta: $('#active-version-meta'),
-            resourceNav: $('#resource-nav'),
             resourceTitle: $('#resource-title'),
             resourceDescription: $('#resource-description'),
             addResource: $('#add-resource'),
@@ -1269,20 +1255,6 @@
     }
 
     function bindEvents() {
-        els.resourceNav.addEventListener('click', (event) => {
-            const button = event.target.closest('[data-resource]');
-            if (!button) return;
-            state.resource = button.dataset.resource;
-            const url = new URL(window.location.href);
-            url.searchParams.set('resource', state.resource);
-            window.history.replaceState({}, '', url);
-            const resources = snapshotResources();
-            if (resources.every((resource) => state.loadedResources.has(resource))) {
-                renderAll();
-            } else {
-                loadSnapshot({quiet: true, resources});
-            }
-        });
         els.addResource.addEventListener('click', () => openEditor());
         els.versionFilter.addEventListener('change', () => { renderFilters(); renderResource(); });
         els.dungeonFilter.addEventListener('change', renderResource);
@@ -1308,8 +1280,16 @@
         document.addEventListener('dashboard-section-changed', (event) => {
             if (event.detail?.section !== 'mythic-planner-config') return;
             const resource = String(event.detail?.mythicResource || 'versions');
-            if (resource === state.resource) return;
-            $(`[data-resource="${resource}"]`, els.resourceNav)?.click();
+            if (!Object.hasOwn(RESOURCE_CONFIG, resource)) return;
+            state.resource = resource;
+            els.search.value = '';
+            els.versionFilter.value = '';
+            els.dungeonFilter.value = '';
+            renderAll();
+            const resources = snapshotResources();
+            if (!resources.every(key => state.loadedResources.has(key))) {
+                loadSnapshot({resources});
+            }
         });
         window.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
@@ -1319,9 +1299,9 @@
     }
 
     function init() {
+        if (!$('#mythic-planner-config #resource-title')) return;
         bindElements();
         bindEvents();
-        loadSnapshot({quiet: true});
     }
 
     if (document.readyState === 'loading') {

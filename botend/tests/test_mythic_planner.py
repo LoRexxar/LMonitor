@@ -3380,7 +3380,7 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertIsNotNone(navigation.select_one('ul#mythic-planner-sidebar-submenu'))
         for section in ('config', 'positions', 'routes'):
             self.assertIsNotNone(navigation.select_one(
-                f'li.submenu-item[data-dashboard-section="mythic-planner-{section}"] > a[href="#"]'))
+                f'li.submenu-item[data-dashboard-section="mythic-planner-{section}"] > a[href]'))
             content = document.select_one(f'#mythic-planner-{section}.content-section')
             self.assertIsNotNone(content)
             self.assertIsNone(content.find('iframe'))
@@ -4427,19 +4427,14 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertIn('地图点位编辑', dashboard_template)
         self.assertIn('账号路线 / MDT 字符串', dashboard_template)
 
-        planner_dashboard_template = (
-            Path(settings.BASE_DIR)
-            / 'templates'
-            / 'dashboard'
-            / 'mythic_planner.html'
-        ).read_text(encoding='utf-8')
-        self.assertIn('data-resource="selection_groups"', planner_dashboard_template)
-        self.assertIn(
-            'data-resource="selection_memberships"',
-            planner_dashboard_template,
-        )
-        self.assertIn('data-resource="default_routes"', planner_dashboard_template)
-        self.assertNotIn('data-resource="routes"', planner_dashboard_template)
+        for resource in ('versions', 'configs', 'route_targets', 'default_routes',
+                         'selection_groups', 'selection_memberships', 'dungeons', 'floors',
+                         'enemies', 'spells', 'abilities', 'spawns', 'pois'):
+            self.assertIn(f'data-mythic-resource="{resource}"', dashboard_template)
+            self.assertIn(f'mythic-planner-config&amp;resource={resource}"', dashboard_template)
+        content = (Path(settings.BASE_DIR) / 'templates/dashboard/_mythic_planner_config_content.html'
+                   ).read_text(encoding='utf-8')
+        self.assertNotIn('id="resource-nav"', content)
 
         position_dashboard_template = (
             Path(settings.BASE_DIR)

@@ -1,41 +1,24 @@
-<section class="mp-dashboard-embedded">
+<section class="mp-dashboard-embedded" aria-label="MDT 数据与配置">
     <div class="mp-dashboard-page-header">
         <div>
             <span class="mp-dashboard-page-kicker">大秘境规划器</span>
-            <h2>MDT 数据与配置</h2>
-            <p>管理数据版本、赛季分类、地下城、地图、怪物技能和刷新点。</p>
+            <h2 id="resource-title">数据版本</h2>
+            <p id="resource-description">管理可切换的数据包版本。</p>
         </div>
         <div class="mp-admin-actions">
             <button id="import-package" type="button">导入 / 更新数据包</button>
             <button id="refresh-data" type="button">刷新</button>
-            <a href="/dashboard/?section=mythic-planner-positions" data-dashboard-target="mythic-planner-positions">地图点位编辑</a>
-            <a href="/dashboard/?section=mythic-planner-routes" data-dashboard-target="mythic-planner-routes">账号路线 / MDT 字符串</a>
             <a href="/portal/mythic-planner/" target="_blank" rel="noopener">打开规划器预览 ↗</a>
         </div>
     </div>
 
-    <div class="mp-admin-shell mp-admin-embedded-shell">
-        <aside class="mp-admin-sidebar">
+    <div>
+        <aside id="mdt-version-info" hidden>
             <section class="mp-admin-version-card">
                 <span>当前生效版本</span>
                 <strong id="active-version-label">尚未初始化</strong>
                 <small id="active-version-meta">运行初始化命令或导入数据包</small>
             </section>
-            <nav id="resource-nav" aria-label="数据资源">
-                <button type="button" data-resource="versions" class="is-active"><span>数据版本</span><b id="count-versions">0</b></button>
-                <button type="button" data-resource="configs"><span>运行配置</span><b id="count-configs">0</b></button>
-                <button type="button" data-resource="route_targets"><span>路线采集目标</span><b id="count-route_targets">0</b></button>
-                <button type="button" data-resource="default_routes"><span>推荐路线</span><b id="count-default_routes">0</b></button>
-                <button type="button" data-resource="selection_groups"><span>赛季分类</span><b id="count-selection_groups">0</b></button>
-                <button type="button" data-resource="selection_memberships"><span>地下城分配</span><b id="count-selection_memberships">0</b></button>
-                <button type="button" data-resource="dungeons"><span>地下城</span><b id="count-dungeons">0</b></button>
-                <button type="button" data-resource="floors"><span>楼层 / 地图</span><b id="count-floors">0</b></button>
-                <button type="button" data-resource="enemies"><span>怪物原型</span><b id="count-enemies">0</b></button>
-                <button type="button" data-resource="spells"><span>技能资料库</span><b id="count-spells">0</b></button>
-                <button type="button" data-resource="abilities"><span>怪物技能</span><b id="count-abilities">0</b></button>
-                <button type="button" data-resource="spawns"><span>怪物刷新点</span><b id="count-spawns">0</b></button>
-                <button type="button" data-resource="pois"><span>地图兴趣点</span><b id="count-pois">0</b></button>
-            </nav>
             <section class="mp-admin-help">
                 <strong>数据更新策略</strong>
                 <p>重复导入相同版本会按稳定 key 更新，不产生重复项。替换模式只停用缺失项，不物理删除数据。</p>
@@ -45,10 +28,6 @@
 
         <section class="mp-admin-content">
             <div class="mp-admin-toolbar">
-                <div>
-                    <h1 id="resource-title">数据版本</h1>
-                    <p id="resource-description">管理可切换的数据包版本，任意时刻只有一个版本生效。</p>
-                </div>
                 <button id="add-resource" type="button" class="is-primary">＋ 新增数据版本</button>
             </div>
 

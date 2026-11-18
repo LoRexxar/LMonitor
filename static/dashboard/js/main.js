@@ -254,13 +254,15 @@ function initDashboardSectionLinks() {
     });
 }
 
-function syncDashboardLocation({ section = '', tool = '', table = '' } = {}) {
+function syncDashboardLocation({ section = '', tool = '', table = '', resource = '' } = {}) {
     const bindingPageUrl = ['my-characters', 'character-bindings'].includes(section)
         ? document.getElementById(section)?.dataset.pageUrl : '';
     const url = new URL(bindingPageUrl || window.location.href, window.location.origin);
     url.searchParams.delete('section');
     url.searchParams.delete('tool');
     url.searchParams.delete('table');
+    url.searchParams.delete('resource');
+    if (resource) url.searchParams.set('resource', resource);
     if (section !== 'character-bindings') {
         ['q', 'status', 'page', 'users_page', 'saved'].forEach(key => url.searchParams.delete(key));
     }
@@ -325,7 +327,7 @@ function activateDashboardLocation() {
                 ? sectionTargets.find(
                     item => item.dataset.mythicResource === mythicResource,
                 )
-                : sectionTargets.find(item => !item.dataset.mythicResource)
+                : sectionTargets.find(item => !item.dataset.mythicResource || item.dataset.mythicResource === 'versions')
         ) || sectionTargets[0];
         if (!target) {
             target = Array.from(document.querySelectorAll('.nav-item[data-section]'))
@@ -567,7 +569,7 @@ function initNavigation() {
                             mythicResource,
                         },
                     }));
-                    syncDashboardLocation({ section: dashboardSection });
+                    syncDashboardLocation({ section: dashboardSection, resource: mythicResource });
                 }
             } else if (toolName) {
                 // 处理工具菜单项
