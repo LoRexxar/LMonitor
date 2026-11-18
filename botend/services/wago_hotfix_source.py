@@ -19,6 +19,9 @@ class HotfixSourceIncomplete(RuntimeError):
     pass
 
 
+DEFAULT_PUSH_MAX_QUERIES = 2048
+
+
 def _search_rows(fetch_text, extract_props, query, *, max_pages, timeout, max_attempts=3):
     """Retry unstable pagination; accept only a complete unique source-ID set."""
     max_pages = max(1, int(max_pages))
@@ -119,7 +122,7 @@ def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, pus
     return sorted(selected.values(), key=lambda row: (int(row['push_id']), int(row['id'])))
 
 
-def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout, max_queries=512,
+def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout, max_queries=DEFAULT_PUSH_MAX_QUERIES,
                          checkpoint=None, proof=None, max_pages=40):
     """Use Wago's record-ID prefix search when its page ordering repeats IDs.
 
@@ -135,7 +138,7 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         nonlocal query_count
         query_count += 1
         if query_count > max_queries:
-            raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id}')
+            raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id} queries={max_queries}')
         return fetch_text(url, **kwargs)
 
     def store(rows, prefix, build_prefix=None):
@@ -216,7 +219,15 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         if total == 0 or depth >= 16:
             raise HotfixSourceIncomplete(f'Hotfix prefix incomplete: cannot split query={query}')
         child_total = 0
-        for digit in '0123456789':
+        # The first page only changes query order; it never proves a branch.
+        observed = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            record_id = str(row.get('record_id', ''))
+            if record_id.startswith(prefix) and len(record_id) > len(prefix):
+                observed.add(record_id[len(prefix)])
+        for digit in sorted('0123456789', key=lambda digit: digit not in observed):
             child_total += visit(prefix + digit, depth + 1)
             # Each child is complete, disjoint and source-ID unique. Once
             # they account for the full parent total, no rows remain to find.
@@ -269,18 +280,28 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
     total = root[0] if reused else visit('', 0, root)
     if len(selected) != total:
         raise HotfixSourceIncomplete(f'Hotfix prefix unique IDs={len(selected)} total={total} push={push_id}')
+    # Ordering can change between requests, but all observed root records
+    # must still be present with the same payload in the complete proof.
+    for row in root[2]:
+        try:
+            matches = selected[int(row['id'])] == row
+        except (KeyError, TypeError, ValueError):
+            matches = False
+        if not matches:
+            raise HotfixSourceIncomplete(f'Hotfix root sample changed during collection push={push_id}')
     if proof is not None:
         proof.update(total=total, leaves=leaves, reused=reused)
     return [selected[source_id] for source_id in sorted(selected)]
 
 
 def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, locale, build_number=None,
-                             max_pages=40, timeout=60, checkpoint=None, proof=None):
+                             max_pages=40, timeout=60, checkpoint=None, proof=None,
+                             max_queries=DEFAULT_PUSH_MAX_QUERIES):
     # Avoid three doomed pagination sweeps on Wago's unstable ordering. The
     # first root page is also the single-page fast path; larger pushes split
     # immediately under the existing parent/child and unique-ID conservation.
     candidate = {}
-    rows = _partition_push_rows(fetch_text, extract_props, push_id, locale, timeout=timeout,
+    rows = _partition_push_rows(fetch_text, extract_props, push_id, locale, timeout=timeout, max_queries=max_queries,
                                 max_pages=max_pages, checkpoint=checkpoint, proof=candidate)
     selected = _exact_rows(rows, region_id=region_id, locale=locale, push_id=push_id, build_number=build_number)
     if proof is not None:

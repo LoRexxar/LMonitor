@@ -3,6 +3,7 @@ import fcntl
 import html
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -13,8 +14,10 @@ from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
+from pathlib import Path
 from threading import Lock
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from django.conf import settings
@@ -27,8 +30,13 @@ from utils.log import logger
 from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_region_name
 from botend.services.wago_db2.client import WagoDB2Client
 from botend.services.wago_db2.graph import WagoDB2GraphService
+from botend.services.download_checkpoint import atomic_bytes
+from botend.services.download_retention import download_lock, safe_path
 from botend.services.wow_skill_report_metadata import database_spell_metadata, wowhead_spell_url as report_spell_url
-from botend.services.wago_hotfix_source import collect_hotfix_push_rows, collect_hotfix_record_history, collect_hotfix_build_rows, source_ids_sha256, HotfixSourceIncomplete
+from botend.services.wago_hotfix_source import (
+    DEFAULT_PUSH_MAX_QUERIES, HotfixSourceIncomplete, collect_hotfix_build_rows,
+    collect_hotfix_push_rows, collect_hotfix_record_history, source_ids_sha256,
+)
 from botend.services.wago_hotfix_facts import build_hotfix_facts, previous_hotfix_row, project_class_spell_changes, hotfix_record_identity
 from botend.services.wago_hotfix_reader_fields import FIELDS as HOTFIX_READER_FIELDS, display_hotfix_value, project_hotfix_columns, spell_misc_permission_brief
 
@@ -40,6 +48,18 @@ except Exception:
 
 class WagoDiffUnavailable(RuntimeError):
     """Raised when Wago has exposed a build before diff pages are ready."""
+
+
+class WagoHotfixRateLimited(WagoDiffUnavailable):
+    pass
+
+
+def _positive_setting(name, default):
+    try:
+        value = int(getattr(settings, name))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return default
+    return value if value > 0 else default
 
 
 class WagoSkillDiffMonitor(BaseScan):
@@ -491,6 +511,11 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_last_event_status = 'hotfix_region_unverified'
             st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
             return False
+        try:
+            self._check_hotfix_cooldown()
+        except WagoHotfixRateLimited as exc:
+            logger.info('[WagoSkillDiffMonitor] %s', exc)
+            return False
         if backfill_interval is not None:
             try:
                 requested_from, latest_push = map(int, backfill_interval)
@@ -504,6 +529,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     locale=hotfix_locale, region_id=region_id, current_build=current_build,
                     after_push=last_push,
                 ), branch=branch, locale=hotfix_locale, region_id=region_id, from_push=last_push)
+            except WagoHotfixRateLimited as exc:
+                logger.info('[WagoSkillDiffMonitor] %s', exc)
+                return False
             except (HotfixSourceIncomplete, WagoDiffUnavailable) as exc:
                 logger.warning('[WagoSkillDiffMonitor] Hotfix discovery incomplete: %s', exc)
                 st.hotfix_last_run_status = 'failed'
@@ -604,9 +632,8 @@ class WagoSkillDiffMonitor(BaseScan):
             self._discard_hotfix_staging(report, class_report)
             st.hotfix_last_run_status = 'failed'
             st.save(update_fields=['hotfix_last_run_status'])
-            if backfill_interval is not None:
-                # A manual historical replay must not publish a placeholder
-                # or alter the committed cursor when Wago is incomplete.
+            if isinstance(e, WagoHotfixRateLimited) or backfill_interval is not None:
+                # Rate limits and manual replays must not publish a placeholder.
                 self._mark_event(hotfix_event, status='generate_failed', error_message=e)
                 return False
             fallback_status = 'generate_failed_fallback_report'
@@ -1242,6 +1269,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 timeout=max(60, self.http_timeout),
                 checkpoint=checkpoints.load(push_id) if checkpoints is not None else None,
                 proof=proof,
+                max_queries=_positive_setting('WAGO_HOTFIX_MAX_PREFIX_QUERIES', DEFAULT_PUSH_MAX_QUERIES),
             )
             if checkpoints is not None:
                 checkpoints.save(push_id, proof)
@@ -5526,7 +5554,8 @@ class WagoSkillDiffMonitor(BaseScan):
         next_url = url
         visited = set()
         seen_ids = set()
-        max_rows = int(getattr(settings, 'WAGO_SKILL_DIFF_MAX_DIFF_ROWS', 10000) or 10000)
+        legacy_limit = _positive_setting('WAGO_SKILL_DIFF_MAX_DIFF_ROWS', None)
+        max_rows = legacy_limit or 10000
         expected_total = None
         page = 1
         while next_url:
@@ -5552,7 +5581,10 @@ class WagoSkillDiffMonitor(BaseScan):
             if expected_total is None:
                 expected_total = total
                 if total > max_rows:
-                    return self._fetch_db2_diff_rows_from_csv(table, from_build, to_build, max_rows)
+                    # Keep the web pagination threshold low. The CSV path
+                    # verifies both exports on disk and only collects the actual changes.
+                    csv_max_rows = _positive_setting('WAGO_SKILL_DIFF_MAX_CSV_DIFF_ROWS', legacy_limit or 50000)
+                    return self._fetch_db2_diff_rows_from_csv(table, from_build, to_build, csv_max_rows)
             if total != expected_total:
                 raise WagoDiffUnavailable(f'Wago DB2 diff total changed during pagination for {table}')
             data = entries['data']
@@ -5645,6 +5677,7 @@ class WagoSkillDiffMonitor(BaseScan):
         """Compare exact-build exports on disk; never publish a capped prefix of a diff."""
         old_total = self._fetch_db2_table_count(table, from_build)
         new_total = self._fetch_db2_table_count(table, to_build)
+        max_diff_bytes = _positive_setting('WAGO_SKILL_DIFF_MAX_CSV_DIFF_BYTES', 32 * 1024**2)
         max_temp_bytes = int(getattr(settings, 'WAGO_SKILL_DIFF_MAX_TEMP_BYTES', 2 * 1024**3))
         min_free_bytes = int(getattr(settings, 'WAGO_SKILL_DIFF_MIN_FREE_BYTES', 1024**3))
         try:
@@ -5678,6 +5711,17 @@ class WagoSkillDiffMonitor(BaseScan):
                         raise WagoDiffUnavailable(f'Wago DB2 CSV incomplete for {table} {from_build}: {old_count}/{old_total}')
 
                     rows = []
+                    diff_bytes = 2  # JSON array brackets; two bytes between entries.
+
+                    def append_diff(row):
+                        nonlocal diff_bytes
+                        if len(rows) >= max_rows:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
+                        diff_bytes += len(json.dumps(row, ensure_ascii=False).encode('utf-8')) + (2 if rows else 0)
+                        if diff_bytes > max_diff_bytes:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_diff_bytes} bytes for {table}')
+                        rows.append(row)
+
                     new_count = 0
                     for row in self._iter_db2_csv_rows(table, to_build):
                         record_id = row['ID']
@@ -5689,24 +5733,20 @@ class WagoSkillDiffMonitor(BaseScan):
                             conn.execute('UPDATE old_rows SET seen=1 WHERE id=?', (record_id,))
                             fields = (set(before) | set(row)) - {'ID'}
                             if any(before.get(field, '') != row.get(field, '') for field in fields):
-                                rows.append({**row, 'Action': 'changed', 'oldData': before})
+                                append_diff({**row, 'Action': 'changed', 'oldData': before})
                         else:
                             try:
                                 conn.execute('INSERT INTO added_ids (id) VALUES (?)', (record_id,))
                             except sqlite3.IntegrityError as exc:
                                 raise WagoDiffUnavailable(f'Wago DB2 CSV duplicate ID for {table} {to_build}: {record_id}') from exc
-                            rows.append({**row, 'Action': 'added'})
+                            append_diff({**row, 'Action': 'added'})
                         new_count += 1
                         if new_count % 2000 == 0:
                             check_storage()
-                        if len(rows) > max_rows:
-                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
                     if new_count != new_total:
                         raise WagoDiffUnavailable(f'Wago DB2 CSV incomplete for {table} {to_build}: {new_count}/{new_total}')
                     for record_id, payload in conn.execute('SELECT id, payload FROM old_rows WHERE seen=0'):
-                        rows.append({'ID': record_id, 'Action': 'removed', 'oldData': json.loads(payload)})
-                        if len(rows) > max_rows:
-                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
+                        append_diff({'ID': record_id, 'Action': 'removed', 'oldData': json.loads(payload)})
                     check_storage()
                     logger.info(f'[WagoSkillDiffMonitor] exact-build CSV diff {table} {from_build}->{to_build}: old={old_count} new={new_count} real={len(rows)}')
                     return rows
@@ -6154,12 +6194,58 @@ class WagoSkillDiffMonitor(BaseScan):
                 out.append(cid)
         return out
 
+    def _hotfix_cooldown_path(self):
+        return Path(settings.BASE_DIR) / 'var' / 'wago-hotfix-control' / 'retry-at'
+
+    def _hotfix_cooldown_until(self):
+        path = self._hotfix_cooldown_path()
+        try:
+            if not safe_path(path) or not path.is_file():
+                return 0
+            with path.open('rb') as stream:
+                return int(stream.read(32))
+        except (OSError, ValueError):
+            return 0
+
+    def _check_hotfix_cooldown(self):
+        until = max(self._hotfix_cooldown_until(), getattr(self, '_hotfix_retry_at', 0))
+        if time.time() < until:
+            raise WagoHotfixRateLimited(f'Wago Hotfix HTTP 429; retry_at_epoch={until}')
+
+    def _defer_hotfix(self, retry_after):
+        now = time.time()
+        try:
+            value = str(retry_after or '').strip()
+            if re.fullmatch(r'[0-9]{1,10}', value):
+                until = math.ceil(now) + max(1, int(value))
+            else:
+                date = parsedate_to_datetime(value)
+                if date.utcoffset() is None:
+                    raise ValueError('timezone missing')
+                until = max(math.ceil(now) + 1, int(date.timestamp()))
+        except (TypeError, ValueError, OverflowError, OSError):
+            until = math.ceil(now) + 300
+        path = self._hotfix_cooldown_path()
+        self._hotfix_retry_at = until
+        try:
+            with download_lock(path.parent):
+                until = max(until, self._hotfix_cooldown_until())
+                atomic_bytes(path, f'{until}\n'.encode('ascii'))
+                self._hotfix_retry_at = until
+        except (OSError, ValueError):
+            logger.warning('[WagoSkillDiffMonitor] Hotfix cooldown could not be persisted')
+        raise WagoHotfixRateLimited(f'Wago Hotfix HTTP 429; retry_at_epoch={until}')
+
     def _http_get(self, url, timeout=None, *, binary=False, attempts=None):
         timeout = max(int(timeout or self.http_timeout or 30), int(getattr(settings, 'WAGO_SKILL_DIFF_MIN_TIMEOUT', 45) or 45))
         attempts = int(attempts or getattr(settings, 'WAGO_SKILL_DIFF_HTTP_RETRIES', 3) or 3)
         attempts = max(1, attempts)
         last_error = ''
+        parts = urlsplit(url)
+        hotfix = parts.netloc == 'wago.tools' and parts.path.rstrip('/') == '/hotfixes'
         for attempt in range(1, attempts + 1):
+            if hotfix:
+                self._check_hotfix_cooldown()
             started = time.monotonic()
             succeeded = False
             with self._http_metrics_lock:
@@ -6168,6 +6254,8 @@ class WagoSkillDiffMonitor(BaseScan):
             try:
                 resp = self._http_session.get(url, timeout=timeout)
                 elapsed = time.monotonic() - started
+                if hotfix and resp.status_code == 429:
+                    self._defer_hotfix(resp.headers.get('Retry-After'))
                 if resp.status_code == 200:
                     size = len(resp.content or b'')
                     logger.info(f"[WagoSkillDiffMonitor] request done status=200 size={size} elapsed={elapsed:.1f}s {url}")
@@ -6176,6 +6264,8 @@ class WagoSkillDiffMonitor(BaseScan):
                     return result
                 last_error = f"status={resp.status_code} elapsed={elapsed:.1f}s"
                 logger.warning(f"[WagoSkillDiffMonitor] request failed {attempt}/{attempts} {url}: {last_error}")
+            except WagoHotfixRateLimited:
+                raise
             except Exception as e:
                 elapsed = time.monotonic() - started
                 last_error = f"{e} elapsed={elapsed:.1f}s"

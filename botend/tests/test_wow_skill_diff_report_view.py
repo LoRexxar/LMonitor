@@ -1636,7 +1636,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
         self.assertEqual(state.hotfix_push_id, 112208)
         self.assertEqual(state.hotfix_last_event_status, 'hotfix_source_behind_cursor')
 
-    @override_settings(WAGO_SKILL_DIFF_MAX_DIFF_ROWS=3)
+    @override_settings(WAGO_SKILL_DIFF_MAX_DIFF_ROWS=2, WAGO_SKILL_DIFF_MAX_CSV_DIFF_ROWS=3)
     def test_oversized_diff_compares_complete_exact_build_csv_instead_of_first_page(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
 
@@ -1660,7 +1660,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             raise AssertionError(url)
 
         old = b'ID,Description_lang\n1,"unchanged\nsecond line"\n2,old\n3,removed\n'
-        new = b'ID,Description_lang\n1,"unchanged\nsecond line"\n2,new\n4,added\n'
+        new = 'ID,Description_lang\n1,"unchanged\nsecond line"\n2,新\n4,added\n'.encode('utf-8')
 
         class AutoClosingRaw(BytesIO):
             def _close_at_end(self, result):
@@ -1697,10 +1697,25 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             return CsvResponse(old if 'build=old' in url else new, 'old' if 'build=old' in url else 'new')
 
         with patch.object(monitor, '_http_get_text', side_effect=fetch_page), patch.object(monitor._http_session, 'get', side_effect=fetch_csv):
-            rows = monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+            for csv_limit in (None, 'invalid'):
+                with self.subTest(csv_limit=csv_limit), override_settings(WAGO_SKILL_DIFF_MAX_CSV_DIFF_ROWS=csv_limit):
+                    with self.assertRaisesRegex(WagoDiffUnavailable, 'real diff exceeds 2 rows'):
+                        monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+            with override_settings(WAGO_SKILL_DIFF_MAX_CSV_DIFF_ROWS=3):
+                rows = monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
 
         self.assertEqual({int(row['ID']): row['Action'] for row in rows}, {2: 'changed', 3: 'removed', 4: 'added'})
         self.assertEqual(next(row for row in rows if row['ID'] == '2')['oldData']['Description_lang'], 'old')
+
+        serialized_bytes = len(json.dumps(rows, ensure_ascii=False).encode('utf-8'))
+        with override_settings(WAGO_SKILL_DIFF_MAX_CSV_DIFF_ROWS=3), \
+             patch.object(monitor, '_http_get_text', side_effect=fetch_page), \
+             patch.object(monitor._http_session, 'get', side_effect=fetch_csv):
+            with override_settings(WAGO_SKILL_DIFF_MAX_CSV_DIFF_BYTES=serialized_bytes):
+                self.assertEqual(monitor._fetch_db2_diff_rows('Spell', 'old', 'new'), rows)
+            with override_settings(WAGO_SKILL_DIFF_MAX_CSV_DIFF_BYTES=serialized_bytes - 1):
+                with self.assertRaisesRegex(WagoDiffUnavailable, 'real diff exceeds .* bytes'):
+                    monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
 
         def truncated_csv(url, **kwargs):
             return CsvResponse(old if 'build=old' in url else b'ID,Description_lang\n1,unchanged\n2,new\n', 'old' if 'build=old' in url else 'new')
