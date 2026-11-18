@@ -21,6 +21,18 @@ GURU = 'https://keystone.guru'
 PAGE_SIZE = 40
 
 
+def route_session():
+    session = requests.Session()
+    session.proxies.update(getattr(settings, 'PROXY_CONFIG', {}) or {})
+    retry = Retry(total=2, backoff_factor=1, status_forcelist=(429, 502, 503, 504), allowed_methods={'GET'})
+    session.mount('https://', HTTPAdapter(max_retries=retry))
+    return session
+
+
+class IncompleteRouteExport(ValueError):
+    """上游已生成导出结果，但报告该条路线不完整。"""
+
+
 class RouteSource:
     def __init__(self, session):
         self.session = session
@@ -93,7 +105,7 @@ class RouteSource:
         response.raise_for_status()
         result = response.json()
         if result.get('warnings'):
-            raise ValueError(f'MDT 导出存在警告：{result["warnings"]}')
+            raise IncompleteRouteExport(f'MDT 导出存在警告：{result["warnings"]}')
         return result['mdt_string']
 
     def winner(self, season, slug, target):
@@ -170,10 +182,7 @@ def collect_routes():
     if not season:
         raise ValueError('当前赛季缺少 Raider.IO 标识。')
     errors = []
-    with requests.Session() as session:
-        session.proxies.update(getattr(settings, 'PROXY_CONFIG', {}) or {})
-        session.mount('https://', HTTPAdapter(max_retries=Retry(total=2, backoff_factor=1,
-                      status_forcelist=(429, 502, 503, 504), allowed_methods={'GET'})))
+    with route_session() as session:
         source = RouteSource(session)
         dungeons = source.dungeons(season)
         for target in targets:

@@ -1,0 +1,14 @@
+{% load static %}<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>五人阵容查询 · LMonitor</title>
+<link rel="stylesheet" href="{% static 'dashboard/css/mythic_composition.css' %}">
+<script src="{% static 'dashboard/js/mythic_composition.js' %}" defer></script></head>
+<body><header><div class="wrap"><a href="{% url 'dashboard' %}">← 管理后台</a>
+<h1>五人阵容查询</h1><p>查看当前赛季世界范围内符合阵容的高分限时场次。</p></div></header>
+<main class="wrap"><form id="query">{% csrf_token %}<fieldset><legend>队伍配置</legend>
+<div class="slots">{% for label, options in slots %}<label><span>{{ label }}</span><select name="slot"><option value="0">不限专精</option>{% for spec in options %}<option value="{{ spec.spec_id }}">{{ spec.label }}</option>{% endfor %}</select></label>{% endfor %}</div>
+<label class="check"><input type="checkbox" name="complete">仅显示同时有 WCL 报告和 MDT 字符串的场次</label></fieldset>
+<div class="actions"><button type="submit">提交抓取任务</button><button id="cancel" type="button" hidden>停止任务</button></div></form>
+<section aria-labelledby="matches"><div class="section-head"><h2 id="matches">匹配场次</h2><span>IO 分数 ↓</span></div>
+<label class="history">查看任务 <select id="history"><option value="">最新任务</option>{% for job in jobs %}<option value="{{ job.pk }}">#{{ job.pk }} · {{ job.created_at|date:"m-d H:i" }}</option>{% endfor %}</select></label>
+<p id="status" role="status">选择需要限定的专精后查询，留空的位置将匹配所有同职责专精。</p><div id="results"></div></section></main></body></html>

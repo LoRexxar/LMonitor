@@ -4302,3 +4302,27 @@ class AIProviderConfiguration(models.Model):
     class Meta:
         constraints = [models.CheckConstraint(condition=models.Q(provider_key__in=['glm', 'mimo', 'codex']),
                                                name='ai_provider_supported_key')]
+
+
+class MythicCompositionJob(models.Model):
+    """五人阵容查询。每个账号的活动任务占用一个槽位，结束后释放并保留结果。"""
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True)
+    active_slot = models.PositiveSmallIntegerField(null=True, default=1)
+    state = models.CharField(max_length=16, default='queued')
+    season = models.CharField(max_length=80)
+    slots = models.JSONField()
+    complete_only = models.BooleanField(default=False)
+    checked = models.PositiveIntegerField(default=0)
+    found = models.PositiveSmallIntegerField(default=0)
+    results = models.JSONField(default=list)
+    message = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['owner', 'active_slot'], name='composition_owner_slot'),
+            models.CheckConstraint(condition=models.Q(active_slot__isnull=True) |
+                                   (models.Q(owner__isnull=False) & models.Q(active_slot=1)),
+                                   name='composition_active_owner'),
+        ]

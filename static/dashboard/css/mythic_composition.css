@@ -1,0 +1,51 @@
+* { box-sizing: border-box }
+:root { color-scheme: light; --ink: #182f37; --muted: #526971; --line: #cedbd9; --teal: #006d60 }
+body { margin: 0; background: #f1f5f4; color: var(--ink); font: 16px/1.55 system-ui, "Microsoft YaHei", sans-serif }
+.wrap { width: min(1120px, calc(100% - 48px)); margin-inline: auto }
+header { background: #18383c; color: white; border-top: 4px solid #40b79b }
+header .wrap { padding: 23px 0 38px }
+header a { color: #b9dcd2; text-decoration: none; font-size: .88rem }
+header h1 { margin: 23px 0 4px; font-size: clamp(2rem, 4vw, 3rem); line-height: 1.18; letter-spacing: -.035em }
+header p { margin: 0; color: #d1e1de }
+main { padding: 24px 0 60px }
+form, article { border: 1px solid var(--line); background: white; border-radius: 12px }
+form { padding: 22px 24px }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0 }
+legend, h2 { font-size: 1.32rem; font-weight: 730; margin: 0; padding: 0 }
+.slots, .lineup { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; margin: 16px 0 }
+.slots span { font-size: .85rem; color: var(--muted); font-weight: 650 }
+select { display: block; width: 100%; font: inherit; margin-top: 5px; padding: 9px 5px; color: var(--ink); border: 1px solid #9caeaf; border-radius: 6px; background: #fff }
+.check { display: inline-flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: .9rem }
+input { accent-color: var(--teal) }
+.actions, .links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px }
+button, .links a { font: inherit; font-weight: 630; font-size: .9rem; cursor: pointer; border-radius: 6px; padding: 8px 14px; background: white; border: 1px solid #a4b6b4; color: var(--teal); text-decoration: none }
+button:hover, .links a:hover { background: #eaf5f2 }
+button[type=submit] { background: var(--teal); color: white; border-color: var(--teal) }
+button:disabled { opacity: .6; cursor: wait }
+:focus-visible { outline: 3px solid #1e91ab; outline-offset: 2px }
+.section-head, .heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px }
+.section-head { margin-top: 30px; padding-bottom: 9px; border-bottom: 1px solid var(--line) }
+.section-head span, #status, small, .note { color: var(--muted); font-size: .87rem }
+#status { margin: 12px 0 }
+article { margin-bottom: 16px; padding: 20px 24px }
+.heading h3 { font-size: 1.35rem; margin: 0 }
+.rank { color: var(--muted); font: 600 .85rem ui-monospace, monospace; margin-right: 12px }
+.score { white-space: nowrap; color: var(--teal); font-size: 1.5rem; font-weight: 740 }
+.score small { font-size: .72rem; margin-left: 4px }
+.metrics { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; margin: 3px 0 }
+.lineup { list-style: none; padding: 0; gap: 6px }
+.lineup li { background: #f3f6f5; border-top: 3px solid var(--class-color); padding: 9px 10px; min-width: 0; overflow-wrap: anywhere }
+.lineup strong, .lineup small { display: block }
+.lineup small { font-size: .78rem }
+details { border-top: 1px solid var(--line); padding-top: 10px }
+summary { color: var(--teal); cursor: pointer; font-weight: 600 }
+details p, details ol { margin: 8px 0; font-size: .9rem }
+textarea { width: 100%; padding: 8px; margin-top: 10px; font: .8rem monospace; resize: vertical }
+@media(max-width:780px) { .slots,.lineup { grid-template-columns: repeat(3,minmax(0,1fr)) } }
+@media(max-width:520px) { .wrap { width: calc(100% - 28px) } header .wrap { padding: 16px 0 24px } form, article { padding: 16px } .slots,.lineup { grid-template-columns: repeat(2,minmax(0,1fr)) } .heading h3 { font-size: 1.13rem } .rank { margin-right: 5px } .score { font-size: 1.15rem } }
+.build { margin: 10px 0; padding: 8px 12px; background: #f3f6f5; border: 0; border-radius: 5px; font-size: .88rem }
+.build ul { padding-inline-start: 1.25rem; columns: 2 19rem; overflow-wrap: anywhere }
+.build li { break-inside: avoid }
+.build input { display: block; padding: 6px; width: 100%; border: 1px solid var(--line); border-radius: 4px }
+.history { display: inline-flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--muted); font-size: .9rem }
+.history select { width: auto; margin: 0; padding: 5px }

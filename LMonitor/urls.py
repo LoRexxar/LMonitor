@@ -132,6 +132,7 @@ from botend.mythic_planner.api import (
     MythicPlannerShareCodeAPIView,
     MythicPlannerSharedRouteAPIView,
 )
+from botend.dashboard.mythic_composition import composition_search
 from botend.mythic_planner.views import (
     DashboardMythicPlannerPositionsView,
     DashboardMythicPlannerRoutesView,
@@ -248,6 +249,7 @@ urlpatterns = [
     path('api/dashboard/gear-builder/<str:resource>/<int:object_id>/', DashboardGearBuilderManagementAPIView.as_view(), name='dashboard_gear_builder_management_detail'),
     path('api/dashboard/wow-today-sections/', DashboardWowTodaySectionAPIView.as_view(), name='dashboard_wow_today_sections'),
     path('api/dashboard/portal-navigation/', DashboardPortalNavigationAPIView.as_view(), name='dashboard_portal_navigation'),
+    path('dashboard/mythic-composition/', composition_search, name='dashboard_mythic_composition'),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
