@@ -26,6 +26,8 @@ class WagoPushCheckpointTests(TestCase):
         self.requests = []
         self.fail_push = None
         self.root_sample = None
+        self.stable_terminal_pages = False
+        self.hotfix_payload_overrides = {}
         self.http_errors = {}
         self.rows = [dict(id=i + 1, push_id=100, region_id=3, locale='enUS',
                           table_name='SpellEffect', record_id=rid, build=70575,
@@ -61,7 +63,7 @@ class WagoPushCheckpointTests(TestCase):
                 total = len(rows)
                 # Deliberately unstable multi-page ordering; real parser must
                 # recover via conserved prefix queries, never union snapshots.
-                data = rows[:2]
+                data = rows[(page - 1) * 2:page * 2] if owner.stable_terminal_pages and len(tokens) > 3 else rows[:2]
                 if push is not None and not prefix and data and owner.root_sample is not None:
                     data[0] = owner.root_sample
                 if push is not None and push == owner.fail_push:
@@ -69,7 +71,10 @@ class WagoPushCheckpointTests(TestCase):
                 props = {'filters': {'search': query}, 'hotfixes': {
                     'data': data, 'total': total, 'current_page': page,
                     'last_page': max(1, (total + 1) // 2), 'per_page': 2}}
-                body = ('<div id="app" data-page="' + html.escape(json.dumps({'props': props}), quote=True) + '"></div>').encode()
+                if (query, page) in owner.hotfix_payload_overrides:
+                    props['hotfixes'] = owner.hotfix_payload_overrides[query, page]
+                payload = json.dumps({'props': props}).replace('Infinity', '1e309')
+                body = ('<div id="app" data-page="' + html.escape(payload, quote=True) + '"></div>').encode()
                 self.send_response(200)
                 self.send_header('Content-Length', str(len(body)))
                 self.end_headers()
@@ -128,6 +133,81 @@ class WagoPushCheckpointTests(TestCase):
         self.assertEqual([r['search'] for r in self.requests], [
             'enUS 100', 'enUS 100 9', 'enUS 100 99', 'enUS 100 90',
         ])
+
+    @override_settings(WAGO_HOTFIX_MAX_PREFIX_QUERIES=8)
+    def test_dense_exact_record_queries_terminal_first_without_losing_descendant(self):
+        self.stable_terminal_pages = True
+        self.rows = [dict(row, record_id=810, build=70575 + i) for i, row in enumerate(self.rows)]
+        self.rows.append(dict(self.rows[0], id=5, record_id=8101))
+        self.assertEqual(self.collect(), self.rows)
+        self.assertEqual([(r['search'], r['page']) for r in self.requests], [
+            ('enUS 100', 1), ('enUS 100 8', 1), ('enUS 100 81', 1), ('enUS 100 810', 1),
+            ('enUS 100 810 7', 1), ('enUS 100 810 7', 2),
+            ('enUS 100 8100', 1), ('enUS 100 8101', 1),
+        ])
+
+    def test_terminal_fast_path_cannot_hide_observed_descendant_at_inner_prefix(self):
+        self.stable_terminal_pages = True
+        self.rows = [dict(row, record_id=rid) for row, rid in zip(self.rows, (910, 911, 810, 8101))]
+        self.rows.append(dict(self.rows[-1], id=5, record_id=8102))
+        exact = self.rows[2]
+        stale = [exact, dict(exact, id=6, build=70576), dict(exact, id=7, build=70577)]
+        for page, data in enumerate((stale[:2], stale[2:]), 1):
+            self.hotfix_payload_overrides['enUS 100 810 7', page] = dict(
+                data=data, total=3, current_page=page, last_page=2, per_page=2)
+        with self.assertRaisesRegex(WagoDiffUnavailable, 'prefix sample changed'):
+            self.collect()
+        self.assertFalse((self.root / 'var' / 'wago-hotfix-checkpoints' / '100.json').exists())
+
+    def test_malformed_speculative_terminal_probe_uses_regular_proof(self):
+        self.stable_terminal_pages = True
+        self.rows = [dict(row, record_id=rid, build=build) for row, rid, build in zip(
+            self.rows, (910, 911, 810, 810), (60575, 60575, 60575, 60576))]
+        self.rows.append(dict(self.rows[-1], id=5, build=60577))
+        self.hotfix_payload_overrides['enUS 100 810', 1] = dict(
+            data=[dict(self.rows[2], build=70575), dict(self.rows[3], build=70576)],
+            total=3, current_page=1, last_page=2, per_page=2)
+        self.hotfix_payload_overrides['enUS 100 810 7', 1] = None
+        self.assertEqual(self.collect(), self.rows)
+        self.assertEqual(sum(r['search'] == 'enUS 100 810 7' for r in self.requests), 1)
+        self.assertEqual([r['page'] for r in self.requests if r['search'] == 'enUS 100 810 6'], [1, 2])
+
+    def test_terminal_fast_path_reconciles_an_ancestor_that_did_not_use_a_hint(self):
+        self.stable_terminal_pages = True
+        self.rows = [dict(row, record_id=rid) for row, rid in zip(self.rows, (910, 911, 810, 8101))]
+        self.rows.append(dict(self.rows[-1], id=5, record_id=8102))
+        stale = [dict(self.rows[2], id=rid, build=70575 + rid) for rid in (6, 7, 8)]
+        for query in ('enUS 100 810', 'enUS 100 810 7'):
+            self.hotfix_payload_overrides[query, 1] = dict(
+                data=stale[:2], total=3, current_page=1, last_page=2, per_page=2)
+        self.hotfix_payload_overrides['enUS 100 810 7', 2] = dict(
+            data=stale[2:], total=3, current_page=2, last_page=2, per_page=2)
+        with self.assertRaisesRegex(WagoDiffUnavailable, r'prefix sample changed.*query=enUS 100 81$'):
+            self.collect()
+        self.assertFalse((self.root / 'var' / 'wago-hotfix-checkpoints' / '100.json').exists())
+
+    @override_settings(WAGO_HOTFIX_MAX_PREFIX_QUERIES=32)
+    def test_speculative_scope_validation_is_atomic_before_normal_fallback(self):
+        self.stable_terminal_pages = True
+        self.rows = [dict(row, record_id=rid, build=build) for row, rid, build in zip(
+            self.rows, (910, 911, 810, 810), (60575, 60575, 60575, 60576))]
+        self.rows.append(dict(self.rows[-1], id=5, build=60577))
+        hints = [dict(self.rows[2], build=70575), dict(self.rows[3], build=80576)]
+        self.hotfix_payload_overrides['enUS 100 810', 1] = dict(
+            data=hints, total=3, current_page=1, last_page=2, per_page=2)
+        for invalid_fields in ({'record_id': 8101}, {'push_id': float('inf')}):
+            with self.subTest(invalid_fields=invalid_fields):
+                self.requests.clear()
+                self.hotfix_payload_overrides['enUS 100 810 7', 1] = dict(
+                    data=[hints[0], dict(hints[1], build=70576, **invalid_fields)], total=2,
+                    current_page=1, last_page=1, per_page=2)
+                # Use new interval identities so the second replay cannot hit
+                # the first replay's complete checkpoint.
+                self.assertEqual(self.collect(from_push=98 if 'push_id' in invalid_fields else 99,
+                                              monitor=self.monitor()), self.rows)
+                queries = [r['search'] for r in self.requests]
+                self.assertEqual(queries.count('enUS 100 810 7'), 1)
+                self.assertNotIn('enUS 100 810 8', queries)
 
     def test_inconsistent_root_sample_rejects_cold_and_warm_proofs(self):
         path = self.root / 'var' / 'wago-hotfix-checkpoints' / '100.json'

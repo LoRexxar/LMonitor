@@ -19,6 +19,10 @@ class HotfixSourceIncomplete(RuntimeError):
     pass
 
 
+class _HotfixQueryBudgetExceeded(HotfixSourceIncomplete):
+    pass
+
+
 DEFAULT_PUSH_MAX_QUERIES = 2048
 
 
@@ -45,7 +49,7 @@ def _search_rows(fetch_text, extract_props, query, *, max_pages, timeout, max_at
                 current = int(payload['current_page'])
                 pages = int(payload['last_page'])
                 per_page = int(payload['per_page'])
-            except (KeyError, ValueError, TypeError):
+            except (KeyError, ValueError, TypeError, OverflowError):
                 raise HotfixSourceIncomplete(f'Hotfix incomplete query={query} page={page}: no page metadata')
             rows = payload.get('data')
             if (not isinstance(rows, list) or current != page or pages < 1 or pages > max_pages
@@ -61,7 +65,7 @@ def _search_rows(fetch_text, extract_props, query, *, max_pages, timeout, max_at
                     raise HotfixSourceIncomplete(f'Hotfix incomplete query={query} page={page}: invalid row')
                 try:
                     source_id = int(row['id'])
-                except (KeyError, ValueError, TypeError):
+                except (KeyError, ValueError, TypeError, OverflowError):
                     raise HotfixSourceIncomplete(f'Hotfix incomplete query={query} page={page}: missing source ID')
                 if source_id <= 0:
                     raise HotfixSourceIncomplete(f'Hotfix incomplete query={query}: invalid source ID')
@@ -131,6 +135,7 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
     """
     push_id = int(push_id)
     query_count = 0
+    terminal_hint_uses = 0
     selected = {}
     leaves = []
 
@@ -138,12 +143,10 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         nonlocal query_count
         query_count += 1
         if query_count > max_queries:
-            raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id} queries={max_queries}')
+            raise _HotfixQueryBudgetExceeded(f'Hotfix prefix search limit push={push_id} queries={max_queries}')
         return fetch_text(url, **kwargs)
 
-    def store(rows, prefix, build_prefix=None):
-        if rows:
-            leaves.append({'prefix': prefix, 'build_prefix': build_prefix, 'rows': rows})
+    def verify_partition(prefix, build_prefix, rows, pending, pending_leaves):
         for row in rows:
             source_id = 0
             try:
@@ -157,13 +160,22 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
                     matches = (matches and str(record_id) == prefix
                                and int(row['build']) > 0
                                and str(row['build']).startswith(build_prefix))
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, OverflowError):
                 matches = False
             if not matches:
                 raise HotfixSourceIncomplete(f'Hotfix prefix row mismatched push={push_id} prefix={prefix}')
-            if source_id in selected:
+            if source_id in selected or source_id in pending:
                 raise HotfixSourceIncomplete(f'Hotfix prefix duplicate source ID={source_id}')
-            selected[source_id] = row
+            pending[source_id] = row
+        if rows:
+            pending_leaves.append({'prefix': prefix, 'build_prefix': build_prefix, 'rows': rows})
+
+    def store_partition(rows, prefix, build_prefix=None):
+        pending = {}
+        pending_leaves = []
+        verify_partition(prefix, build_prefix, rows, pending, pending_leaves)
+        selected.update(pending)
+        leaves.extend(pending_leaves)
 
     def search(query):
         def verified_props(text):
@@ -175,17 +187,21 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         return _search_rows(fetch_bounded, verified_props, query, max_pages=max_pages,
                             timeout=timeout, max_attempts=1)
 
-    def terminal_rows(prefix, remaining):
+    def terminal_rows(prefix, remaining, digits):
         # Wago trims a trailing space. Include the next token (build) to
         # select record_id == prefix, never the longer digit descendants.
-        count = 0
-        for digit in '0123456789':
+        pending = {}
+        pending_leaves = []
+        for digit in digits:
             rows = search(f'{locale} {push_id} {prefix} {digit}')
-            store(rows, prefix, build_prefix=digit)
-            count += len(rows)
-            if count >= remaining:
+            # Reject a bad partition before issuing the next digit request.
+            verify_partition(prefix, digit, rows, pending, pending_leaves)
+            if len(pending) >= remaining:
                 break
-        return count
+        # A failed speculative batch must not mutate the proof.
+        selected.update(pending)
+        leaves.extend(pending_leaves)
+        return len(pending)
 
     def page_one(prefix):
         query = f'{locale} {push_id}' + (f' {prefix}' if prefix else '')
@@ -209,37 +225,68 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         return total, pages, rows
 
     def visit(prefix, depth, first=None):
+        nonlocal terminal_hint_uses
         if depth > 16:
             raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id}')
         total, pages, rows = first if first is not None else page_one(prefix)
         query = f'{locale} {push_id}' + (f' {prefix}' if prefix else '')
         if pages == 1 and len(rows) == total:
-            store(rows, prefix)
+            store_partition(rows, prefix)
             return total
         if total == 0 or depth >= 16:
             raise HotfixSourceIncomplete(f'Hotfix prefix incomplete: cannot split query={query}')
-        child_total = 0
+        # An observed exact record can be queried directly via the build
+        # token rather than first walking ten potentially empty descendants.
         # The first page only changes query order; it never proves a branch.
         observed = set()
+        terminal_digits = set()
         for row in rows:
             if not isinstance(row, dict):
                 continue
             record_id = str(row.get('record_id', ''))
             if record_id.startswith(prefix) and len(record_id) > len(prefix):
                 observed.add(record_id[len(prefix)])
+            elif prefix and record_id == prefix:
+                build = str(row.get('build', ''))
+                if build and build[0] in '123456789':
+                    terminal_digits.add(build[0])
+        child_total = 0
+        hints_before_subtree = terminal_hint_uses
+        if terminal_digits:
+            try:
+                observed_total = terminal_rows(prefix, total, sorted(terminal_digits))
+            except _HotfixQueryBudgetExceeded:
+                raise
+            except HotfixSourceIncomplete:
+                # No accepted rows yet. Run the normal split under the same
+                # budget; a required malformed partition still fails.
+                terminal_digits.clear()
+            else:
+                child_total = observed_total
+                terminal_hint_uses += bool(observed_total)
         for digit in sorted('0123456789', key=lambda digit: digit not in observed):
-            child_total += visit(prefix + digit, depth + 1)
             # Each child is complete, disjoint and source-ID unique. Once
             # they account for the full parent total, no rows remain to find.
             if child_total >= total:
                 break
+            child_total += visit(prefix + digit, depth + 1)
         if prefix and child_total < total:
-            child_total += terminal_rows(prefix, total - child_total)
+            child_total += terminal_rows(prefix, total - child_total, (d for d in '0123456789' if d not in terminal_digits))
         if child_total != total:
             raise HotfixSourceIncomplete(
                 f'Hotfix prefix totals differ query={query}: children={child_total} parent={total}'
             )
+        # Evidence at any ancestor can contradict a plausible-looking terminal
+        # response. Check those pages as recursion unwinds, not just the root.
+        if prefix and terminal_hint_uses != hints_before_subtree and not sample_matches(rows):
+            raise HotfixSourceIncomplete(f'Hotfix prefix sample changed during collection query={query}')
         return total
+
+    def sample_matches(rows):
+        try:
+            return all(selected.get(int(row['id'])) == row for row in rows)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return False
 
     root = page_one('')
     reused = False
@@ -268,7 +315,7 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
                     fresh = search(f'{locale} {push_id} {prefix} {build_prefix}')
                 if sorted(fresh, key=lambda r: int(r['id'])) != sorted(cached, key=lambda r: int(r['id'])):
                     raise HotfixSourceIncomplete('Hotfix checkpoint source changed')
-                store(cached, prefix, build_prefix)
+                store_partition(cached, prefix, build_prefix)
             if len(selected) != root[0]:
                 raise HotfixSourceIncomplete('Hotfix checkpoint root total changed')
             reused = True
@@ -282,13 +329,8 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         raise HotfixSourceIncomplete(f'Hotfix prefix unique IDs={len(selected)} total={total} push={push_id}')
     # Ordering can change between requests, but all observed root records
     # must still be present with the same payload in the complete proof.
-    for row in root[2]:
-        try:
-            matches = selected[int(row['id'])] == row
-        except (KeyError, TypeError, ValueError):
-            matches = False
-        if not matches:
-            raise HotfixSourceIncomplete(f'Hotfix root sample changed during collection push={push_id}')
+    if not sample_matches(root[2]):
+        raise HotfixSourceIncomplete(f'Hotfix root sample changed during collection push={push_id}')
     if proof is not None:
         proof.update(total=total, leaves=leaves, reused=reused)
     return [selected[source_id] for source_id in sorted(selected)]
