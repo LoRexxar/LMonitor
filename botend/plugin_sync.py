@@ -32,13 +32,13 @@ LONG_MONITOR_TASKS = (
     'WowDataVersionMonitor', 'MythicDungeonToolsMonitor', 'RioStatisticsMonitor',
     'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
     'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor', 'WagoSkillDiffMonitor',
-    'AliyunAvdScan', 'OscsScan', 'QaxScan', 'RaidBurstAggregationMonitor',
+    'MythicRouteMonitor', 'AliyunAvdScan', 'OscsScan', 'QaxScan', 'RaidBurstAggregationMonitor',
 )
 NIGHT_LANE_TASKS = LONG_MONITOR_TASKS  # Compatibility for existing callers/tests.
 DAILY_MONITOR_TASKS = (
     'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor',
     'RioStatisticsMonitor', 'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
-    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor', 'WowDailyReportMonitor',
+    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor', 'WowDailyReportMonitor', 'MythicRouteMonitor',
 )
 NIGHT_LANE_PRIORITY = {name: index for index, name in enumerate(DAILY_MONITOR_TASKS)}
 

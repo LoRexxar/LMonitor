@@ -14,6 +14,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
+from botend.constants.wow import specialization_catalog
 from botend.dashboard.permissions import has_dashboard_permission
 from botend.models import (
     MythicDungeon,
@@ -29,6 +30,7 @@ from botend.models import (
     MythicDungeonSelectionMembership,
     MythicDungeonSpell,
     MythicDungeonSpawn,
+    MythicRouteTarget,
     MythicPlannerConfig,
 )
 from botend.mythic_planner.spell_tooltips import (
@@ -647,7 +649,9 @@ def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
         else []
     )
 
+    targets = list(MythicRouteTarget.objects.order_by('pk')) if wants('route_targets') else []
     count_models = {
+        'route_targets': MythicRouteTarget,
         'versions': MythicDungeonDataVersion,
         'dungeons': MythicDungeon,
         'selection_groups': MythicDungeonSelectionGroup,
@@ -663,6 +667,7 @@ def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
         'configs': MythicPlannerConfig,
     }
     loaded_rows = {
+        'route_targets': targets,
         'versions': versions,
         'dungeons': dungeons,
         'selection_groups': selection_groups,
@@ -686,6 +691,9 @@ def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
         return 0
 
     return {
+        'route_targets': [dict(id=t.pk, label=t.label, level=t.level, spec_id=t.spec_id,
+                               is_active=t.is_active) for t in targets],
+        'spec_options': [[s['spec_id'], s['label']] for s in specialization_catalog()] if wants('spec_options') else [],
         'versions': [
             {
                 'id': row.id,
@@ -908,6 +916,10 @@ def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
 
 
 RESOURCE_SPECS = {
+    'route_targets': {
+        'model': MythicRouteTarget, 'fields': {'level', 'spec_id', 'is_active'},
+        'int': {'level', 'spec_id'}, 'bool': {'is_active'},
+    },
     'routes': {
         'model': MythicDungeonRoute,
         'fields': {'is_public', 'is_active'},
@@ -1357,7 +1369,8 @@ class DashboardMythicPlannerAPIView(View):
                     ) or '').strip()
                     if not applicable_level:
                         raise ValueError('适用层数不能为空。')
-                    if applicable_level not in DEFAULT_ROUTE_APPLICABLE_LEVELS:
+                    auto_level = f'{row.dungeon_level} 层' if row and row.collection_target_id else None
+                    if applicable_level not in DEFAULT_ROUTE_APPLICABLE_LEVELS and applicable_level != auto_level:
                         raise ValueError(
                             '适用层数必须选择：'
                             + '、'.join(DEFAULT_ROUTE_APPLICABLE_LEVELS)
@@ -1400,6 +1413,8 @@ class DashboardMythicPlannerAPIView(View):
                         'route_data': validated.payload,
                     })
                     if row:
+                        if (route_code and route_code != row.source_code) or ('route_data' in data and not route_code):
+                            row.source_code = ''
                         for field, value in clean.items():
                             setattr(row, field, value)
                         row.revision += 1
@@ -1689,7 +1704,7 @@ class DashboardMythicPlannerAPIView(View):
             if not hasattr(row, 'is_active'):
                 raise ValueError('该资源不支持停用。')
             row.is_active = False
-            update_fields = ['is_active', 'updated_at']
+            update_fields = ['is_active'] if isinstance(row, MythicRouteTarget) else ['is_active', 'updated_at']
             if isinstance(row, MythicDungeonDataVersion):
                 row.imported_at = row.imported_at or timezone.now()
             if isinstance(row, MythicDungeonDefaultRoute):

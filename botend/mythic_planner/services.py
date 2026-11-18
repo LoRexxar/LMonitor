@@ -149,7 +149,7 @@ def default_route_compatibility(route, *, route_context=None):
         'is_valid': True,
         'validity': 'valid',
         'invalid_reason': '',
-        'route_code': route_code,
+        'route_code': route.source_code or route_code,
     }
 
 

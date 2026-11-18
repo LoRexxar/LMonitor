@@ -2,7 +2,7 @@
 {% load static %}
 {% block dashboard_extra_head %}
 <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260903_route_preflight">
-<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261117_route_summary" defer></script>
+<script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261118_route_targets" defer></script>
 {% endblock %}
 {% block dashboard_content %}
 {% include 'dashboard/_mythic_planner_config_content.html' %}
@@ -44,6 +44,7 @@
             <nav id="resource-nav" aria-label="数据资源">
                 <button type="button" data-resource="versions" class="is-active"><span>数据版本</span><b id="count-versions">0</b></button>
                 <button type="button" data-resource="configs"><span>运行配置</span><b id="count-configs">0</b></button>
+                <button type="button" data-resource="route_targets"><span>路线采集目标</span><b id="count-route_targets">0</b></button>
                 <button type="button" data-resource="default_routes"><span>推荐路线</span><b id="count-default_routes">0</b></button>
                 <button type="button" data-resource="selection_groups"><span>赛季分类</span><b id="count-selection_groups">0</b></button>
                 <button type="button" data-resource="selection_memberships"><span>地下城分配</span><b id="count-selection_memberships">0</b></button>
@@ -156,6 +157,6 @@
     </div>
 
     <div id="admin-toast" class="mp-admin-toast" role="status" hidden></div>
-    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261117_route_summary" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261118_route_targets" defer></script>
 </body>
 </html>

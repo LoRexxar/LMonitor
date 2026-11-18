@@ -60,6 +60,18 @@
                 {key: 'settings', label: '其他设置（JSON）', type: 'json', wide: true, default: {}},
             ],
         },
+        route_targets: {
+            title: '路线采集目标', singular: '采集目标',
+            description: '每天按当前赛季各副本的世界限时榜更新公开推荐路线。可限定五人阵容必须包含的专精。',
+            columns: [['label', '选取目标'], ['is_active', '启用']],
+            fields: [
+                {key: 'ranking_mode', label: '选取方式', type: 'select', default: 'fastest', required: true,
+                    options: [['fastest', '指定层数最快限时'], ['score', '最高分数']]},
+                {key: 'level', label: '指定层数', type: 'number', default: 12, min: 2, required: true},
+                {key: 'spec_id', label: '阵容必须包含', type: 'spec-filter', default: 0, required: true},
+                {key: 'is_active', label: '启用每日采集', type: 'checkbox', default: true},
+            ],
+        },
         default_routes: {
             title: '推荐路线',
             singular: '推荐路线',
@@ -333,6 +345,7 @@
     };
 
     const CONFIG_RESOURCE_DEPENDENCIES = {
+        route_targets: ['route_targets', 'spec_options'],
         versions: ['versions'],
         configs: ['versions', 'dungeons', 'configs'],
         default_routes: ['versions', 'dungeons', 'default_routes'],
@@ -505,7 +518,7 @@
         if (dungeons.some((row) => String(row.id) === selectedDungeon)) {
             els.dungeonFilter.value = selectedDungeon;
         }
-        const hideFilters = ['versions', 'configs'].includes(state.resource);
+        const hideFilters = ['versions', 'route_targets', 'configs'].includes(state.resource);
         els.versionFilter.closest('label').hidden = hideFilters;
         els.dungeonFilter.closest('label').hidden = hideFilters || ['spells', 'selection_groups'].includes(state.resource);
         els.search.placeholder = '按名称、key、ID 搜索';
@@ -517,10 +530,10 @@
         const dungeonId = Number(els.dungeonFilter.value || 0);
         const search = els.search.value.trim().toLowerCase();
         const showInactive = els.showInactive.checked;
-        if (versionId && !['versions', 'configs'].includes(state.resource)) {
+        if (versionId && !['versions', 'route_targets', 'configs'].includes(state.resource)) {
             rows = rows.filter((row) => Number(versionForRow(state.resource, row)?.id) === versionId);
         }
-        if (dungeonId && !['versions', 'configs', 'spells', 'selection_groups'].includes(state.resource)) {
+        if (dungeonId && !['versions', 'route_targets', 'configs', 'spells', 'selection_groups'].includes(state.resource)) {
             rows = rows.filter((row) => Number(dungeonForRow(state.resource, row)?.id) === dungeonId);
         }
         if (!showInactive) rows = rows.filter((row) => row.is_active !== false);
@@ -685,6 +698,7 @@
     }
 
     function relationOptions(type) {
+        if (type === 'spec-filter') return [[0, '不限专精'], ...(state.snapshot?.spec_options || [])];
         if (type === 'version') return (state.snapshot?.versions || []).map((row) => [row.id, `${row.label}${row.is_active ? '（生效）' : ''}`]);
         if (type === 'selection-group') {
             const versionId = Number(els.versionFilter.value || 0);
@@ -751,9 +765,12 @@
         if (field.type === 'checkbox') {
             return `<label class="${classes} mp-admin-checkbox"><input name="${field.key}" type="checkbox" ${value ? 'checked' : ''}><span>${escapeHtml(field.label)}</span></label>`;
         }
-        const relationTypes = new Set(['version', 'selection-group', 'dungeon', 'dungeon-key', 'floor', 'enemy']);
+        const relationTypes = new Set(['spec-filter', 'version', 'selection-group', 'dungeon', 'dungeon-key', 'floor', 'enemy']);
         if (relationTypes.has(field.type) || field.type === 'select') {
-            const options = field.options || relationOptions(field.type);
+            const options = [...(field.options || relationOptions(field.type))];
+            if (field.key === 'applicable_level' && row && value && !options.some(([key]) => key === value)) {
+                options.push([value, value]);
+            }
             return `
                 <label class="${classes}">
                     <span>${escapeHtml(field.label)}</span>
@@ -863,6 +880,18 @@
         els.editorTitle.textContent = `${row ? '编辑' : '新增'}${config.singular}`;
         els.editorSubtitle.textContent = row ? `记录 ID：${row.id}` : '保存后立即写入数据库';
         els.editorFields.innerHTML = config.fields.map((field) => renderField(field, row)).join('');
+        if (state.resource === 'route_targets') {
+            const mode = els.resourceForm.elements.namedItem('ranking_mode');
+            const level = els.resourceForm.elements.namedItem('level');
+            mode.value = row && row.level === 0 ? 'score' : 'fastest';
+            function syncLevel() {
+                level.disabled = mode.value === 'score';
+                level.closest('label').hidden = level.disabled;
+                if (!level.disabled && Number(level.value) < 2) level.value = 12;
+            }
+            mode.addEventListener('change', syncLevel);
+            syncLevel();
+        }
         if (state.resource === 'default_routes') {
             const routeCodeInput = els.resourceForm.elements.namedItem('route_code');
             routeCodeInput?.closest('label')?.insertAdjacentHTML(
@@ -903,6 +932,10 @@
             if (!input) continue;
             if (field.type === 'checkbox') data[field.key] = input.checked;
             else data[field.key] = input.value;
+        }
+        if (state.resource === 'route_targets') {
+            if (data.ranking_mode === 'score') data.level = 0;
+            delete data.ranking_mode;
         }
         try {
             const url = state.editingId

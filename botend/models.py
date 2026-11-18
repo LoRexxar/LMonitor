@@ -4066,9 +4066,40 @@ class MythicDungeonPoi(models.Model):
         return self.label or self.key
 
 
+class MythicRouteTarget(models.Model):
+    """每个当季副本独立评选，层数为零表示最高分。"""
+
+    level = models.PositiveSmallIntegerField('指定层数', default=0)
+    spec_id = models.PositiveSmallIntegerField('必含专精', default=0)
+    is_active = models.BooleanField('启用', default=True)
+
+    class Meta:
+        verbose_name = 'MDT 路线采集目标'
+        constraints = [models.UniqueConstraint(fields=('level', 'spec_id'), name='mdt_target_level_spec')]
+
+    def clean(self):
+        from botend.constants.wow import SPEC_IDENTITY_MAP
+        if self.level == 1:
+            raise ValidationError({'level': '大秘境层数至少为 2。'})
+        if self.spec_id and self.spec_id not in SPEC_IDENTITY_MAP:
+            raise ValidationError({'spec_id': '请选择有效专精。'})
+
+    @property
+    def label(self):
+        from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_IDENTITY_MAP
+        name = f'{self.level} 层最快' if self.level else '最高分'
+        if self.spec_id:
+            cls, spec = SPEC_IDENTITY_MAP[self.spec_id]
+            name += f' · {CLASS_CN[cls]}{SPEC_CN[spec]}'
+        return name
+
+
 class MythicDungeonDefaultRoute(models.Model):
     """由管理员发布、供所有玩家只读复制的默认路线模板。"""
 
+    collection_target = models.ForeignKey(MythicRouteTarget, null=True, blank=True, on_delete=models.PROTECT)
+    source_dungeon_slug = models.SlugField(max_length=100, blank=True, default='')
+    source_code = models.TextField(blank=True, default='')
     dungeon = models.ForeignKey(
         MythicDungeon,
         on_delete=models.PROTECT,
@@ -4091,6 +4122,8 @@ class MythicDungeonDefaultRoute(models.Model):
 
     class Meta:
         db_table = 'mythic_dungeon_default_route'
+        constraints = [models.UniqueConstraint(fields=('collection_target', 'source_dungeon_slug'),
+                                               name='mdt_target_dungeon')]
         ordering = ['-is_featured', 'order', 'name', 'id']
         indexes = [
             models.Index(
