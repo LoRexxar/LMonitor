@@ -172,7 +172,7 @@ class SimcSkillDamageSnapshotCommandTests(TestCase):
 
 
 class SimcSkillDamageScopeHandoffTests(TestCase):
-    def scope_fixture(self, schema_revision=58):
+    def scope_fixture(self, schema_revision=59):
         snapshot = SimpleNamespace(
             pk=1, simc_revision='c' * 40, game_build='12.1.5.70575',
             schema_revision=schema_revision,
@@ -208,6 +208,8 @@ class SimcSkillDamageScopeHandoffTests(TestCase):
                 }],
             }],
         }
+        if schema_revision >= 59:
+            payload['per_impact_target_version'] = 1
         return service, payload
 
     def test_planner_filters_native_owners_before_scaffolds_and_actor_inputs(self):
@@ -338,7 +340,7 @@ class SimcSkillDamageScopeHandoffTests(TestCase):
         return SimpleNamespace(returncode=0, communicate=lambda **kwargs: ('', ''))
 
     def test_isolated_scope_catalog_roundtrips_validated_source_header(self):
-        for schema_revision in (58, 54, 51):
+        for schema_revision in (59, 58, 54, 51):
             with self.subTest(schema_revision=schema_revision):
                 service, source = self.scope_fixture(schema_revision)
                 if schema_revision == 54:
@@ -394,6 +396,7 @@ class SimcSkillDamageScopeHandoffTests(TestCase):
             'probe_context_inventory_version': (0, '原生执行上下文目录版本'),
             'native_registration_inventory_version': (0, '完整原生注册来源'),
             'hero_ownership_inventory_version': (0, '英雄树选择节点归属'),
+            'per_impact_target_version': (0, '父技能命中目标'),
             'scope_inventory_version': (4, '完整英雄归属冻结目录'),
         }
         for field, (invalid_value, diagnostic) in fields.items():

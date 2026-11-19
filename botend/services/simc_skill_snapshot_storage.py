@@ -69,6 +69,8 @@ class SkillSnapshotActorStorage:
                     header = {}
                     if isinstance(value, dict) and 'hero_talent_trees' in value:
                         header['hero_talent_trees'] = value['hero_talent_trees']
+                    if isinstance(value, dict) and value.get('apl_talent_guards'):
+                        header['apl_talent_guards'] = value['apl_talent_guards']
                     # The derived header must itself remain packet-bounded.
                     header_parts = cls._iter_json_parts(header)
                     next(header_parts)

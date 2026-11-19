@@ -4793,7 +4793,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 27
-    DATASET_SCHEMA_REVISION = 58
+    DATASET_SCHEMA_REVISION = 59
     MIN_DISPLAY_SCHEMA_REVISION = 51
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
@@ -5341,6 +5341,8 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('当前数据版本要求完整原生注册来源，请重新编译 SimC。')
         if type(schema_revision) is int and schema_revision >= 58 and payload.get('hero_ownership_inventory_version') != 1:
             raise ValueError('当前数据版本要求英雄树选择节点归属，请重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 59 and payload.get('per_impact_target_version') != 1:
+            raise ValueError('当前数据版本要求按父技能命中目标导出子技能，请重新编译 SimC。')
         native_by_entry = {}
         native_class_by_spec = {}
         if type(schema_revision) is int and schema_revision >= 58:
@@ -5420,7 +5422,7 @@ class SimcSkillDamageSnapshotService:
                 'schema_version', 'simc_revision', 'game_build', 'data_branch',
                 'racial_policy', 'probe_context_inventory_version',
                 'native_registration_inventory_version',
-                'hero_ownership_inventory_version', 'scope_inventory_version',
+                'hero_ownership_inventory_version', 'scope_inventory_version', 'per_impact_target_version',
             )
             if key in payload
         }
@@ -5762,6 +5764,9 @@ class SimcSkillDamageSnapshotService:
         for actor in actors:
             if not isinstance(actor, dict) or not isinstance(actor.get('actions'), list):
                 raise ValueError('exporter actor/actions 结构无效。')
+            revision = getattr(self.snapshot, 'schema_revision', 0)
+            if type(revision) is int and revision >= 59 and actor.get('per_impact_target_version') != 1:
+                raise ValueError('当前数据版本要求按父技能命中目标导出子技能，请重新编译 SimC。')
             if actor.get('talent_effectiveness') not in {'active', 'inactive', 'unknown'}:
                 raise ValueError('exporter actor talent effectiveness 无效。')
             actor_class = actor.get('class')
@@ -6258,6 +6263,13 @@ class SimcSkillDamageSnapshotService:
                 actor['specialization'] = actor.pop('spec')
             actor['variant_model'] = 'single_talent_runtime'
             actor['hero_talent_trees'] = hero_talent_trees
+            if getattr(self, '_native_talent_class_by_spec', None):
+                from .simc_apl.from_skill_damage import native_talent_guards
+
+                identity = canonical_class_spec(*canonical_simc_profile_identity(profile.spec, profile.class_name))
+                spec_id = next(key for key, pair in SPEC_IDENTITY_MAP.items() if pair == identity)
+                actor['apl_talent_guards'] = native_talent_guards(
+                    self._native_talent_catalog, self._native_talent_class_by_spec[spec_id], spec_id)
             actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
             scope_catalog = {}
             global_effects = classify_global_skill_effects(base_high, base_low, variants, scope_catalog=scope_catalog)

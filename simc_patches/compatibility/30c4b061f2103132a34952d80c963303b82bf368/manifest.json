@@ -73,6 +73,11 @@
       "name": "0079-native-talent-ownership.patch",
       "path": "0079-native-talent-ownership.patch",
       "sha256": "9d42b4d84db5347b9216fcc8748fdd97238c0653892344900609bebd61401281"
+    },
+    {
+      "name": "0080-per-impact-child-targets.patch",
+      "path": "0080-per-impact-child-targets.patch",
+      "sha256": "33133e90440f8d043add979688579abb6cf4578f2aca85a79c8491bafd87c4aa"
     }
   ]
 }

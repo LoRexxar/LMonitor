@@ -6495,6 +6495,42 @@ function initSimcSkillDamagePanel() {
     const excludedConditionKeysByScope = new Map();
     panel.__simcSkillDamageFilterState = {excludedConditionKeysByScope};
     let currentSnapshot = null;
+    const aplForm = document.getElementById('simc-skill-damage-apl-form');
+    const aplButton = aplForm.querySelector('button[type="submit"]');
+    const aplTitle = document.getElementById('simc-skill-damage-apl-title');
+    const aplResult = document.getElementById('simc-skill-damage-apl-result');
+    const openApls = document.getElementById('simc-skill-damage-open-apls');
+    openApls.addEventListener('click', () => switchSimcWorkbenchL1Tab('workflow', 'apl'));
+    let savingApl = false;
+    const selectedActor = () => currentSnapshot?.actor_index?.find(
+        item => `${item.class_name || item.class}:${item.specialization || item.spec}` === specSelect.value);
+    const updateAplButton = () => { aplButton.disabled = savingApl || !selectedActor(); };
+    aplForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const actor = selectedActor();
+        if (savingApl || !actor) return;
+        savingApl = true;
+        openApls.classList.add('hidden');
+        updateAplButton();
+        aplResult.textContent = '正在按英雄天赋树和目标数量生成…';
+        try {
+            const response = await fetch('/api/simc-skill-damage/apl/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+                body: JSON.stringify({snapshot_id: currentSnapshot.id, actor_id: actor.id, title: aplTitle.value.trim()})
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '生成 APL 失败');
+            const {id, title, spec} = payload.data;
+            aplResult.textContent = `已保存到个人 APL 表：${title}（${spec}，#${id}，草稿）`;
+            openApls.classList.remove('hidden');
+        } catch (error) {
+            aplResult.textContent = error.message;
+        } finally {
+            savingApl = false;
+            updateAplButton();
+        }
+    });
     let listController = null;
     let listGeneration = 0;
     let indexGeneration = 0;
@@ -6684,6 +6720,7 @@ function initSimcSkillDamagePanel() {
         if (!currentSnapshot || !data.snapshot || currentSnapshot.id !== data.snapshot.id) excludedConditionKeysByScope.clear();
         currentSnapshot = data.snapshot || null;
         renderSimcSkillDamageSnapshot(currentSnapshot);
+        updateAplButton();
         const running = renderStatus(data);
         await requestList();
         if (managePolling) {
@@ -6760,6 +6797,7 @@ function initSimcSkillDamagePanel() {
         if (currentSnapshot) currentSnapshot = {...currentSnapshot, actors: [], actor_page: null};
         listProgress.classList.add('hidden');
         renderSimcSkillDamageSnapshot(currentSnapshot);
+        updateAplButton();
     });
     heroTreeSelect.addEventListener('change', () => {
         if (currentSnapshot) currentSnapshot = {...currentSnapshot, actors: [], actor_page: null};

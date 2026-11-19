@@ -1,0 +1,122 @@
+diff --git a/engine/action/action.hpp b/engine/action/action.hpp
+index 3b076fd7fb..7f32e07c46 100644
+--- a/engine/action/action.hpp
++++ b/engine/action/action.hpp
+@@ -643,6 +643,9 @@ public:
+   // 模块从另一个 DBC 法术读取系数时，导出器沿同一来源读取基础公式。
+   const spell_data_t* skill_damage_coefficient_source = nullptr;
+ 
++  // 导出独立单目标子施法时，沿实际命中回调获取每次施加的目标。
++  action_t* skill_damage_per_impact_parent = nullptr;
++
+   void add_cast_child( action_t* child, bool per_tick = false, double repetitions = 1.0 )
+   { add_child(child); cast_child_action.emplace_back(child, per_tick); cast_child_repetitions.emplace_back(child, repetitions); }
+ 
+diff --git a/engine/class_modules/sc_warrior.cpp b/engine/class_modules/sc_warrior.cpp
+index b007e72860..6ec4f58442 100644
+--- a/engine/class_modules/sc_warrior.cpp
++++ b/engine/class_modules/sc_warrior.cpp
+@@ -2831,6 +2831,7 @@ struct bloodbath_t : public warrior_attack_t
+     bloodbath_dot = new bloodbath_dot_t( p );
+     // 命中必定施加的流血属于同次施法伤害。
+     add_cast_child( bloodbath_dot );
++    bloodbath_dot->skill_damage_per_impact_parent = this;
+ 
+     if ( p->talents.mountain_thane.burst_of_power->ok() )
+     {
+@@ -2871,6 +2872,7 @@ struct bloodbath_t : public warrior_attack_t
+     bloodbath_dot = new bloodbath_dot_t( p );
+     // 命中必定施加的流血属于同次施法伤害。
+     add_cast_child( bloodbath_dot );
++    bloodbath_dot->skill_damage_per_impact_parent = this;
+ 
+     if ( p->talents.mountain_thane.burst_of_power->ok() )
+     {
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 6bf4cfe91a..97d350aabe 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -921,9 +921,14 @@ void skill_damage_populate_target_scenarios( action_t& action, skill_damage_amou
+   const int saved_desired_targets = action.sim->desired_targets;
+   const int saved_active_enemies = action.sim->active_enemies;
+   const auto saved_non_sleeping_targets = action.sim->target_non_sleeping_list.data();
+-  std::vector<player_t*> targets = { action.target };
++  // 每次父技能命中都会独立施加这个单目标子技能，子技能本身没有顺劈衰减。
++  auto* parent = action.skill_damage_per_impact_parent;
++  action_t& selector = parent ? *parent : action;
++  if ( !selector.target )
++    throw std::runtime_error( "target scenario parent target unavailable" );
++  std::vector<player_t*> targets = { selector.target };
+   for ( player_t* target : skill_damage_probe_targets )
+-    if ( target != action.target ) targets.push_back( target );
++    if ( target != selector.target ) targets.push_back( target );
+   if ( targets.size() < 20 )
+     throw std::runtime_error( "independent target pool unavailable" );
+   try
+@@ -935,10 +940,10 @@ void skill_damage_populate_target_scenarios( action_t& action, skill_damage_amou
+       action.sim->active_enemies = scenario_count;
+       action.sim->target_non_sleeping_list.assign_without_callbacks(
+           std::vector<player_t*>( targets.begin(), targets.begin() + scenario_count ) );
+-      action.target_cache.is_valid = false;
+-      const auto eligible_targets = action.target_list();
++      selector.target_cache.is_valid = false;
++      const auto eligible_targets = selector.target_list();
+       const int available = static_cast<int>( eligible_targets.size() );
+-      const int configured_targets = action.n_targets();
++      const int configured_targets = selector.n_targets();
+       const int hit_targets = configured_targets < 0
+                             ? available
+                             : std::min( available, configured_targets > 0 ? configured_targets : 1 );
+@@ -957,12 +962,14 @@ void skill_damage_populate_target_scenarios( action_t& action, skill_damage_amou
+       };
+       for ( int index = 0; index < hit_targets; ++index )
+       {
++        const unsigned targets_per_cast = parent ? 1U : static_cast<unsigned>( hit_targets );
++        const unsigned chain_index = parent ? 0U : static_cast<unsigned>( index );
+         if ( amount.direct )
+           add( direct, skill_damage_target_amount( action, eligible_targets[ index ],
+-              as<unsigned>( hit_targets ), as<unsigned>( index ), false ) );
++              targets_per_cast, chain_index, false ) );
+         if ( amount.periodic )
+           add( tick, skill_damage_target_amount( action, eligible_targets[ index ],
+-              as<unsigned>( hit_targets ), as<unsigned>( index ), true ) );
++              targets_per_cast, chain_index, true ) );
+       }
+       if ( amount.direct ) store( amount.direct_amount, scenario_count, direct );
+       if ( amount.periodic ) store( amount.tick_amount, scenario_count, tick );
+@@ -971,14 +978,14 @@ void skill_damage_populate_target_scenarios( action_t& action, skill_damage_amou
+   catch ( ... )
+   {
+     action.sim->desired_targets = saved_desired_targets;
+-  action.sim->active_enemies = saved_active_enemies;
+-  action.target_cache.is_valid = false;
++    action.sim->active_enemies = saved_active_enemies;
++    selector.target_cache.is_valid = false;
+     action.sim->target_non_sleeping_list.assign_without_callbacks( saved_non_sleeping_targets );
+     throw;
+   }
+   action.sim->desired_targets = saved_desired_targets;
+   action.sim->active_enemies = saved_active_enemies;
+-  action.target_cache.is_valid = false;
++  selector.target_cache.is_valid = false;
+   action.sim->target_non_sleeping_list.assign_without_callbacks( saved_non_sleeping_targets );
+ }
+ 
+@@ -2770,7 +2777,7 @@ void export_skill_damage_scope_catalog( sim_t& sim )
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":27,\"scope_inventory_version\":5,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"hero_ownership_inventory_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
++  out << "{\"schema_version\":27,\"scope_inventory_version\":5,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"hero_ownership_inventory_version\":1,\"per_impact_target_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -3063,7 +3070,7 @@ void export_skill_damage( sim_t& sim )
+     out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(player->race));
+     out << ",\"race_mask\":\""<<util::race_mask(player->race)<<"\",\"class_mask\":"<<util::class_id_mask(player->type);
+     out << ",\"spec_id\":" << static_cast<unsigned>(player->specialization());
+-    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":5,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"hero_ownership_inventory_version\":1,\"racial_policy\":\"exclude_all\"";
++    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":5,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"hero_ownership_inventory_version\":1,\"per_impact_target_version\":1,\"racial_policy\":\"exclude_all\"";
+     out << ",\"valid_hero_subtree_ids\":[";
+     bool first_hero=true;
+     for(auto id:trait_data_t::get_valid_hero_tree_ids(player->specialization(),player->is_ptr()))
