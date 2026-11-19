@@ -15,6 +15,9 @@
         return;
     }
     if (!payload) return;
+    if (payload.samples.length && !payload.samples.some((row) => Array.isArray(row.potions))) {
+        $('#potion-legend').textContent = '当前历史快照尚未统计药水时间。';
+    }
     const names = payload.skill_names;
     // Absent metadata means the historical, successful-cast-only contract.
     const source = () => payload.skill_sources?.[spell] || {
@@ -47,6 +50,10 @@
 
     function relativeTime(value) {
         return `${value < 0 ? '提前' : value > 0 ? '延后' : ''}${formatTime(value)}`;
+    }
+
+    function potionTime(potion, row) {
+        return `${potion.name} · 开怪后${formatTime(potion.time)} · 嗜血${relativeTime(potion.time - row.lust_start)}`;
     }
 
     const tooltip = element('div', undefined, 'burst-tooltip');
@@ -100,6 +107,14 @@
                 ];
                 const list = element('dl', undefined, 'burst-tooltip-fields');
                 fields.forEach(([label, value]) => list.append(element('dt', label), element('dd', value)));
+                list.append(element('dt', '药水'));
+                const potions = element('dd');
+                if (row.potions?.length) {
+                    row.potions.forEach((potion) => potions.append(element('div', potionTime(potion, row))));
+                } else {
+                    potions.textContent = Array.isArray(row.potions) ? '未记录到药水施放' : '历史快照未统计';
+                }
+                list.append(potions);
                 tooltip.append(list, element('div', 'DPS 来自该场战斗的排名记录', 'burst-muted'));
             }
             tooltip.hidden = false;
@@ -199,6 +214,14 @@
                 circle.append(svgElement('title', {}, `${source().label} · 开怪后${formatTime(time)} · 嗜血${relativeTime(time - row.lust_start)}`));
                 sampleGroup.append(circle);
             });
+            for (const potion of row.potions || []) {
+                const px = x(potion.time - offset);
+                const marker = svgElement('path', {
+                    d: `M ${px} ${y + 10} l 4 7 h -8 Z`, fill: '#059669', class: 'burst-potion',
+                });
+                marker.append(svgElement('title', {}, potionTime(potion, row)));
+                sampleGroup.append(marker);
+            }
         });
         container.append(svg);
     }

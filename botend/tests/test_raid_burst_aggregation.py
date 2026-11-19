@@ -222,7 +222,7 @@ class RaidBurstAggregationTests(TestCase):
                 self.assertEqual(payload[counter], 1)
                 self.assertEqual(payload['samples'], [])
                 self.client.calls.clear()
-                with patch.object(agg, 'ANALYSIS_VERSION', 2):
+                with patch.object(agg, 'ANALYSIS_VERSION', agg.ANALYSIS_VERSION + 1):
                     self.build([row])
                 self.assertEqual(self.client.calls, [])
 
@@ -298,7 +298,7 @@ class RaidBurstAggregationTests(TestCase):
         self.publish(descriptor)
         cache_path(self.root, self.row).write_text('{', encoding='utf8')
         self.client.calls.clear()
-        with patch.object(agg, 'ANALYSIS_VERSION', 2):
+        with patch.object(agg, 'ANALYSIS_VERSION', agg.ANALYSIS_VERSION + 1):
             self.build()
         self.assertEqual(len(self.client.calls), 2)
         with patch.object(agg, 'build_scope', side_effect=AssertionError('访问重算')):

@@ -56,6 +56,23 @@ class RaidBurstSkillTests(SimpleTestCase):
             wrong['streams']['combatants']['data'][0]['specID'] = -1
             self.assertEqual(self.normalize(wrong, config), (None, 'invalid'))
 
+    def test_potion_times_preserve_distinct_uses_and_only_count_own_successful_casts(self):
+        config = SUPPORTED[('Warrior', 'Fury')]
+        raw = self.raw(config)
+        self.assertEqual(self.normalize(raw, config)[0]['potions'], [])
+        use = dict(type='cast', sourceID=7, fight=3, timestamp=11550, abilityGameID=1236994)
+        raw['streams']['casts']['data'] += [
+            dict(use, timestamp=310000), use, dict(use), dict(use, abilityGameID=1234768, timestamp=10000),
+            dict(use, sourceID=8), dict(use, fight=4), dict(use, fake=True), dict(use, type='begincast'),
+            dict(use, timestamp=9999), dict(use, timestamp=310001), dict(use, abilityGameID=1235108),
+        ]
+        sample, _ = self.normalize(raw, config)
+        self.assertEqual(sample['potions'], [
+            {'spell_id': 1234768, 'name': '银月城治疗药水', 'time': 0},
+            {'spell_id': 1236994, 'name': '鲁莽药水', 'time': 1.55},
+            {'spell_id': 1236994, 'name': '鲁莽药水', 'time': 300},
+        ])
+
     def test_devourer_requires_confirmed_self_aura_applications(self):
         config = SUPPORTED[SPEC_IDENTITY_MAP[1480]]
         raw = self.raw(config)
@@ -147,7 +164,11 @@ class RaidBurstSkillTests(SimpleTestCase):
         from playwright.sync_api import sync_playwright
 
         config = SUPPORTED[SPEC_IDENTITY_MAP[1480]]
-        sample, _ = self.normalize(self.raw(config), config)
+        raw = self.raw(config)
+        raw['streams']['buffs']['data'][0]['timestamp'] = 27000
+        raw['streams']['casts']['data'].append(dict(type='cast', sourceID=7, fight=3,
+                                                   timestamp=12000, abilityGameID=1236994))
+        sample, _ = self.normalize(raw, config)
         payload = dict(skill_names=config['spells'], skill_sources=agg.skill_event_sources(config),
                        samples=[sample], groups=agg.build_groups([sample], config['spells']))
         html = render_to_string('portal/raid_burst.html', {'raid_burst_payload': payload})
@@ -164,19 +185,32 @@ class RaidBurstSkillTests(SimpleTestCase):
             self.assertEqual(page.locator('#chart circle').count(), 1)
             page.locator('#chart [data-sample-rank]').focus()
             self.assertIn('光环生效', page.locator('#burst-sample-tooltip').inner_text())
+            annotation = '鲁莽药水 · 开怪后0分2秒 · 嗜血提前0分15秒'
+            self.assertIn(annotation, page.locator('#burst-sample-tooltip').inner_text())
+            marker = page.locator('#chart .burst-potion')
+            self.assertEqual(marker.text_content(), annotation)
+            pull_position = marker.get_attribute('d')
+            page.locator('#axis').select_option('lust')
+            self.assertNotEqual(marker.get_attribute('d'), pull_position)
             link = page.locator('#groups a').first.get_attribute('href')
             self.assertIn('type=auras', link)
             self.assertIn('ability=1217607', link)
             page.locator('button[data-spell="1221150"]').click()
+            self.assertEqual(marker.text_content(), annotation)
             self.assertEqual(page.locator('#timeline-title').inner_text(), '成功施法时间轴')
             self.assertIn('成功 cast', page.locator('#skill-source').inner_text())
             self.assertIn('type=casts', page.locator('#groups a').first.get_attribute('href'))
             # Legacy published blobs without source metadata retain cast semantics.
             payload.pop('skill_sources')
+            sample.pop('potions')
             html = render_to_string('portal/raid_burst.html', {'raid_burst_payload': payload})
             page.set_content(html)
             page.add_script_tag(path=str(Path(settings.BASE_DIR) / 'static/portal/js/raid-burst.js'))
             self.assertEqual(page.locator('#timeline-title').inner_text(), '成功施法时间轴')
+            self.assertEqual(marker.count(), 0)
+            self.assertIn('当前历史快照尚未统计药水时间', page.locator('#potion-legend').inner_text())
+            page.locator('#chart [data-sample-rank]').focus()
+            self.assertIn('历史快照未统计', page.locator('#burst-sample-tooltip').inner_text())
             self.assertIn('type=casts', page.locator('#groups a').first.get_attribute('href'))
 
     def test_aliases_merge_once_without_duplicate_buttons(self):

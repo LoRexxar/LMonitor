@@ -5,12 +5,13 @@ from utils.log import logger
 
 from botend.services.raid_burst_events import RAW_VERSION, fetch_events, realm_key
 from botend.services.raid_burst_skills import SUPPORTED, CATALOG_BUILD
+from botend.services.wcl_consumables import POTIONS, spell_id
 from botend.services.raid_burst_snapshot import (
     SCHEMA, digest, private_root, read_blob, read_json, read_manifest, write_json,
 )
 
 
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2
 SAMPLE_LIMIT = 10
 SELECTION_POLICY = 'top-usable-unique-player-no-external-pi-v2'
 LUST = {2825, 32182, 80353, 390386, 264667, 272678}
@@ -124,6 +125,9 @@ def normalize(raw, row, rank, config):
     casts = [e for e in streams['casts']['data'] if e.get('type') == 'cast' and not e.get('fake')
              and e.get('sourceID') == actor['id'] and e.get('fight') == fight['id']
              and start <= e.get('timestamp', -1) <= end]
+    # 重叠分页可能重复同一次施放。同一药水在不同时间使用时逐次保留。
+    potion_casts = sorted({(e['timestamp'], ability) for e in casts
+                           if (ability := spell_id(e)) in POTIONS})
     aliases = config.get('cast_aliases', {})
     auras = config.get('aura_applications', {})
     times = {spell: sorted({round((e['timestamp'] - start) / 1000, 3) for e in casts
@@ -150,6 +154,8 @@ def normalize(raw, row, rank, config):
         'self_pi_observed': eligible['self_pi_observed'],
         'external_pi_observed': False, 'pi_source_unknown': False,
         'times': times, 'phases': phases,
+        'potions': [{'time': round((timestamp - start) / 1000, 3), 'spell_id': ability,
+                     'name': POTIONS[ability][1]} for timestamp, ability in potion_casts],
         'lust_start': lust, 'lust_windows': merged, 'lust_group': group, 'lust_label': label,
         'lust_focus': {spell: [round(t - lust, 3) for t in sequence if -20 <= t - lust <= 40]
                        for spell, sequence in times.items()},
