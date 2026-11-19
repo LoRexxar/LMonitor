@@ -109,6 +109,26 @@ class SkillPageDOM(unittest.TestCase):
             body=json.dumps({'success': True, 'data': {'snapshot': data, 'job': None}}))
         self.page.wait_for_timeout(30)
 
+    def test_save_apl_uses_whole_selected_spec_and_displays_created_record(self):
+        self.page.evaluate('window.getCSRFToken = () => "fixture-csrf"')
+        self.page.evaluate('initSimcSkillDamagePanel()')
+        self.await_requests(1)
+        self.reply(INDEX)
+        button = self.el('apl-form').get_by_role('button', name='生成并保存专精 APL')
+        self.assertTrue(button.is_disabled())
+        self.el('spec').select_option('warrior:fury')
+        button.click()
+        self.await_requests(2)
+        request = self.requests[-1].request
+        self.assertEqual(urlparse(request.url).path, '/api/simc-skill-damage/apl/')
+        self.assertEqual(request.post_data_json, {'actor_id': 471, 'snapshot_id': 52, 'title': 'wowdaily自动生成'})
+        self.assertEqual(request.headers['x-csrftoken'], 'fixture-csrf')
+        self.assertTrue(button.is_disabled())
+        self.requests[-1].fulfill(status=201, content_type='application/json', body=json.dumps({
+            'success': True, 'data': {'id': 89, 'spec': 'warrior_fury', 'title': 'wowdaily自动生成'}}))
+        self.page.get_by_text('#89', exact=False).wait_for()
+        self.assertTrue(button.is_enabled())
+
     def start(self):
         self.page.evaluate('initSimcSkillDamagePanel()')
         self.await_requests(1)
