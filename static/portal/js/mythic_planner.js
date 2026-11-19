@@ -2009,6 +2009,14 @@
         return legacy ? `${legacy[2]}\n来源：${legacy[1]}` : note;
     }
 
+    function routeSourceUrl(route) {
+        // 每日采集的新旧备注均保留独立的来源行。
+        const match = String(route.description || '').match(
+            /^(?:来源[：:]\s*)?(https:\/\/(?:www\.)?raider\.io\/mythic-plus-runs\/[^\s]+)[ \t]*$/im,
+        );
+        return match?.[1] || '';
+    }
+
     function routeLibraryDungeon() {
         return state.catalog?.dungeons?.find(
             (dungeon) => dungeon.key === state.routeLibraryDungeonKey,
@@ -2081,16 +2089,19 @@
         }
         return `<div class="mdt-route-library">${rows.map((route) => {
             const routeCode = routeLibraryCode(route);
+            const sourceUrl = routeSourceUrl(route);
             const isInvalid = route.is_valid === false;
             const invalidReason = String(
                 route.invalid_reason || '路线与当前 MDT 数据版本不兼容，请等待管理员更新。',
             );
             return `
-            <article class="mdt-library-row mdt-library-row-default ${isInvalid ? 'is-invalid' : ''}">
+            <article class="mdt-library-row mdt-library-row-default ${isInvalid ? 'is-invalid' : ''}"
+                ${isInvalid ? '' : `data-load-default-route="${Number(route.id)}"`}>
                 <div class="mdt-library-copy mdt-library-compact-name">
                     <div class="mdt-library-title">
                         <div class="mdt-library-name">
-                            <button class="mdt-library-note-trigger" type="button" aria-describedby="route-note-${Number(route.id)}">${escapeHtml(route.name || '未命名默认路线')}</button>
+                            <button class="mdt-library-note-trigger" type="button"
+                                aria-label="${isInvalid ? '查看备注' : '创建本地副本'}：${escapeHtml(route.name || '未命名默认路线')}" aria-describedby="route-note-${Number(route.id)}">${escapeHtml(route.name || '未命名默认路线')}</button>
                             <div class="mdt-library-note" id="route-note-${Number(route.id)}" role="tooltip">${escapeHtml(routeLibraryNote(route))}</div>
                         </div>
                         ${isInvalid
@@ -2106,11 +2117,11 @@
                 <div class="mdt-library-compact-value mdt-library-applicable-level"><span>适用层数</span><strong>${escapeHtml(route.applicable_level || `${Number(route.dungeon_level || 0)} 层`)}</strong></div>
                 <div class="mdt-library-compact-value mdt-library-compact-time"><span>更新时间</span><time>${escapeHtml(routeLibraryTime(route.updated_at))}</time></div>
                 <div class="mdt-library-actions">
+                    ${sourceUrl ? `<a class="mdt-library-source" href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">查看原始数据</a>` : ''}
                     ${isInvalid
                         ? `<button type="button" disabled title="${escapeHtml(invalidReason)}">路线已失效</button>`
                         : `
                             <button type="button" data-copy-default-route="${Number(route.id)}" ${routeCode ? '' : 'disabled'}>复制字符串</button>
-                            <button type="button" class="is-primary" data-load-default-route="${Number(route.id)}">创建本地副本</button>
                         `}
                 </div>
             </article>
@@ -2130,7 +2141,7 @@
                 <header>
                     <div>
                         <strong>推荐路线</strong>
-                        <span>由管理员发布；载入后独立保存，修改不会影响推荐数据</span>
+                        <span>点击路线可创建本地副本，悬停路线名可查看备注。</span>
                     </div>
                 </header>
                 ${defaultRouteRows()}
@@ -2465,10 +2476,11 @@
                 }
                 return;
             }
-            const defaultButton = event.target.closest('[data-load-default-route]');
-            if (defaultButton) {
+            const defaultRow = event.target.closest('[data-load-default-route]');
+            if (defaultRow && !event.target.closest('.mdt-library-actions, .mdt-library-note')
+                    && !window.getSelection()?.toString()) {
                 const route = catalogDefaultRoutes().find(
-                    (row) => Number(row.id) === Number(defaultButton.dataset.loadDefaultRoute),
+                    (row) => Number(row.id) === Number(defaultRow.dataset.loadDefaultRoute),
                 );
                 if (route?.is_valid === false) {
                     toast(`推荐路线“${route.name}”已失效：${route.invalid_reason || '请等待管理员更新。'}`, true);
