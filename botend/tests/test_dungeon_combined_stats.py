@@ -175,6 +175,11 @@ class DungeonCombinedStatsTests(TestCase):
     def test_page_default_summary_and_all_single_links(self):
         import tempfile
         from django.core.management import call_command
+        from LMonitor.config import Monitor_Type_BaseObject_List
+        from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
+        from botend.models import MonitorTask
+        MonitorTask.objects.create(name='SpecDetailAggregationMonitor', target='', env_limit=0,
+                                   type=Monitor_Type_BaseObject_List.index(SpecDetailAggregationMonitor))
         self.row()
         isolated = self.settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='stats-page-'))
         isolated.enable()
@@ -195,7 +200,7 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertIsNone(soup.select_one('.talent-build-section'))
         self.assertIsNone(soup.select_one('#log-talents'))
         self.assertNotContains(response, "querySelectorAll('.talent-build-copy[data-build-code]')")
-        self.assertContains(response, 'function scaleTalentStage()')
+        self.assertContains(response, 'portal/js/player-talent-tree.js')
         nav = soup.select_one('nav.spec-overview-links')
         self.assertEqual([a.get_text() for a in nav.select('a')],
                          ['人物榜', '大秘境详细统计', '团本详细统计'])

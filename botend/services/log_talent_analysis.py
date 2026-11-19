@@ -1,5 +1,5 @@
 """只用战斗日志的选中条目生成天赋状态；角色当前配置不得参与。"""
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from botend.constants.hero_talents import (
@@ -8,6 +8,8 @@ from botend.constants.hero_talents import (
 from botend.constants.wow import SPEC_IDENTITY_MAP
 from botend.models import WowTalentNodeMetadata
 from botend.wow.talents.build_code import TalentBuildCodeEncoder, _ImportBitWriter
+from botend.wow.talents.render import build_talent_render_model
+from botend.wow.talents.models import TalentBuildStateModel, TalentTreeModel, TalentTreeSetModel
 from botend.wow.talents.metadata import AUTHORITATIVE_TALENT_SOURCES, TalentMetadataProvider
 from botend.wow.talents.versioning import TalentVersionResolver
 
@@ -206,48 +208,85 @@ def prepare_log_talents(records, class_name, spec_name, *, provider=None, metada
     return result
 
 
-def add_template_analysis(popularity, states_by_key, records):
-    """汇总核心方案和相对完整模板的节点变化；不截断长尾样本。"""
-    from collections import Counter
+def _template_render_model(baseline, hero_id, trees):
+    """共用统计页的节点底图，仅用本模板的日志填入选项和点数。"""
+    panels = {tree['tree_type']: tree for tree in trees
+              if tree['tree_type'] != 'hero' or tree.get('subtree_id') == hero_id}
+    tree_models = []
+    for kind in ('class', 'hero', 'spec'):
+        tree = panels.get(kind, {})
+        selected = {node['node_id']: node for node in baseline.values() if node['tree_type'] == kind}
+        by_trait = {node['talent_id']: node for node in selected.values()}
+        matched = set()
+        nodes = []
+        for raw in tree.get('nodes', []):
+            selection = by_trait.get(raw.get('talent_id'))
+            if not selection:
+                entries = [raw.get('node_id'), *(raw.get('node_aliases') or []),
+                           *(option.get('node_id') for option in raw.get('choice_options') or [])]
+                selection = next((selected[key] for key in entries if key in selected), None)
+            options = [{field: option.get(field) for field in
+                        ('node_id', 'spell_id', 'talent_id', 'name', 'icon', 'description', 'description_zh')}
+                       for option in raw.get('choice_options') or []]
+            node = dict(raw, selected=bool(selection), points=0, top_players=[],
+                        choice_selection=None, choice_options=options)
+            if selection:
+                matched.add(selection['node_id'])
+                # 保留底图身份及父边，同时展示日志实际点选的选项。
+                node.update({key: selection.get(key) for key in (
+                    'name', 'icon', 'points', 'max_points', 'spell_id', 'display_spell_id',
+                    'description', 'description_zh')})
+                node['is_choice_node'] = bool(selection.get('is_choice_node') and len(options) > 1)
+                if node['is_choice_node']:
+                    node['choice_selection'] = next((i for i, option in enumerate(options)
+                                                     if option['node_id'] == selection['node_id']), None)
+            nodes.append(node)
+        nodes.extend(node for key, node in selected.items() if key not in matched)
+        tree_models.append(TalentTreeModel(tree_type=kind, nodes=nodes))
+
+    model = build_talent_render_model(tree_set=TalentTreeSetModel(trees=tree_models),
+                                      build_state=TalentBuildStateModel(source_type='wcl_log'))
+    # 页面从树中读取节点和连线，快照只保存面板的位置，避免重复存储。
+    return {
+        'layout_mode': model.layout_mode,
+        'layout': {'width': model.layout.width, 'height': model.layout.height},
+        'trees': [{**tree, 'panel': {key: tree['panel'][key] for key in ('x', 'y', 'width', 'height')}}
+                  for tree in model.trees],
+    }
+
+
+def add_template_analysis(popularity, states_by_key, records, trees=()):
+    """各英雄树独立选择最常用完整方案，共享全页日志覆盖统计。"""
     statuses = Counter(row.get('_log_talent_status', 'ok') for row in records)
-    popularity.update(
-        analysis_version=1, source='wcl-log', sample_total=len(records),
-        excluded_count=len(records) - popularity['total'],
-        missing_count=statuses['missing'], unresolved_count=statuses['unresolved'],
-        conflict_count=statuses['conflict'], partial_count=statuses['partial'],
-    )
-    builds = popularity['builds']
-    if not builds:
-        return popularity
-    # 原始日志顺序不能决定全局模板；并列按稳定状态键排序。
-    builds.sort(key=lambda build: (-build['count'], build.get('state_key', '')))
+    groups = sorted(popularity['hero_groups'], key=lambda group: (
+        -group['total'], group['hero_talent_summary'][0]['subtree_id']))
+    for group in groups:
+        _analyze_hero_group(group, states_by_key, trees)
+    return dict(analysis_version=3, semantic_state_version=popularity['semantic_state_version'],
+                source='wcl-log', sample_total=len(records), total=popularity['total'],
+                excluded_count=len(records) - popularity['total'], missing_count=statuses['missing'],
+                unresolved_count=statuses['unresolved'], conflict_count=statuses['conflict'],
+                partial_count=statuses['partial'], hero_groups=groups)
+
+
+def _analyze_hero_group(group, states_by_key, trees):
+    builds = sorted(group.pop('builds'), key=lambda build: (-build['count'], build['state_key']))
     template = builds[0]
-    popularity['primary_template'] = template
-    popularity['template_code'] = template['code']
-    popularity['template_count'] = template['count']
-    families = {}
-    for build in builds:
-        nodes = states_by_key[build['state_key']]['nodes']
-        core = tuple(sorted((key, node['points'], node.get('choice_key') or -1)
-                            for key, node in nodes.items() if node['tree_type'] != 'class'))
-        family = families.setdefault(core, {'count': 0, 'builds': [], 'representative': build})
-        family['count'] += build['count']
-        family['builds'].append(build)
-    ordered = sorted(families.values(), key=lambda family: (-family['count'], family['representative']['state_key']))
-    for index, family in enumerate(ordered, 1):
-        family.update(rank=index, pct=round(family['count'] / popularity['total'] * 100, 1),
-                      variant_count=len(family['builds']),
-                      is_template_family=template in family['builds'])
-    popularity['families'] = ordered
-    popularity['build_count'] = len(builds)
-    popularity['family_count'] = len(ordered)
-    popularity['remaining_family_count'] = max(0, len(ordered) - 3)
-    popularity['primary_template']['overall_pct'] = round(template['count'] / popularity['total'] * 100, 1)
-    popularity['template_family'] = next(f for f in ordered if f['is_template_family'])
     baseline = states_by_key[template['state_key']]['nodes']
+    total = group['total']
+    group['subtree_id'] = group['hero_talent_summary'][0]['subtree_id']
+    group['template_render_model'] = _template_render_model(baseline, group['subtree_id'], trees)
+    group['template_code'] = template['code']
+    group['template_count'] = template['count']
+    families = {}
     changes = {}
     for index, build in enumerate(builds, 1):
         nodes = states_by_key[build['state_key']]['nodes']
+        core = tuple(sorted((key, node['points'], node.get('choice_key') or -1)
+                            for key, node in nodes.items() if node['tree_type'] != 'class'))
+        family = families.setdefault(core, {'count': 0, 'builds': []})
+        family['count'] += build['count']
+        family['builds'].append(build)
         diffs = []
         for key in sorted(set(nodes) | set(baseline)):
             before, after = baseline.get(key), nodes.get(key)
@@ -271,14 +310,19 @@ def add_template_analysis(popularity, states_by_key, records):
         build['rank'] = index
         build['is_template'] = build['state_key'] == template['state_key']
         build['diff_count'] = len(diffs)
-        build['overall_pct'] = round(build['count'] / popularity['total'] * 100, 1)
-        # 新页面使用统一的主模板差异，不重复保存旧英雄分组的整份节点资料。
         for field in ('added_talents', 'missing_talents', 'changed_talents'):
             build.pop(field, None)
-    popularity['common_changes'] = sorted(
-        [dict(item, pct=round(item['count'] / popularity['total'] * 100, 1))
-         for item in changes.values()], key=lambda item: (-item['count'], item['node_key'], item['after_name']))
-    for group in popularity.get('hero_groups', []):
-        group['builds'] = [{key: build[key] for key in ('code', 'count', 'pct', 'state_key')}
-                           for build in group['builds']]
-    return popularity
+    group['common_changes'] = sorted(
+        [dict(item, pct=round(item['count'] / total * 100, 1)) for item in changes.values()],
+        key=lambda item: (-item['count'], item['node_key'], item['after_name']))
+    ordered = sorted(families.values(), key=lambda family: (-family['count'], family['builds'][0]['state_key']))
+    group['other_families'] = []
+    for rank, family in enumerate(ordered, 1):
+        family.update(rank=rank, pct=round(family['count'] / total * 100, 1),
+                      variant_count=len(family['builds']), is_template_family=family['builds'][0]['is_template'])
+        if family['is_template_family']:
+            group['template_family'] = family
+        else:
+            group['other_families'].append(family)
+    group['family_count'] = len(ordered)
+    group['build_count'] = len(builds)

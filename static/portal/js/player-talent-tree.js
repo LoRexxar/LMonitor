@@ -10,6 +10,14 @@
             if (containerWidth <= 0) return;
             var stageWidth = parseInt(wrapper.getAttribute('data-stage-width')) || parseInt(stage.style.width);
             var stageHeight = parseInt(wrapper.getAttribute('data-stage-height')) || parseInt(stage.style.height);
+            if (wrapper.hasAttribute('data-fit-content-height')) {
+                var bottom = 0;
+                stage.querySelectorAll('.talent-panel, .talent-node-card--tree').forEach(function(el) {
+                    bottom = Math.max(bottom, (parseFloat(el.style.top) || 0) +
+                        (parseFloat(el.style.height) || el.offsetHeight || 0));
+                });
+                stageHeight = Math.min(stageHeight || bottom, (bottom || stageHeight) + 12);
+            }
             if (stageWidth > containerWidth) {
                 var scale = containerWidth / stageWidth;
                 stage.style.transform = 'scale(' + scale + ')';

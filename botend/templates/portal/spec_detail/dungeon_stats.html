@@ -5,6 +5,10 @@
 {% block title %}{{ nav.class_cn }} {{ nav.spec_cn }} - 大秘境{% endblock %}
 
 {% block extra_head %}
+{% if dungeon_detail %}
+<link rel="stylesheet" href="{% static 'portal/css/player-talent-tree.css' %}?v=20261116_dynamic_tree">
+<script defer src="{% static 'portal/js/player-talent-tree.js' %}?v=20261119_stats"></script>
+{% endif %}
 <link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20260820">
 {% endblock %}
 
@@ -183,7 +187,7 @@
             <div class="popularity-section-note">单级天赋显示选过率；多级天赋分别显示投入 1 点、2 点等各档位的真实选择率。</div>
             {% if render_model.layout.width and render_model.layout.height %}
             <div class="talent-stage-scroll">
-                <div class="talent-stage-scale-wrapper" data-stage-width="{{ render_model.layout.width }}" data-stage-height="{{ render_model.layout.height }}">
+                <div class="talent-stage-scale-wrapper" data-fit-content-height data-stage-width="{{ render_model.layout.width }}" data-stage-height="{{ render_model.layout.height }}">
                 <div
                     class="talent-render-stage"
                     style="width: {{ render_model.layout.width }}px; height: {{ render_model.layout.height }}px;"
@@ -1949,76 +1953,6 @@ a.enchant-name:hover { color: #2563eb; }
 </style>
 <script>
 (function() {
-    function scaleTalentStage() {
-        var wrappers = document.querySelectorAll('.talent-stage-scale-wrapper');
-        wrappers.forEach(function(wrapper) {
-            var stage = wrapper.querySelector('.talent-render-stage');
-            if (!stage) return;
-            var containerWidth = wrapper.parentElement.clientWidth;
-            var stageWidth = parseInt(wrapper.getAttribute('data-stage-width')) || parseInt(stage.style.width);
-            var declaredStageHeight = parseInt(wrapper.getAttribute('data-stage-height')) || parseInt(stage.style.height);
-            var contentBottom = 0;
-            stage.querySelectorAll('.talent-panel, .talent-node-card--tree').forEach(function(el) {
-                var top = parseFloat(el.style.top) || 0;
-                var height = parseFloat(el.style.height) || el.offsetHeight || 0;
-                contentBottom = Math.max(contentBottom, top + height);
-            });
-            var stageHeight = Math.min(declaredStageHeight || contentBottom, (contentBottom || declaredStageHeight) + 12);
-            if (stageWidth > containerWidth) {
-                var scale = containerWidth / stageWidth;
-                stage.style.transform = 'scale(' + scale + ')';
-                stage.style.transformOrigin = 'top left';
-                wrapper.style.height = (stageHeight * scale) + 'px';
-            } else {
-                stage.style.transform = 'none';
-                wrapper.style.height = stageHeight + 'px';
-            }
-        });
-    }
-    scaleTalentStage();
-    window.addEventListener('resize', scaleTalentStage);
-
-    /* ===== Choice Node Popup Hover ===== */
-    var activeTooltip = null;
-
-    document.querySelectorAll('.talent-node-card--tree.is-choice-node').forEach(function(node) {
-        var popup = node.querySelector('.talent-choice-popup');
-        if (!popup) return;
-        var hoverTimeout = null;
-
-        function showPopup() {
-            if (hoverTimeout) clearTimeout(hoverTimeout);
-            node.classList.add('popup-active');
-            node.style.zIndex = '100';
-            var nodeTooltip = node.querySelector('.talent-node-tooltip');
-            if (nodeTooltip) nodeTooltip.style.display = 'none';
-        }
-
-        function hidePopup() {
-            hoverTimeout = setTimeout(function() {
-                node.classList.remove('popup-active');
-                node.style.zIndex = '';
-                hideOptionTooltip();
-            }, 150);
-        }
-
-        node.addEventListener('mouseenter', showPopup);
-        node.addEventListener('mouseleave', hidePopup);
-        popup.addEventListener('mouseenter', showPopup);
-        popup.addEventListener('mouseleave', hidePopup);
-
-        popup.querySelectorAll('.talent-choice-popup-option').forEach(function(option) {
-            option.addEventListener('mouseenter', function() {
-                var name = option.getAttribute('data-option-name');
-                var desc = option.getAttribute('data-option-desc');
-                if (!name) return;
-                showOptionTooltip(name, desc, option);
-            });
-            option.addEventListener('mouseleave', hideOptionTooltip);
-        });
-    });
-
-
     {% if selected_dungeon_id != 'all' %}
     /* ===== Talent Build Copy ===== */
     function fallbackCopyText(text) {
@@ -2070,35 +2004,6 @@ a.enchant-name:hover { color: #2563eb; }
 
     {% endif %}
 
-    function showOptionTooltip(name, desc, anchor) {
-        hideOptionTooltip();
-        var tip = document.createElement('div');
-        tip.className = 'talent-option-tooltip';
-        tip.innerHTML = '<div class="talent-option-tooltip-name">' + name + '</div>' +
-            (desc ? '<div class="talent-option-tooltip-desc">' + desc + '</div>' : '');
-        document.body.appendChild(tip);
-
-        var rect = anchor.getBoundingClientRect();
-        tip.style.left = (rect.right + 10) + 'px';
-        tip.style.top = rect.top + 'px';
-
-        var tipRect = tip.getBoundingClientRect();
-        if (tipRect.right > window.innerWidth - 10) {
-            tip.style.left = (rect.left - tipRect.width - 10) + 'px';
-        }
-        if (tipRect.bottom > window.innerHeight - 10) {
-            tip.style.top = (window.innerHeight - tipRect.height - 10) + 'px';
-        }
-
-        activeTooltip = tip;
-    }
-
-    function hideOptionTooltip() {
-        if (activeTooltip) {
-            activeTooltip.remove();
-            activeTooltip = null;
-        }
-    }
 })();
 </script>
 {% endif %}

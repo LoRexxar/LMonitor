@@ -91,12 +91,19 @@ def _talent_build_popularity_has_builds(detail, class_name='', spec_name=''):
     popularity = (detail or {}).get('talent_build_popularity') or {}
     if popularity.get('semantic_state_version') != 2:
         return False
-    builds = popularity.get('builds') or []
+    if popularity.get('analysis_version') == 3:
+        builds = [build for group in popularity.get('hero_groups', [])
+                  for family in [group.get('template_family') or {}, *group.get('other_families', [])]
+                  for build in family.get('builds', [])]
+    else:
+        builds = popularity.get('builds') or []
     if not builds:
         return False
     for build in builds:
         if not isinstance(build, dict) or 'top_players' not in build:
             return False
+        if popularity.get('analysis_version') == 3 and not build.get('code'):
+            continue
         identity = TalentBuildCodeDecoder.resolve_spec_identity(build.get('code'))
         if identity != (class_name, spec_name):
             return False

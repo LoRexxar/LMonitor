@@ -612,6 +612,7 @@ class SpecStatsService:
         if include_talent_build_popularity:
             stats['talent_build_popularity'] = _compute_talent_build_popularity(
                 records, class_name, spec_name, top_n=20 if full else 5, provider=provider,
+                trees=stats['talent_popularity_tree'].get('render_model', {}).get('trees', []),
             )
         phase_timings['talent_statistics'] += time.monotonic() - phase_started
         phase_started = time.monotonic()
@@ -1546,7 +1547,7 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, con
     return summary
 
 
-def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20, *, provider=None):
+def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20, *, provider=None, trees=()):
     """日志投影保留全部方案，旧调用方仍可使用有界的历史语义投影。"""
     is_log = any('_log_talent_status' in row for row in records or [])
     result = _aggregate_talent_build_popularity(
@@ -1561,7 +1562,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20, *
                 signature = tuple(sorted((key, node['points'], node.get('choice_key') or -1)
                                          for key, node in state['nodes'].items()))
                 states[hashlib.sha256(repr(signature).encode()).hexdigest()] = state
-        return add_template_analysis(result, states, records)
+        return add_template_analysis(result, states, records, trees)
     return result
 
 
