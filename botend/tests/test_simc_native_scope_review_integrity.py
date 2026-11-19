@@ -26,6 +26,100 @@ class NativeScopeReviewIntegrityTests(SimpleTestCase):
     REVISION = '1' * 40
     BUILD = '12.1.0.69814'
 
+    def test_shared_spell_requires_selected_entry_in_observed_hero_tree(self):
+        def trait(entry, tree, spell, subtree, specs):
+            return dict(trait_entry_id=entry, tree_index=tree, class_id=12,
+                        spell_id=spell, subtree_id=subtree, spec_ids=specs, name='ignored')
+
+        catalog = [trait(11, 3, 50, 101, [577, 1480]), trait(12, 3, 50, 102, [577, 1480]),
+                   trait(13, 3, 50, 103, [577, 1480]), trait(14, 1, 51, 0, []),
+                   trait(21, 4, 0, 101, [577]), trait(22, 4, 0, 102, [1480]),
+                   trait(23, 4, 0, 103, [1480])]
+        ownership = builder.HeroEntryOwnership(catalog)
+        bindings = [{'source_spell_id': 50, 'effect_id': 60, 'target_spell_id': 70},
+                    {'source_spell_id': 51, 'effect_id': 61, 'target_spell_id': 71}]
+
+        def project(spec, selected, **wire):
+            return ownership.project(12, spec, {'selected_trait_ids': selected, **wire},
+                                     bindings, allow_legacy=spec == 577)[1]
+
+        modern = dict(spec_id=1480, valid_hero_subtree_ids=[103, 102])
+        # Legacy observation is still bound to a specific spec and selection Entry.
+        havoc = project(577, [21, 11])[50]
+        devourer = project(1480, [22, 11, 12], **modern)[50]
+        self.assertEqual((havoc['owner_entry_id'], devourer['owner_entry_id']), (11, 12))
+        self.assertEqual(havoc['bindings'], devourer['bindings'])
+        self.assertEqual(devourer['eligible_entry_ids'], [12])
+        self.assertEqual(devourer['observed_selection_entry_ids'], [22])
+        self.assertNotIn(51, project(577, [21, 11, 14]))
+        for selected in ([22, 11], [12], [22, 13], [22, 23, 12]):
+            with self.subTest(selected=selected):
+                unowned = project(1480, selected, **modern)[50]
+                self.assertIsNone(unowned['owner_entry_id'])
+                self.assertEqual(unowned['bindings'], bindings[:1])
+        for wire in ({}, {'spec_id': 1480}, {**modern, 'spec_id': 577},
+                     {**modern, 'valid_hero_subtree_ids': [101, 102]},
+                     {**modern, 'valid_hero_subtree_ids': [102, 103, 103]},
+                     {**modern, 'valid_hero_subtree_ids': [102.0, 103]}):
+            with self.subTest(wire=wire), self.assertRaises(ValueError):
+                project(1480, [22, 12], **wire)
+        with self.assertRaises(ValueError):
+            project(577, [21, 11], spec_id=577)
+        with self.assertRaises(ValueError):
+            builder.HeroEntryOwnership(catalog + catalog[:1])
+
+    def test_changed_historical_entry_requires_original_review_and_stays_pending(self):
+        resolver = builder.ScopeResolver.__new__(builder.ScopeResolver)
+        resolver.revision = builder.REVIEWED_REVISION
+        resolver.reviewed_build = resolver.reviewed_document()['build']
+        eid = 1285572
+        fact = resolver.reviewed_facts()[str(eid)]
+        resolver.flag_members = {(fact['class_family'], 2, 2147483648): set(fact['affected'])}
+        effect = {**fact, 'effect_id': eid,
+                  'affected_spells': [{'spell_id': sid} for sid in fact['affected']]}
+        layer, field = fact['layers_fields'][0]
+        previous = [{'target_spell_id': sid, 'layer': layer, 'field': field, '传递到的伤害技能': fact['damage']}
+                    for sid in fact['registered']]
+        with self.assertRaisesRegex(ValueError, 'registered 身份/集合漂移'):
+            resolver.enforce_reviewed_scope(effect, [])
+        resolver.enforce_reviewed_scope(effect, previous)
+        with patch.object(builder, 'structural_scope', return_value=('test', 'empty')):
+            _, _, decision, _, evidence = builder.resolve_entry_scope(
+                resolver, Path('.'), effect, [], [], historical_native=previous)
+            self.assertEqual(decision, '待确认')
+            self.assertTrue(evidence['禁止后备分类'])
+            with self.assertRaisesRegex(ValueError, 'registered 身份/集合漂移'):
+                builder.resolve_entry_scope(resolver, Path('.'), effect, [], [],
+                                            historical_native=previous[1:])
+
+    def test_hero_spell_aliases_in_one_subtree_use_entry_specialization(self):
+        def trait(entry, tree, spell, specs):
+            return dict(trait_entry_id=entry, tree_index=tree, class_id=8,
+                        spell_id=spell, subtree_id=41, spec_ids=specs)
+
+        ownership = builder.HeroEntryOwnership([
+            trait(117239, 3, 431044, [64]), trait(136441, 3, 431044, [63]),
+            trait(81, 3, 80, [64]), trait(82, 3, 80, []),
+            trait(91, 3, 90, [64]), trait(92, 3, 90, [64]),
+            trait(70, 4, 0, [63, 64]),
+        ])
+
+        def project(spec, selected, spell=431044):
+            binding = dict(source_spell_id=spell, effect_id=50, target_spell_id=51)
+            actor = dict(spec_id=spec, valid_hero_subtree_ids=[41], selected_trait_ids=[70, *selected])
+            return ownership.project(8, spec, actor, [binding])[1][spell]
+
+        foreign = project(63, [117239])
+        self.assertIsNone(foreign['owner_entry_id'])
+        self.assertEqual(len(foreign['bindings']), 1)
+        self.assertEqual(project(63, [117239, 136441])['owner_entry_id'], 136441)
+        self.assertEqual(project(64, [117239, 136441])['owner_entry_id'], 117239)
+        # A unique unrestricted alias takes precedence over a spec-specific alias.
+        self.assertIsNone(project(64, [81], spell=80)['owner_entry_id'])
+        self.assertEqual(project(64, [81, 82], spell=80)['owner_entry_id'], 82)
+        # A rank-zero tuple is not an activation witness and cannot resolve an ambiguous lookup.
+        self.assertIsNone(project(64, [91], spell=90)['owner_entry_id'])
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

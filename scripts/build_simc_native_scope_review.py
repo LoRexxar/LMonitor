@@ -21,6 +21,101 @@ UNSUPPORTED_NATIVE_CONFIGS = {
     'paladin_holy': 'Holy Paladin',
 }
 
+HERO_TREE, HERO_SELECTION_TREE = 3, 4  # SimC talent_tree::HERO / SELECTION
+LEGACY_HERO_WIRE = ('30c4b061f2103132a34952d80c963303b82bf368', '12.1.5.70575')
+
+
+class HeroEntryOwnership:
+    """Disambiguate same-class spell aliases involving a hero Entry, not all talent sources."""
+
+    def __init__(self, catalog):
+        self.selections = defaultdict(dict)
+        self.spec_trees = defaultdict(set)
+        self.tree_specs = defaultdict(set)
+        by_spell = defaultdict(list)
+        seen = set()
+        for entry in catalog:
+            eid, cid, tree, subtree, sid = (entry[k] for k in (
+                'trait_entry_id', 'class_id', 'tree_index', 'subtree_id', 'spell_id'))
+            if type(eid) is not int or eid <= 0 or eid in seen:
+                raise ValueError('DBC talent catalog Entry 无效或重复')
+            seen.add(eid)
+            if tree == HERO_SELECTION_TREE:
+                specs = entry['spec_ids']
+                if not subtree or not specs:
+                    raise ValueError(f'DBC hero selection 缺少归属：{eid}')
+                self.selections[cid][eid] = subtree, frozenset(specs)
+                self.tree_specs[cid, subtree].update(specs)
+                for spec in specs:
+                    self.spec_trees[cid, spec].add(subtree)
+            elif sid:
+                by_spell[cid, sid].append(entry)
+        self.aliases = {k: v for k, v in by_spell.items()
+                        if len(v) > 1 and any(e['tree_index'] == HERO_TREE for e in v)}
+        for entries in self.aliases.values():
+            for entry in entries:
+                if (entry['tree_index'] == HERO_TREE
+                        and not self.tree_specs.get((entry['class_id'], entry['subtree_id']))):
+                    raise ValueError(f'DBC hero Entry 缺少子树选择行：{entry["trait_entry_id"]}')
+
+    def project(self, class_id, spec_id, actor, bindings, *, allow_legacy=False):
+        """Keep every damage registration, including unassigned ones; do not infer rank."""
+        legal = self.spec_trees[class_id, spec_id]
+        fields = {'spec_id', 'valid_hero_subtree_ids'}.intersection(actor)
+        if fields or not allow_legacy:
+            actual = actor.get('valid_hero_subtree_ids')
+            if (type(actor.get('spec_id')) is not int or actor['spec_id'] != spec_id
+                    or not isinstance(actual, list) or any(type(h) is not int for h in actual)
+                    or len(actual) != len(legal) or set(actual) != legal):
+                raise ValueError(f'原生 actor spec/hero availability 与同版 DBC 不一致：{spec_id}')
+        selected = actor['selected_trait_ids']
+        if not isinstance(selected, list) or any(type(t) is not int or t <= 0 for t in selected):
+            raise ValueError(f'原生 actor Entry ID 结构无效：{spec_id}')
+        selected = set(selected)
+        selection_rows = self.selections[class_id]
+        observed = sorted(selected.intersection(selection_rows))
+        active_tree = None
+        if len(observed) == 1:
+            subtree, specs = selection_rows[observed[0]]
+            if spec_id in specs:
+                active_tree = subtree
+        registrations = defaultdict(list)
+        for binding in bindings:
+            sid = binding['source_spell_id']
+            if (class_id, sid) in self.aliases:
+                registrations[sid].append(binding)
+        proofs = {}
+        for sid, native in registrations.items():
+            entries = self.aliases[class_id, sid]
+            hero = [e for e in entries if e['tree_index'] == HERO_TREE and e['subtree_id'] == active_tree]
+            ambiguous_hero = False
+            if len(hero) > 1:
+                # Native name lookup first prefers a unique unrestricted Entry, then a
+                # unique exact-spec Entry. Do not guess its later node/index fallback:
+                # this registration carries a SpellID, not the C++ lookup arguments.
+                unrestricted = [e for e in hero if not e['spec_ids']]
+                exact_spec = [e for e in hero if spec_id in e['spec_ids']]
+                if len(unrestricted) == 1:
+                    hero = unrestricted
+                elif len(exact_spec) == 1:
+                    hero = exact_spec
+                else:
+                    ambiguous_hero = True
+            ordinary = [e for e in entries if e['tree_index'] != HERO_TREE and
+                        (not e['spec_ids'] or spec_id in e['spec_ids'] or spec_id in e.get('starter_spec_ids', ()))]
+            eligible = [] if ambiguous_hero else sorted(e['trait_entry_id'] for e in hero + ordinary)
+            candidates = sorted(e['trait_entry_id'] for e in entries)
+            matches = sorted(selected.intersection(eligible)) if active_tree is not None else []
+            proofs[sid] = dict(spec_id=spec_id, class_id=class_id, source_spell_id=sid,
+                spec_evidence='native_spec_id' if fields else 'validated_legacy_actor',
+                valid_hero_subtree_ids=sorted(legal), observed_selection_entry_ids=observed,
+                observed_hero_subtree_id=active_tree, candidate_entry_ids=candidates,
+                selected_candidate_entry_ids=sorted(selected.intersection(candidates)),
+                eligible_entry_ids=eligible, owner_entry_id=matches[0] if len(matches) == 1 else None,
+                bindings=native)
+        return {(class_id, active_tree, tid) for tid in selected} if active_tree is not None else set(), proofs
+
+
 def validate_native_audit_manifest(manifest, catalog, *, input_root, frozen_input_dir):
     """Require a complete two-stage spec matrix; never classify a partial audit."""
     revision = manifest.get('源码提交')
@@ -166,6 +261,18 @@ def resolve_component_scope(resolver, source, effect, native, code):
     return scope, basis, decision, reason, canonical_scope_evidence(evidence)
 
 
+def resolve_entry_scope(resolver, source, effect, native, code, historical_native=None):
+    if historical_native is None or historical_native == native:
+        return resolve_component_scope(resolver, source, effect, native, code)
+    # Validate the historical projection as-is. It is not a certificate for an Entry subset.
+    resolve_component_scope(resolver, source, effect, historical_native, code)
+    scope, basis = structural_scope(effect, native)
+    return scope, basis, '待确认', '旧版复核适用于旧投影，按 Entry 重建后的范围须重新核验。', {
+        '判定路径': '旧版 Entry 投影已变更', '禁止后备分类': True,
+        '本版作用域观测': resolver.scope_facts(effect, native),
+    }
+
+
 def write_review(result, output, *, draft=False):
     """草稿独立命名，完整保留候选和未决；即使零未决也不是正式契约输入。"""
     unresolved = [{'法术ID': row['法术ID'], '效果ID': part['效果ID'], '名称': row['名称']}
@@ -245,6 +352,12 @@ def main():
     relations={e['effect_id']:e for r in catalog['talent_catalog'] for e in r['dbc_scope_effects']}
     raw_binding_count=0
     action_spells=defaultdict(set)
+    # The migration review is not an input to the historical formal/merge path.
+    ownership = HeroEntryOwnership(catalog['talent_catalog']) if args.draft else None
+    ownership_proofs = []
+    owned_bindings = defaultdict(list)
+    observed_hero_entries = set()
+    legacy_hero_wire = (manifest['源码提交'], manifest['客户端版本']) == LEGACY_HERO_WIRE
     for run in manifest['结果']:
         if run['退出码']:continue
         if run.get('结果摘要')!=hashlib.sha256((args.native/run['结果文件']).read_bytes()).hexdigest():
@@ -255,24 +368,35 @@ def main():
         for actor in (actor,):
             spec_token=Path(run['输入']).stem.removeprefix(actor['class']+'_')
             spec_label=next((SPEC_LABELS[sid] for sid,token in SPECS.items() if token==spec_token and sid in SPEC_LABELS),actor['spec'])
+            cid=next(cid for token,cid in CLASS_FILES.items() if token.replace('_','')==actor['class'].replace('_',''))
             for state in actor.get('target_states',[]):
                 if not state.get('self_owned'):continue
                 key=(actor['class'],state['spell_id'])
                 target_states[key][run['结果文件']]={**state,'专精':spec_label}
             for action in actor['damage_actions']:
                 if action['spell_id']:
-                    cid=next(cid for token,cid in CLASS_FILES.items() if token.replace('_','')==actor['class'].replace('_',''))
                     action_spells[(cid,action['token'])].add(action['spell_id'])
             selected.update(actor['selected_trait_ids'])
             effects={e['effect_id']:e for e in actor['source_effects']}
             relations.update(effects)
-            damage_ids={a['spell_id'] for a in actor['damage_actions'] if a['spell_id']}
             raw_binding_count+=len(actor['bindings'])
-            for b in native_damage_bindings(actor):
-                spec_token=Path(run['输入']).stem.removeprefix(actor['class']+'_')
-                spec_label=next((SPEC_LABELS[sid] for sid,token in SPECS.items() if token==spec_token and sid in SPEC_LABELS),actor['spec'])
+            damage_bindings = native_damage_bindings(actor)
+            proofs = {}
+            if ownership is not None:
+                spec_id=next(sid for sid, token in SPECS.items()
+                             if token==spec_token and SPEC_IDENTITY_MAP[sid][0].lower()==actor['class'])
+                observed, proofs = ownership.project(
+                    cid, spec_id, actor, damage_bindings, allow_legacy=legacy_hero_wire)
+                observed_hero_entries.update(observed)
+            ownership_proofs.extend({**proof, 'result_file': run['结果文件'],
+                                     'input_sha256': run['输入摘要'], 'result_sha256': run['结果摘要']}
+                                    for proof in proofs.values())
+            for b in damage_bindings:
                 b={**b,'配置':run['结果文件'],'职业':actor['class'],'专精':spec_label}
                 bindings[b['effect_id']].append(b)
+                proof = proofs.get(b['source_spell_id'])
+                if proof and proof['owner_entry_id'] is not None:
+                    owned_bindings[proof['owner_entry_id'], b['effect_id']].append(b)
                 if b['buff_spell_id'] and b['self_owned'] and (not b['buff_class_family'] or b['buff_class_family']==b['owner_class_family']):
                     buff_bindings[(actor['class'],b['buff_spell_id'],b['buff_token'])].append(b)
                 elif b['layer'] in ('target_registry','target_player_registry') and not b['buff_spell_id'] and effects[b['effect_id']]['class_family']==b['owner_class_family']:
@@ -288,15 +412,19 @@ def main():
             source_site('engine/action/parse_effects.cpp','parse_action_base_t::get_effect_vector('),
             source_site('engine/action/parse_effects.cpp','parse_action_base_t::check_affected_list(')]
 
-    def component(e,native,code):
+    def grouped_bindings(native):
         # 同一原生关系可来自多个配置；保留配置列表而不重复技能行。
         groups={}
         for b in native:
             key=tuple(b[k] for k in ('职业','专精','target_spell_id','field','layer','buff_spell_id','parse_flags','conditional','pet'))
             entry=groups.setdefault(key,{k:v for k,v in b.items() if k not in ('配置','entity')})
             entry.setdefault('配置',[]).append(b['配置'])
-        native=list(groups.values())
-        scope,basis,decision,reason,scope_evidence=resolve_component_scope(resolver,args.source,e,native,code)
+        return list(groups.values())
+
+    def component(e,native,code,*,historical_native=None):
+        native=grouped_bindings(native)
+        historical=grouped_bindings(historical_native) if historical_native is not None else None
+        scope,basis,decision,reason,scope_evidence=resolve_entry_scope(resolver,args.source,e,native,code,historical)
         dbc_ids={s['spell_id'] for s in e['affected_spells']}
         native_ids={sid for b in native for sid in b.get('传递到的伤害技能',[]) if sid}
         code_ids=set(scope_evidence.get('完整DBC集合',[])) | set(scope_evidence.get('伤害技能',[]))
@@ -329,17 +457,29 @@ def main():
     for row in catalog['talent_catalog']:
         if row['class_id'] not in CLASSES:continue
         components=[]
+        scoped = ownership is not None and (row['class_id'], row['spell_id']) in ownership.aliases
         for e in row['dbc_scope_effects']:
-            native=[b for b in bindings[e['effect_id']] if KEYS.get(b['职业'])==CLASSES[row['class_id']]]
+            old_native=[b for b in bindings[e['effect_id']] if KEYS.get(b['职业'])==CLASSES[row['class_id']]]
+            native=owned_bindings[row['trait_entry_id'], e['effect_id']] if scoped else old_native
             code=reads.get((row['spell_id'],e['effect_index']),[])
             code=[c for c in code if not c['伤害函数'] or not (read_scope(args.source,c) and non_damage_read(read_scope(args.source,c)))]
-            if not (native or relation_has_damage(e) or any(c['伤害函数'] for c in code)):continue
-            components.append(component(e,native,code))
+            if not (old_native or native or relation_has_damage(e) or any(c['伤害函数'] for c in code)):continue
+            components.append(component(e,native,code,historical_native=(
+                old_native if scoped and current_revision == REVIEWED_REVISION else None)))
         if not components:continue
+        spec_ids = row['spec_ids']
+        row_coverage = '至少一个配置已选中' if row['trait_entry_id'] in selected else '当前配置未选中'
+        hero = {}
+        if scoped and row['tree_index'] == HERO_TREE:
+            cid, subtree, tid = (row[k] for k in ('class_id', 'subtree_id', 'trait_entry_id'))
+            spec_ids = sorted(ownership.tree_specs[cid, subtree])
+            hero = {'英雄子树ID': subtree}
+            row_coverage = ('已观察到合法 Entry 元组（不证明激活）' if (cid, subtree, tid) in observed_hero_entries
+                            else '未观察到合法 Entry 元组')
         rows.append({'类型':'天赋','职业':CLASSES[row['class_id']],
-            '专精':'、'.join(SPEC_LABELS[s] for s in row['spec_ids'] if s in SPEC_LABELS) or '职业通用',
+            '专精':'、'.join(SPEC_LABELS[s] for s in spec_ids if s in SPEC_LABELS) or '职业通用',
             '名称':label(row['spell_id']),'法术ID':row['spell_id'],'节点':row['trait_entry_id'],
-            '配置覆盖':'至少一个配置已选中' if row['trait_entry_id'] in selected else '当前配置未选中',
+            '配置覆盖':row_coverage, **hero,
             '范围判定':'、'.join(sorted({c['范围判定'] for c in components})),
             '分量':components,'描述仅供参考':row['description'],
             '旧文本规则已提取分量_不作本次依据':row['global_effect_indices']})
@@ -393,6 +533,7 @@ def main():
                          for file in ('simc_scope_resolution.py','simc_scope_skill_sets.json','simc_cpp_scope.py')},
         '导出失败':[r for r in manifest['结果'] if r['退出码']],'公共应用源码':common,'条目':rows}
     if args.draft:
+        result['英雄天赋归属证据'] = sorted(ownership_proofs, key=lambda p: (p['result_file'], p['source_spell_id']))
         result['旧复核DBC缺失效果'] = [
             fact for eid, fact in sorted(resolver.reviewed_facts().items(), key=lambda item: int(item[0]))
             if int(eid) not in resolver.effects]
