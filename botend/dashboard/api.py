@@ -8401,13 +8401,13 @@ class SimcSkillDamageAplAPIView(View):
         spec = f"{row['class_name']}_{row['specialization']}"
         template = SimcApl.objects.filter(
             spec=spec, source=SimcApl.SOURCE_SIMC_UPSTREAM, is_active=True,
-            is_system=True, owner_user_id__isnull=True, sync_version=snapshot.simc_revision,
-        ).only('content').first()
+            is_system=True, owner_user_id__isnull=True,
+        ).only('content', 'sync_version').first()
         if not template:
-            return JsonResponse({'success': False, 'error': '该专精缺少与快照同版本的默认 APL'}, status=409)
+            return JsonResponse({'success': False, 'error': '该专精缺少可用的默认 APL'}, status=409)
 
         apl = SimcApl(owner_user_id=request.user.pk, spec=spec, class_name=row['class_name'],
-                      name=title, source=SimcApl.SOURCE_USER, sync_version=snapshot.simc_revision)
+                      name=title, source=SimcApl.SOURCE_USER, sync_version=template.sync_version)
         existing = SimcApl.objects.filter(active_unique_key=apl._compute_active_unique_key())
         conflict = {'success': False, 'error': '当前专精已有同名 APL，请修改标题后再生成'}
         if existing.exists():
@@ -8416,18 +8416,14 @@ class SimcSkillDamageAplAPIView(View):
         try:
             talent_guards = {int(entry): guard for entry, guard in
                              (row['actor_payload'].get('apl_talent_guards') or {}).items()}
-            if not talent_guards and SimcBackendBinary.objects.filter(identifier='production', is_active=True,
-                    current_version=snapshot.simc_revision, game_build=snapshot.game_build).exists():
-                scopes = SimcAplSymbolScope.objects.filter(
-                    class_key=row['class_name'], spec_key__in=('', row['specialization']),
-                    symbol__symbol_kind=SimcAplSymbol.KIND_TALENT, symbol__is_active=True, is_active=True,
-                    source=SimcAplSymbol.SOURCE_MANIFEST, trait_id__isnull=False,
-                ).values_list('trait_id', 'symbol__token')
-                talent_guards = {entry: f'talent.{token}' for entry, token in scopes}
+            needs_current_catalog = not talent_guards
+            if needs_current_catalog:
+                from botend.services.simc_skill_damage import current_apl_guards
+                talent_guards = current_apl_guards(row['class_name'], row['specialization'])
             parser = ActorDocumentParser(SkillSnapshotActorStorage.iterate_json_document(row, 'actor_payload'))
             apl.content = build_apl(template.content, parser.actions(),
                                     row['actor_payload'].get('hero_talent_trees') or [], spec,
-                                    talent_guards=talent_guards)
+                                    talent_guards=talent_guards, check_trait_names=needs_current_catalog)
             apl.content = f'# 技能归一化快照 {snapshot.pk} · {spec} · {snapshot.game_build}\n' + apl.content
         except ActorPageError as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=exc.status)

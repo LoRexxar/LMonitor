@@ -124,7 +124,7 @@ def native_talent_guards(catalog, class_id, spec_id):
     return guards
 
 
-def _conditions(variant, catalog, template_talents):
+def _conditions(variant, catalog, template_talents, check_trait_names):
     states = {}
     traits_needed = []
     if variant.get('talent_id') or variant.get('trait_entry_id'):
@@ -132,13 +132,21 @@ def _conditions(variant, catalog, template_talents):
     for field in ('activation_context', 'reference_context'):
         context = variant.get(field) or {}
         traits = context.get('traits') or []
-        if set(context.get('trait_entry_ids') or []) - {t.get('trait_entry_id') for t in traits}:
-            return None
+        # 旧快照可能只保存前置节点 ID，仍可按条目查找施放条件。
+        unnamed = set(context.get('trait_entry_ids') or []) - {t.get('trait_entry_id') for t in traits}
+        traits_needed.extend((entry, None) for entry in sorted(unnamed))
         traits_needed.extend((t.get('trait_entry_id'), t.get('name')) for t in traits)
     for entry, name in traits_needed:
-        guard = catalog.get(entry) or _talent_guard(name)
-        if entry not in catalog and guard not in template_talents:
-            return None
+        guard = catalog.get(entry)
+        named_guard = _talent_guard(name)
+        # 当前目录可能复用了旧快照的条目 ID；只接受同名天赋及其原生重名编号。
+        if (check_trait_names and guard and guard.startswith('talent.') and named_guard and name.isascii()
+                and not re.fullmatch(re.escape(named_guard) + r'(?:_\d+)?', guard)):
+            guard = None
+        if not guard:
+            if named_guard not in template_talents:
+                return None
+            guard = named_guard
         states[guard] = None
 
     # 本地化器追加的状态说明来自下方的结构化条件。血量来自高低血量配对。
@@ -174,7 +182,7 @@ def _conditions(variant, catalog, template_talents):
     return states
 
 
-def _samples(rows, tokens, catalog, template_talents):
+def _samples(rows, tokens, catalog, template_talents, check_trait_names):
     samples = defaultdict(list)
     for row in rows:
         token = row.get('token')
@@ -187,7 +195,7 @@ def _samples(rows, tokens, catalog, template_talents):
                 or row.get('reporting_root_spell_id') != row['spell_id']):
             continue
         variant = row.get('variant') or {}
-        states = _conditions(variant, catalog, template_talents)
+        states = _conditions(variant, catalog, template_talents, check_trait_names)
         if states is None:
             continue
         owners = set(row.get('hero_subtree_ids') or [])
@@ -370,14 +378,15 @@ def _entry(line):
     for option in action.options:
         if option.name == 'if':
             guard = '(' + option.value + ')' if '|' in option.value else option.value
-        elif option.name in {'target_if', 'empower_to'}:
+        elif (option.name in {'target_if', 'empower_to'} or
+              (action.name == 'disintegrate' and option.name in {'chain', 'early_chain_if', 'interrupt_if'})):
             options.append(f'{option.name}={option.value}')
         else:
             return None
     return _Entry(line.list_name, line.operator, action.name, ','.join([action.name, *options]), guard)
 
 
-def build_apl(template, rows, trees, spec, *, talent_guards=None):
+def build_apl(template, rows, trees, spec, *, talent_guards=None, check_trait_names=False):
     """消费一次技能行迭代器，仅保留与默认循环动作匹配的条件及五档伤害。"""
     lines = template.splitlines()
     document = parse(template)
@@ -397,7 +406,7 @@ def build_apl(template, rows, trees, spec, *, talent_guards=None):
     template_talents = set(re.findall(r'\btalent\.[a-z0-9_]+', '\n'.join(
         line for line in lines if line.lstrip().startswith('actions'))))
     samples = _samples(rows, {m.token for m in matches if m and m.group not in COMMON},
-                       talent_guards or {}, template_talents)
+                       talent_guards or {}, template_talents, check_trait_names)
     heroes = [(tree['id'], hero_slug(hero_subtree_name_by_id(tree['id']))) for tree in trees]
     if not heroes or any(not slug for _, slug in heroes):
         raise SkillAplGenerationError('快照缺少可识别的英雄天赋树')
