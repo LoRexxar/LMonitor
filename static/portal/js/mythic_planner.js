@@ -95,6 +95,7 @@
         isApplyingRemote: false,
         modalView: '',
         routeLibraryDungeonKey: '',
+        unsavedDraftId: null,
     };
 
     const els = {};
@@ -374,7 +375,12 @@
         else rows.unshift(clone(state.route));
         rows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
         saveStoredRoutes(rows);
+        state.unsavedDraftId = null;
         localStorage.setItem(SELECTED_KEY, state.route.local_id);
+    }
+
+    function saveBeforeLeaving() {
+        if (state.route?.local_id !== state.unsavedDraftId) persistRoute();
     }
 
     function removeStoredRoute(localId) {
@@ -513,7 +519,8 @@
             const configured = state.catalog.config.default_dungeon_key;
             const shareRequest = sharedRouteRequest();
             const localRoutes = loadStoredRoutes();
-            const globalDefaultRoute = preferredDefaultRoute();
+            const emptyLibrary = !localRoutes.length && localStorage.getItem(STORAGE_KEY) === '[]';
+            const globalDefaultRoute = emptyLibrary ? null : preferredDefaultRoute();
             const requestedDungeon = state.catalog.dungeons.find((dungeon) => dungeon.key === requested);
             const defaultDungeon = (
                 !shareRequest
@@ -528,7 +535,7 @@
                 || state.catalog.dungeons.find((dungeon) => dungeon.key === configured)
                 || state.catalog.dungeons[0];
             const autoDefaultRoute = (
-                !shareRequest && !localRoutes.length
+                !shareRequest && !localRoutes.length && !emptyLibrary
                     ? preferredDefaultRoute(initial.key)
                     : null
             );
@@ -537,8 +544,9 @@
             configureLevelSlider();
             await loadDungeon(initial.key, {
                 restore: !shareRequest && localRoutes.length > 0,
-                persist: !shareRequest && (localRoutes.length > 0 || !autoDefaultRoute),
+                persist: !emptyLibrary && !shareRequest && (localRoutes.length > 0 || !autoDefaultRoute),
             });
+            if (emptyLibrary) state.unsavedDraftId = state.route?.local_id;
             await maybeLoadSharedRoute();
             if (autoDefaultRoute) {
                 await applyDefaultRoute(autoDefaultRoute, {automatic: true});
@@ -1779,7 +1787,7 @@
     }
 
     function newRoute() {
-        persistRoute();
+        saveBeforeLeaving();
         state.route = defaultRoute(state.dungeon.key);
         state.route.current_pull_id = state.route.pulls[0].id;
         state.history = [];
@@ -1789,22 +1797,25 @@
         toast('已新建空白路线。');
     }
 
-    async function deleteRoute() {
-        const old = state.route;
-        if (!window.confirm(`确认删除本地路线“${old.name}”？服务器路线不会同时删除。`)) return;
-        removeStoredRoute(old.local_id);
-        const fallback = !loadStoredRoutes().length
-            ? preferredDefaultRoute(state.dungeon.key)
-            : null;
-        if (fallback) {
-            await applyDefaultRoute(fallback, {automatic: true});
-            toast('本地路线已删除，已重新创建默认路线副本。');
-            return;
+    function deleteRoute(localId = state.route?.local_id) {
+        const route = loadStoredRoutes().find(row => row.local_id === localId);
+        if (!route || !window.confirm(`确认从当前浏览器删除路线“${route.name}”？`)) return;
+        removeStoredRoute(localId);
+        if (localStorage.getItem(SELECTED_KEY) === localId) localStorage.removeItem(SELECTED_KEY);
+        if (state.route?.local_id === localId) {
+            const key = state.dungeon.key;
+            if (restoreSelectedRoute(key)) {
+                localStorage.setItem(SELECTED_KEY, state.route.local_id);
+            } else {
+                state.route = defaultRoute(key);
+                state.unsavedDraftId = state.route.local_id;
+            }
+            state.floorKey = state.route.floor_key || state.dungeon.floors[0]?.key || '';
+            state.history = [];
+            state.future = [];
+            renderAll();
         }
-        state.route = defaultRoute(state.dungeon.key);
-        state.route.current_pull_id = state.route.pulls[0].id;
-        persistRoute();
-        renderAll();
+        renderRouteLibraryModal();
         toast('本地路线已删除。');
     }
 
@@ -1991,9 +2002,11 @@
         return String(route?.route_code || '');
     }
 
-    function routeLibraryNotePreview(route) {
-        const note = String(route?.description || '暂无备注');
-        return note.length > 16 ? `${note.slice(0, 16)}…` : note;
+    function routeLibraryNote(route) {
+        const note = String(route.description || '暂无备注');
+        // 兼容已发布的旧版采集备注。
+        const legacy = note.match(/^来源：(https:\/\/raider\.io\/[^\s]+)\r?\n(阵容：[\s\S]+)$/);
+        return legacy ? `${legacy[2]}\n来源：${legacy[1]}` : note;
     }
 
     function routeLibraryDungeon() {
@@ -2053,6 +2066,7 @@
                     </div>
                     <div class="mdt-library-actions">
                         <button type="button" data-load-route="${escapeHtml(route.local_id)}">载入</button>
+                        <button type="button" class="is-danger" data-delete-local-route="${escapeHtml(route.local_id)}">删除</button>
                     </div>
                 </article>
             `;
@@ -2075,7 +2089,10 @@
             <article class="mdt-library-row mdt-library-row-default ${isInvalid ? 'is-invalid' : ''}">
                 <div class="mdt-library-copy mdt-library-compact-name">
                     <div class="mdt-library-title">
-                        <strong>${escapeHtml(route.name || '未命名默认路线')}</strong>
+                        <div class="mdt-library-name">
+                            <button class="mdt-library-note-trigger" type="button" aria-describedby="route-note-${Number(route.id)}">${escapeHtml(route.name || '未命名默认路线')}</button>
+                            <div class="mdt-library-note" id="route-note-${Number(route.id)}" role="tooltip">${escapeHtml(routeLibraryNote(route))}</div>
+                        </div>
                         ${isInvalid
                             ? `<span class="mdt-library-badge is-invalid" title="${escapeHtml(invalidReason)}">已失效</span>`
                             : `
@@ -2088,12 +2105,6 @@
                 </div>
                 <div class="mdt-library-compact-value mdt-library-applicable-level"><span>适用层数</span><strong>${escapeHtml(route.applicable_level || `${Number(route.dungeon_level || 0)} 层`)}</strong></div>
                 <div class="mdt-library-compact-value mdt-library-compact-time"><span>更新时间</span><time>${escapeHtml(routeLibraryTime(route.updated_at))}</time></div>
-                <button
-                    type="button"
-                    class="mdt-library-note-trigger"
-                    title="${escapeHtml(route.description || '暂无备注')}"
-                    aria-label="备注：${escapeHtml(route.description || '暂无备注')}"
-                ><span>备注</span><strong>${escapeHtml(routeLibraryNotePreview(route))}</strong></button>
                 <div class="mdt-library-actions">
                     ${isInvalid
                         ? `<button type="button" disabled title="${escapeHtml(invalidReason)}">路线已失效</button>`
@@ -2137,7 +2148,12 @@
     }
 
     function showRouteLibrary() {
-        state.routeLibraryDungeonKey = state.dungeon?.key || '';
+        const key = els.dungeonSelect.value || state.dungeon?.key;
+        if (!state.catalog?.dungeons?.some(dungeon => dungeon.key === key)) {
+            toast('请先选择副本。');
+            return;
+        }
+        state.routeLibraryDungeonKey = key;
         openModal({
             title: '路线库',
             subtitle: '推荐路线与当前浏览器路线',
@@ -2322,13 +2338,13 @@
 
     function bindEvents() {
         els.seasonSelect.addEventListener('change', async () => {
-            persistRoute();
+            saveBeforeLeaving();
             state.selectionGroupKey = els.seasonSelect.value;
             const firstDungeon = renderCatalogSelectors();
             if (firstDungeon) await loadDungeon(firstDungeon.key, {restore: true});
         });
         els.dungeonSelect.addEventListener('change', async () => {
-            persistRoute();
+            saveBeforeLeaving();
             await loadDungeon(els.dungeonSelect.value, {restore: true});
         });
         els.floorTabs.addEventListener('click', (event) => {
@@ -2408,7 +2424,7 @@
         $('#new-route').addEventListener('click', newRoute);
         $('#rename-route').addEventListener('click', renameCurrentRoute);
         els.routeNameButton.addEventListener('click', renameCurrentRoute);
-        $('#delete-route').addEventListener('click', deleteRoute);
+        $('#delete-route').addEventListener('click', () => deleteRoute());
         $('#export-route').addEventListener('click', async () => {
             try {
                 await showExportModal('export');
@@ -2433,6 +2449,11 @@
             if (button && state.modalAction) {
                 const action = state.modalAction[Number(button.dataset.modalAction)];
                 if (action?.handler) await action.handler();
+            }
+            const deleteButton = event.target.closest('[data-delete-local-route]');
+            if (deleteButton) {
+                deleteRoute(deleteButton.dataset.deleteLocalRoute);
+                return;
             }
             const loadButton = event.target.closest('[data-load-route]');
             if (loadButton) {
@@ -2510,7 +2531,7 @@
             }
         });
         window.addEventListener('resize', renderViewTransform);
-        window.addEventListener('beforeunload', persistRoute);
+        window.addEventListener('beforeunload', saveBeforeLeaving);
     }
 
     function init() {

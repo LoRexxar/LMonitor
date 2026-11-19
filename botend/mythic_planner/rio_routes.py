@@ -135,7 +135,7 @@ class RouteSource:
             for member, spec_id in zip(members, ids):
                 cls, spec = SPEC_IDENTITY_MAP[spec_id]
                 lineup.append(f"{member['name']}-{member['realm'].get('slug', '')}（{CLASS_CN[cls]}·{SPEC_CN[spec]}）")
-            description = f"来源：{url}\n阵容：" + '、'.join(lineup)
+            description = "阵容：" + '、'.join(lineup) + f"\n来源：{url}"
             return self.export(slug, logged['route_key']), facts['mythic_level'], description
         return None
 

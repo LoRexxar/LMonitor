@@ -4800,7 +4800,8 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         for token in ('适用层数', '更新时间', '备注', '是否启用', '复制字符串'):
             self.assertIn(token, portal_js)
         self.assertIn('class="mdt-library-note-trigger"', portal_js)
-        self.assertIn('aria-label="备注：', portal_js)
+        self.assertIn('role="tooltip"', portal_js)
+        self.assertIn('data-delete-local-route', portal_js)
         self.assertNotIn('mdt-library-compact-code', portal_js)
         self.assertIn('route.is_valid === false', portal_js)
         self.assertIn('已失效', portal_js)
