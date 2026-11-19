@@ -42,6 +42,10 @@ def main():
             content = profile[1] if profile else f'{cls}="audit"\nspec={spec}\nlevel=90\n'
             lines = [line for line in content.splitlines()
                      if re.match(r'^(?:' + cls + r'|spec|level|race|main_hand|off_hand)=', line)]
+            if (cls, spec) == ('evoker', 'augmentation'):
+                # The single-actor audit must not instantiate simplified raid allies.
+                lines.insert(next(i for i, line in enumerate(lines) if line.startswith('spec=')) + 1,
+                             'evoker.make_simplified_if_alone=0')
             lines += ['role=attack', 'actions=wait']
             base = 'iterations=1\nthreads=1\nallow_experimental_specializations=1\n' + '\n'.join(lines) + '\n'
             talents = '\n'.join(line for line in content.splitlines()
