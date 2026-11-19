@@ -12,7 +12,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
-from botend.models import WclCombatantDocument, WclCombatantFact, WclCombatantSnapshot
+from botend.models import WclCombatantDocument, WclCombatantFact, WclCombatantSnapshot, WclConsumableObservation
 
 IDENTITY_KEYS = ('sourceID', 'specID')
 ATTRIBUTE_KEYS = ('race', 'critMelee', 'critSpell', 'critRanged', 'hasteMelee',
@@ -109,7 +109,7 @@ def _bind_documents(rows, reads):
 
 
 def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None,
-               document_reads=None):
+               document_reads=None, include_consumables=False):
     """按战斗有界读取，可限于已核对身份的角色；空角色范围不读取整场。"""
     keys = set()
     for record in records:
@@ -171,6 +171,22 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
         for row in (catchup if identities_only else _bind_documents(catchup, document_reads)):
             actors[(row.report_code, row.fight_id, row.actor_id)] = (
                 _project_identity(row) if identities_only else _project_fact(row))
+        if actors and include_consumables:
+            usage = WclConsumableObservation.objects.filter(where)
+            if fetched_before is not None:
+                usage = usage.filter(fetched_at__lte=fetched_before)
+            fields = ('report_code', 'fight_id', 'actor_id', 'pk')
+            if not identities_only:
+                fields += ('payload',)
+            for code, fight, actor, pk, *values in usage.values_list(*fields):
+                payload = actors.get((code, fight, actor))
+                if payload is None:
+                    continue
+                payload['consumables'] = True if identities_only else values[0]
+                if hasattr(payload, 'cache_token'):
+                    payload.cache_token += (pk,)
+                if hasattr(payload, 'cache_identity'):
+                    payload.cache_identity += (pk,)
         for (code, fight, actor), payload in sorted(actors.items()):
             result[(code, fight)].append(payload)
     return result

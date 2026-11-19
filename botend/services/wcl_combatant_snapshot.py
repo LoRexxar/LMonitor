@@ -78,7 +78,7 @@ def _load_facts(records, *, fetched_before=None, identities_only=False, actor_id
                 document_reads=None):
     return wcl_combatant_store.load_facts(
         records, fetched_before=fetched_before, identities_only=identities_only,
-        actor_ids_by_fight=actor_ids_by_fight, document_reads=document_reads)
+        actor_ids_by_fight=actor_ids_by_fight, document_reads=document_reads, include_consumables=True)
 
 
 def _fact_read_batches(records, target_limit=100):
@@ -199,12 +199,15 @@ def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
         row['stats_json'] = {}
         row['race'] = ''
         row.pop('wcl_actor_id', None)
+        row.pop('consumables', None)
         # Old rankings remain a WCL source; resolve only their explicit enchant IDs.
         for item in row.get('gear_json') or []:
             if isinstance(item, dict) and (item.get('permanentEnchant') or item.get('temporaryEnchant')):
                 item['enchants_detail'] = combatant_gear([item], catalog)[0]['enchants_detail'] if _positive_int(item.get('id')) else []
         if event:
             row['wcl_actor_id'] = event['sourceID']
+            if isinstance(event.get('consumables'), dict):
+                row['consumables'] = dict(event['consumables'])
             row['stats_json'] = combatant_stats(event)
             if event.get('race'):
                 row['race'] = deepcopy(event['race'])
@@ -216,6 +219,10 @@ def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
             gear = combatant_gear(event.get('gear'), catalog)
             if gear:
                 row['gear_json'] = gear
+                weapons = [item for item in gear if item['slot'] in ('main_hand', 'off_hand')]
+                if weapons:
+                    row.setdefault('consumables', {})['weapon'] = sorted({
+                        eid for item in weapons if (eid := _positive_int(item.get('temporaryEnchant')))})
         result.append(row)
     return result
 
@@ -357,7 +364,7 @@ def _collection_worker_limit(fetcher):
     return max(1, min(16, int(collection_worker_limit(client_id))))
 
 
-def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
+def _fetch_combatant_batch(fetcher, code, batch, *, factory=None, require_consumables=False):
     """Workers perform transport only; no central fact writes or shared errors."""
     from django.db import close_old_connections, connections
     from botend.services.wcl_api_budget import business_requests_sent
@@ -367,11 +374,13 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
         staged = load_staged_events(code, batch, with_fetched_at=True)
         if staged is not None:
             events, fetched_at_by_fight = staged
-            return events, '', None, time.monotonic() - started, fetched_at_by_fight
+            if not require_consumables or all(isinstance(event.get('consumables'), dict) for event in events):
+                return events, '', None, time.monotonic() - started, fetched_at_by_fight
         if factory is not None:
             close_old_connections()
             fetcher = factory()
-        events = fetcher.fetch_wcl_combatant_info(code, batch)
+        options = {'include_consumables': True} if require_consumables else {}
+        events = fetcher.fetch_wcl_combatant_info(code, batch, **options)
         error = getattr(fetcher, '_wcl_last_error', '')
         if error == 'admission_busy' and business_requests_sent.get():
             # Pagination may already have sent HTTP. Defer, never replay it.
@@ -390,12 +399,15 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
 
 
 def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_fight=None, timings=None,
-                             matched_rows=None):
+                             matched_rows=None, require_consumables=False):
     """Validate a complete batch and read back immutable facts on the caller."""
     from django.db import transaction
     from django.utils import timezone
     with record_duration(timings, 'validation_seconds'):
         by_fight = _validated_events(events, batch)
+    if require_consumables and any(not isinstance(event.get('consumables'), dict)
+                                   for group in by_fight.values() for event in group):
+        raise ValueError('缺少完整的消耗品观测')
     now = timezone.now()
     fetched_at_by_fight = fetched_at_by_fight or {}
     # Include authoritative empty fights, so recovery is all-or-nothing.
@@ -412,15 +424,36 @@ def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_f
         # strict for its other callers. No new teammate is dropped.
         with record_duration(timings, 'fact_lookup_seconds'):
             existing = wcl_combatant_store.load_facts(
-                [{'report_code': code, 'fight_id': fight} for fight in batch], identities_only=True)
+                [{'report_code': code, 'fight_id': fight} for fight in batch], identities_only=True,
+                include_consumables=require_consumables)
         recorded = {fight: {event['sourceID'] for event in payloads}
                     for (_, fight), payloads in existing.items()}
-        new_events = {fight: [event for event in payloads
-                             if event['sourceID'] not in recorded.get(fight, set())]
+        new_events = {fight: [{key: value for key, value in event.items() if key != 'consumables'}
+                              for event in payloads if event['sourceID'] not in recorded.get(fight, set())]
                       for fight, payloads in by_fight.items()}
         with record_duration(timings, 'fact_write_seconds'):
             written = wcl_combatant_store.persist_events(
                 code, new_events, fetched_at=now, fetched_at_by_fight=fetched_at_by_fight)
+            from botend.models import WclConsumableObservation
+            additions = []
+            for fight, payloads in by_fight.items():
+                old = {event['sourceID']: event for event in existing.get((code, fight), [])}
+                for event in payloads:
+                    actor = event['sourceID']
+                    prior = old.get(actor)
+                    if not isinstance(event.get('consumables'), dict) or (prior and 'consumables' in prior):
+                        continue
+                    if prior:
+                        source, previous = event['source'], prior.get('source') or {}
+                        if (_positive_int(prior.get('specID')) != _positive_int(event['specID'])
+                                or source['name'].strip().casefold() != str(previous.get('name') or '').strip().casefold()
+                                or _realm(source['server']) != _realm(previous.get('server'))):
+                            continue
+                    additions.append(WclConsumableObservation(
+                        report_code=code, fight_id=fight, actor_id=actor, payload=event['consumables'],
+                        fetched_at=fetched_at_by_fight.get(fight, now)))
+            if additions:
+                WclConsumableObservation.objects.bulk_create(additions, ignore_conflicts=True, batch_size=200)
     matched, missing = 0, 0
     missing_fights = set()
     with record_duration(timings, 'fact_readback_seconds'):
@@ -428,7 +461,8 @@ def _persist_combatant_batch(code, batch, batch_rows, events, *, fetched_at_by_f
             persisted = _load_facts(references, identities_only=True)
             for row in observations:
                 key = _fight_key(row)
-                if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
+                event = match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name'])
+                if event and (not require_consumables or 'consumables' in event):
                     matched += 1
                     if matched_rows is not None:
                         matched_rows.append(row)
@@ -462,6 +496,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     from django.utils import timezone
     if not 1 <= batch_size <= 20:
         raise ValueError('batch_size must be between 1 and 20')
+    fetch_method = getattr(fetcher, 'fetch_wcl_combatant_info', None)
+    require_consumables = (fetcher is None and apply) or getattr(fetch_method, 'collects_consumables', False) is True
     records = list(records)
     counts = dict(selected=len(records), cached=0, matched=0, missing=0,
                   permission_denied=0, failed=0, pending=0, snapshots_written=0,
@@ -515,7 +551,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             fight_state = states.get(key, {})
             if not key or not row.get('realm') or not row.get('character_name') or str(row['character_name']).casefold() == 'anonymous':
                 counts['missing'] += 1
-            elif match_combatant(facts.get(key, []), row, row['class_name'], row['spec_name']):
+            elif ((event := match_combatant(facts.get(key, []), row, row['class_name'], row['spec_name']))
+                  and (not require_consumables or 'consumables' in event)):
                 counts['cached'] += 1
                 if on_positive:
                     positive_rows.append(row)
@@ -647,10 +684,12 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 counts['fights_requested'] += len(batch)
                 counts['batches_dispatched'] += 1
                 if factory:
-                    future = pool.submit(_fetch_combatant_batch, None, code, batch, factory=factory)
+                    future = pool.submit(_fetch_combatant_batch, None, code, batch, factory=factory,
+                                         require_consumables=require_consumables)
                 else:
                     future = Future()
-                    future.set_result(_fetch_combatant_batch(fetcher, code, batch))
+                    future.set_result(_fetch_combatant_batch(fetcher, code, batch,
+                                                             require_consumables=require_consumables))
                 inflight[future] = (code, batch, batch_rows)
                 future.add_done_callback(completed_responses.put)
             if not inflight:
@@ -682,7 +721,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                         positive_rows = []
                         written, matched, missing = _persist_combatant_batch(
                             code, batch, batch_rows, events, fetched_at_by_fight=fetched_at_by_fight, timings=counts,
-                            matched_rows=positive_rows if on_positive else None)
+                            matched_rows=positive_rows if on_positive else None, require_consumables=require_consumables)
                         if on_positive and positive_rows:
                             from django.db import transaction
                             # 只有事实事务提交后，断点才允许跳过这些样本。

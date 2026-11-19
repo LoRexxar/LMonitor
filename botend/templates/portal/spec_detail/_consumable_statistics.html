@@ -1,0 +1,27 @@
+{% if detail.sample_size %}
+<section class="section-block popularity-section">
+    <h4>战斗消耗品</h4>
+    <p class="popularity-section-note">食物和合剂按开场已有或战斗中获得的增益统计。药水按战斗中的实际施放统计，武器临时强化取自开场装备。使用率为使用该项的角色场次占本类已采集场次的比例，同一角色同场重复使用只计一次。共享饱餐效果的料理合并显示。</p>
+    {% if detail.consumables %}
+    <div class="gear-slot-grid">
+        {% for group in detail.consumables %}
+        <div class="gear-slot-section">
+            <div class="slot-name">{{ group.label }}</div>
+            <p class="popularity-section-note">已采集 {{ group.samples }} / {{ detail.sample_size }} 个角色场次</p>
+            {% for row in group.rows %}
+            <div class="gear-pop-card">
+                <div class="gear-pop-main">
+                    <span>{{ row.name }}</span>
+                    <div class="popularity-bar"><div class="popularity-fill" style="width:{{ row.pct }}%"></div></div>
+                </div>
+                <div class="popularity-stat">{{ row.pct }}%<small>{{ row.count }} 场</small></div>
+            </div>
+            {% empty %}
+            <p>{% if group.samples %}已采集场次中未识别到此类消耗品。{% else %}暂无可统计的日志。{% endif %}</p>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}<p>暂无可统计的消耗品日志。</p>{% endif %}
+</section>
+{% endif %}

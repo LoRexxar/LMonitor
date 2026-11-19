@@ -14,8 +14,8 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 
 # 日志富化或天赋解析语义改变时升级，排名排序规则不属于此版本。
-SCHEMA = 'wcl-log-analysis-v2-identity'
-LOG_FIELDS = ('gear_json', 'talents_json', 'stats_json', 'race', 'wcl_actor_id')
+SCHEMA = 'wcl-log-analysis-v3-consumables'
+LOG_FIELDS = ('gear_json', 'talents_json', 'stats_json', 'race', 'wcl_actor_id', 'consumables')
 
 
 def observation_key(row, event):

@@ -46,6 +46,7 @@ def page(events, cursor=None, extra_actors=()):
         raw.append(payload)
     return Response({'data': {'reportData': {'report': {
         'masterData': {'actors': actors},
+        'consumableEvents': {'data': [], 'nextPageTimestamp': None},
         'events': {'data': raw, 'nextPageTimestamp': cursor}}}}})
 
 
@@ -119,6 +120,9 @@ class WclInputCompletenessTests(RawStagingIsolationMixin, TransactionTestCase):
     def test_incomplete_second_page_is_atomic_preserves_old_and_can_retry(self):
         old = WclCombatantSnapshot.objects.create(report_code='Report', fight_id=11,
                                                  actor_id=232, payload_json=event())
+        from botend.models import WclConsumableObservation
+        WclConsumableObservation.objects.create(report_code='Report', fight_id=11, actor_id=232,
+                                                payload={'potion': [], 'healing': []})
         # Every invalid input must fail before immutable inserts or missing TTLs.
         cases = [('source', key, value) for key, values in (
             ('name', [123, [], {}]),

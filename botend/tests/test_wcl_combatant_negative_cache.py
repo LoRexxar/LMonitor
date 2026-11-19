@@ -206,6 +206,7 @@ class CombatantNegativeCacheTests(RawStagingIsolationMixin, TestCase):
             raw = event(actor=233)
             actor = raw.pop('source')
             return {'reportData': {'report': {'masterData': {'actors': [actor]},
+                    'consumableEvents': {'data': [], 'nextPageTimestamp': None},
                     'events': {'data': [raw], 'nextPageTimestamp': cursor}}}}
         collector = SpecDetailBase(None, None)
         with patch.object(collector, '_wcl_graphql', side_effect=[page(200), None]):

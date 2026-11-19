@@ -35,6 +35,7 @@ def sample(code, fight=11, actor=232):
 
 def page(fights, *, cursor=None, spec=251):
     return {'data': {'reportData': {'report': {
+        'consumableEvents': {'data': [], 'nextPageTimestamp': None},
         'masterData': {'actors': [{'id': 232, 'name': 'Player232', 'server': 'BurningLegion', 'type': 'Player'}]},
         'events': {'data': [dict(type='combatantinfo', fight=fight, sourceID=232, specID=spec,
                                  critMelee=1410) for fight in fights], 'nextPageTimestamp': cursor}}}}}
@@ -346,6 +347,9 @@ class CombatantPoolTests(RawStagingIsolationMixin, TransactionTestCase):
             if code == 'Paged' and start is None:
                 return 200, page(fights[:1], cursor=100)
             return 200, page(fights)
+        from botend.models import WclConsumableObservation
+        WclConsumableObservation.objects.create(report_code='Public', fight_id=11, actor_id=232,
+                                                payload={'potion': [], 'healing': []})
         old = WclCombatantSnapshot.objects.create(report_code='Public', fight_id=11, actor_id=232,
             payload_json={'fight': 11, 'sourceID': 232, 'specID': 251,
                           'source': {'id': 232, 'name': 'Player232', 'server': 'BurningLegion'}, 'critMelee': -1})

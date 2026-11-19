@@ -489,6 +489,7 @@ class SpecStatsService:
                 'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
                 **({'talent_build_popularity': 'Warcraft Logs 对应战斗的天赋节点；导入码由日志节点生成'}
                    if include_talent_build_popularity else {}),
+                'consumables': 'Warcraft Logs 对应战斗和角色的增益、药水施放与开场武器强化',
                 'gear': 'Warcraft Logs 对应战斗的装备、宝石与附魔',
                 'secondary_stats': 'Warcraft Logs 对应角色的 CombatantInfo 原始绿字；可能包含日志时点增益，不等同于无增益装备面板；未提供百分比时不推算',
                 'race': 'Warcraft Logs 日志种族；仅统计提供种族的样本',
@@ -624,6 +625,8 @@ class SpecStatsService:
             _omit_unavailable_log_statistics(stats)
             phase_timings['gear_statistics_reused'] += 1
         else:
+            from .wcl_consumables import statistics as consumable_statistics
+            stats['consumables'] = consumable_statistics(records)
             # Gear and enhancements are frozen in the same WCL observations.
             stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
             stats['gem_popularity'] = _compute_gem_popularity(records, top_n=20)
@@ -754,7 +757,7 @@ class SpecStatsService:
 
 LOG_STATISTIC_FIELDS = (
     'gear_popularity', 'gem_popularity', 'enchant_popularity',
-    'secondary_stats', 'race_distribution',
+    'secondary_stats', 'race_distribution', 'consumables',
 )
 
 
@@ -765,6 +768,8 @@ def _omit_unavailable_log_statistics(result):
         if not result.get(key):
             result.pop(key, None)
     sources = result.get('field_sources', {})
+    if not any(group['samples'] for group in result.get('consumables', [])):
+        sources.pop('consumables', None)
     if not result.get('secondary_stats'):
         sources.pop('secondary_stats', None)
     if not result.get('race_distribution'):

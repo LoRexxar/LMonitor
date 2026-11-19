@@ -180,7 +180,7 @@ class SpecDetailBase(BaseScan):
             return None
         return rankings
 
-    def fetch_wcl_combatant_info(self, report_code, fight_id):
+    def fetch_wcl_combatant_info(self, report_code, fight_id, *, include_consumables=False):
         """Fetch one report's bounded fight batch, including every events page.
 
         Scalar callers remain supported. None means failure (not an empty log).
@@ -198,10 +198,13 @@ class SpecDetailBase(BaseScan):
         except (TypeError, ValueError):
             self._wcl_last_error = 'invalid_input'
             return None
+        from botend.services.wcl_consumables import EVENT_FILTER, EVENT_SELECTION, fetch_usage
+        variables = {'code': report_code, 'fightIDs': fight_ids}
         query = """
-        query($code:String!, $fightIDs:[Int], $start:Float) {
+        query($code:String!, $fightIDs:[Int], $start:Float EXTRA_VARIABLES) {
             reportData {
                 report(code:$code) {
+                    EXTRA_SELECTION
                     masterData { actors(type: "Player") { id name server type subType } }
                     events(fightIDs:$fightIDs, dataType: CombatantInfo,
                            limit: 300, startTime:$start) {
@@ -211,9 +214,16 @@ class SpecDetailBase(BaseScan):
             }
         }
         """
-        result, cursor = [], None
+        core_query = query.replace('EXTRA_SELECTION', '').replace('EXTRA_VARIABLES', '')
+        first_query = (query.replace('EXTRA_SELECTION', EVENT_SELECTION)
+                       .replace('EXTRA_VARIABLES', ', $filter:String!, $useStart:Float'))
+        result, cursor, first_report = [], None, None
         for page in range(20):
-            data = self._wcl_graphql(query, {'code': report_code, 'fightIDs': fight_ids, 'start': cursor}, retries=2)
+            combined = include_consumables and page == 0
+            arguments = dict(variables, start=cursor)
+            if combined:
+                arguments.update(filter=EVENT_FILTER, useStart=None)
+            data = self._wcl_graphql(first_query if combined else core_query, arguments, retries=2)
             if not data:
                 self._wcl_last_error = self._wcl_last_error or 'request_failed'
                 return None
@@ -221,6 +231,8 @@ class SpecDetailBase(BaseScan):
             if not isinstance(report, dict):
                 self._wcl_last_error = 'report_unavailable'
                 return None
+            if combined:
+                first_report = report
             actors = (report.get('masterData') or {}).get('actors')
             envelope = report.get('events')
             if not isinstance(actors, list) or not isinstance(envelope, dict) or not isinstance(envelope.get('data'), list):
@@ -241,6 +253,8 @@ class SpecDetailBase(BaseScan):
                 return None
             next_cursor = envelope['nextPageTimestamp']
             if next_cursor is None:
+                if include_consumables:
+                    return fetch_usage(self, report_code, fight_ids, result, first_report)
                 return result
             if not isinstance(next_cursor, (int, float)) or (cursor is not None and next_cursor <= cursor):
                 self._wcl_last_error = 'invalid_pagination'
@@ -248,6 +262,9 @@ class SpecDetailBase(BaseScan):
             cursor = next_cursor
         self._wcl_last_error = 'pagination_limit'
         return None
+
+    # 自定义采集器可继续使用原来的双参数接口。
+    fetch_wcl_combatant_info.collects_consumables = True
 
     # ========== Raider.IO ==========
 

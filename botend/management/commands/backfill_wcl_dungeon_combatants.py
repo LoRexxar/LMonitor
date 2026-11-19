@@ -45,12 +45,12 @@ class Command(BaseCommand):
             if not identities:
                 raise CommandError('Unknown class identity')
         records = select_dungeon_combatant_records(season, identities)
-        counts = collect_dungeon_combatants(records, batch_size=batch_size)
+        fetcher = SpecDetailBase(None, None)
+        counts = collect_dungeon_combatants(records, fetcher, batch_size=batch_size)
         self.stdout.write(json.dumps({'mode': 'plan', 'season': season.id, 'specs': len(identities), **counts}, sort_keys=True))
         if not options['apply']:
             self.stdout.write('DRY-RUN: no network requests or database writes; use --apply to collect.')
             return
-        fetcher = SpecDetailBase(None, None)
         if counts['pending']:
             # One truthful budget observation, not a made-up estimate per character.
             budget = fetcher._wcl_graphql(

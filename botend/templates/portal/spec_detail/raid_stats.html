@@ -347,6 +347,8 @@
         {% include "portal/spec_detail/_talent_build_analysis.html" with popularity=boss_detail.talent_build_popularity %}
         {% endif %}
 
+        {% include "portal/spec_detail/_consumable_statistics.html" with detail=boss_detail only %}
+
         <!-- 装备热门度 -->
         {% if boss_detail.gear_popularity %}
         <div class="section-block popularity-section">

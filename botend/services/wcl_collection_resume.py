@@ -25,7 +25,7 @@ class CombatantResume:
         if isinstance(checkpoint, dict):
             body = {key: checkpoint.get(key) for key in ('version', 'cohort', 'remaining')}
             refs = body['remaining']
-            if (body['version'] == 1 and body['cohort'] == self.cohort
+            if (body['version'] == 2 and body['cohort'] == self.cohort
                     and isinstance(refs, list) and all(isinstance(ref, str) for ref in refs)
                     and len(refs) == len(set(refs)) and set(refs).issubset(self.references)
                     and checkpoint.get('checksum') == _digest(body)):
@@ -45,7 +45,7 @@ class CombatantResume:
     def checkpoint(self, counts):
         if self.remaining == self.references:
             return dict(counts)
-        body = dict(version=1, cohort=self.cohort, remaining=sorted(self.remaining))
+        body = dict(version=2, cohort=self.cohort, remaining=sorted(self.remaining))
         return {**counts, CHECKPOINT_KEY: {**body, 'checksum': _digest(body)}}
 
     def save(self, counts):
@@ -78,7 +78,7 @@ def collect_cycle_combatants(cycle, fetcher, *, log=None, admission_check=None):
         # 完成屏障不能信任断点：全部引用必须存在，正向事实和负缓存必须仍然有效。
         records = frozen_combatant_records(cycle)
         resume.remaining = set(resume.references)
-        verified = collect_dungeon_combatants(records, apply=False, on_positive=resume.positive)
+        verified = collect_dungeon_combatants(records, fetcher, apply=False, on_positive=resume.positive)
         positive = verified.get('cached', 0)
         counts['matched'] = min(counts.get('matched', 0), positive)
         counts['cached'] = positive - counts['matched']

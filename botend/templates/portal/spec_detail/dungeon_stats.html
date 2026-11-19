@@ -385,6 +385,8 @@
         {% endif %}
         {% endif %}
 
+        {% include "portal/spec_detail/_consumable_statistics.html" with detail=dungeon_detail only %}
+
         <!-- 装备热门度 -->
         {% if dungeon_detail.gear_popularity %}
         <div class="section-block popularity-section">

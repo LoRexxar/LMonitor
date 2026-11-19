@@ -144,6 +144,9 @@ class TransientReportTests(RawStagingIsolationMixin, TransactionTestCase):
                                   checked_at=now, retry_after=now+timedelta(minutes=minutes))
             for code, minutes in [('A', 10), ('B', 20), ('Cached', 30)]])
         from botend.tests.test_wcl_combatant_snapshot import event
+        from botend.models import WclConsumableObservation
+        WclConsumableObservation.objects.create(report_code='Cached', fight_id=11, actor_id=232,
+                                                payload={'potion': [], 'healing': []})
         WclCombatantSnapshot.objects.create(report_code='Cached', fight_id=11, actor_id=232,
                                             payload_json=event())
         rows = [sample(code) for code in ('A', 'B', 'Cached', 'Healthy')]

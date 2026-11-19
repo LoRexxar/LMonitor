@@ -3055,6 +3055,20 @@ class WclCombatantFact(models.Model):
         )]
 
 
+class WclConsumableObservation(models.Model):
+    """按战斗、角色保存已完整采集的消耗品观测，独立于原有日志事实。"""
+    report_code = models.CharField(max_length=50)
+    fight_id = models.PositiveIntegerField()
+    actor_id = models.PositiveIntegerField()
+    payload = models.JSONField()
+    fetched_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_wcl_consumable_observation'
+        constraints = [models.UniqueConstraint(
+            fields=['report_code', 'fight_id', 'actor_id'], name='uniq_wcl_consumable_actor')]
+
+
 class WclCombatantFetchState(models.Model):
     """带期限的获取状态；战斗0表示报告权限或临时故障，正数表示完整响应仍缺目标。"""
     report_code = models.CharField(max_length=50)
