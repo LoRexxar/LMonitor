@@ -18,6 +18,8 @@ import zlib
 from collections.abc import Sequence
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
+from functools import lru_cache
+from threading import Lock
 
 from django.conf import settings
 from django.db import close_old_connections, connection, models, transaction
@@ -4793,7 +4795,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 27
-    DATASET_SCHEMA_REVISION = 59
+    DATASET_SCHEMA_REVISION = 60
     MIN_DISPLAY_SCHEMA_REVISION = 51
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
@@ -4988,6 +4990,14 @@ class SimcSkillDamageSnapshotService:
             snapshot.save(update_fields=update_fields)
         return cls(snapshot, backend=backend)
 
+    @staticmethod
+    def augmentation_probe():
+        """归一化只需要施法角色，天赋由同版本原生目录逐项装配。"""
+        return SimcProfile(
+            class_name='evoker', spec='evoker_augmentation', player_config_mode='manual_equipment',
+            player_equipment='evoker="skill_damage_base"\nspec=augmentation\nrole=attack',
+        )
+
     def _profiles(self):
         rows = SimcProfile.objects.filter(
             is_active=True,
@@ -5000,9 +5010,16 @@ class SimcSkillDamageSnapshotService:
             ))
             for profile in rows
         ]
-        _validate_required_profile_identities([
-            identity for _profile, identity in profiles_with_identities
-        ])
+        identities = [identity for _, identity in profiles_with_identities]
+        schema = getattr(self.snapshot, 'schema_revision', 0)
+        if type(schema) is int and schema >= 60:
+            augmentation = ('evoker', 'augmentation')
+            if augmentation not in identities:
+                profiles_with_identities.append((self.augmentation_probe(), augmentation))
+                identities.append(augmentation)
+            _validate_required_profile_identities(identities, required=SIMC_REQUIRED_PROFILE_SPECS | {augmentation})
+        else:
+            _validate_required_profile_identities(identities)
         selected = []
         seen = set()
         for profile, key in profiles_with_identities:
@@ -6262,6 +6279,8 @@ class SimcSkillDamageSnapshotService:
             if 'specialization' not in actor and actor.get('spec'):
                 actor['specialization'] = actor.pop('spec')
             actor['variant_model'] = 'single_talent_runtime'
+            if getattr(profile, 'pk', None) is None and profile.spec == 'evoker_augmentation':
+                actor['normalization_profile_source'] = 'augmentation_probe'
             actor['hero_talent_trees'] = hero_talent_trees
             if getattr(self, '_native_talent_class_by_spec', None):
                 from .simc_apl.from_skill_damage import native_talent_guards
@@ -6337,12 +6356,14 @@ class SimcSkillDamageSnapshotService:
                 'talents': list(catalog.values()),
                 'talent_catalog': getattr(self, '_native_talent_catalog', []),
             }, ensure_ascii=False), encoding='utf-8')
+            if profile.pk is None and profile.spec != 'evoker_augmentation':
+                raise ValueError('缺少归一化角色 ID')
             command = [
                 sys.executable,
                 str(Path(settings.BASE_DIR) / 'manage.py'),
                 'generate_simc_skill_damage_snapshot',
                 '--snapshot-id', str(self.snapshot.pk),
-                '--profile-id', str(profile.pk),
+                *(['--augmentation-probe'] if profile.pk is None else ['--profile-id', str(profile.pk)]),
                 '--output', output_path,
                 '--scope-catalog', str(catalog_path),
             ]
@@ -6783,3 +6804,51 @@ class SimcSkillDamageSnapshotService:
             raise
         finally:
             close_old_connections()
+
+# 旧快照缺少原生条件表时只读导出一次 DBC；缓存中只保留小型条件表。
+_apl_catalog_lock = Lock()
+
+
+@lru_cache(maxsize=2)
+def _read_apl_guards(path, fingerprint):
+    from .simc_apl.from_skill_damage import native_talent_guards
+
+    with tempfile.TemporaryDirectory(prefix='simc-apl-talents-') as tmp:
+        output = Path(tmp) / 'scope.json'
+        subprocess.run([path, f'skill_damage_raw_scope_export={output}'], capture_output=True,
+                       check=True, timeout=60)
+        with output.open(encoding='utf-8') as stream:
+            catalog = json.load(stream)['talent_catalog']
+    classes = {sid: row['class_id'] for row in catalog for sid in row.get('spec_ids', ())}
+    tables = {SPEC_IDENTITY_MAP[sid]: native_talent_guards(catalog, cid, sid)
+              for sid, cid in classes.items() if sid in SPEC_IDENTITY_MAP}
+    stat = os.stat(path)
+    if fingerprint != (stat.st_ino, stat.st_size, stat.st_mtime_ns):
+        raise ValueError('读取天赋目录时 SimC 二进制已更新')
+    return tables
+
+
+def current_apl_guards(class_name, specialization):
+    path = SimcBackendBinary.objects.filter(identifier='production', is_active=True).values_list(
+        'simc_path', flat=True).first()
+    if path:
+        try:
+            stat = os.stat(path)
+            fingerprint = (stat.st_ino, stat.st_size, stat.st_mtime_ns)
+            with _apl_catalog_lock:
+                tables = _read_apl_guards(path, fingerprint)
+            guards = tables.get(canonical_class_spec(class_name, specialization))
+            if guards:
+                return guards
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
+            logger.warning('生成 APL 时无法读取原生天赋目录：%s', exc)
+
+    scopes = SimcAplSymbolScope.objects.filter(
+        class_key=class_name, spec_key__in=('', specialization),
+        symbol__symbol_kind=SimcAplSymbol.KIND_TALENT, symbol__is_active=True, is_active=True,
+        source=SimcAplSymbol.SOURCE_MANIFEST, trait_id__isnull=False,
+    ).values_list('trait_id', 'symbol__token')
+    guards = {}
+    for entry, token in scopes:
+        guards.setdefault(entry, set()).add(token)
+    return {entry: f'talent.{next(iter(tokens))}' for entry, tokens in guards.items() if len(tokens) == 1}

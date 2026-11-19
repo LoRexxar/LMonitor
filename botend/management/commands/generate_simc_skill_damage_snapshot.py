@@ -23,7 +23,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--snapshot-id', type=int, required=True)
         parser.add_argument('--backend-id', type=int)
-        parser.add_argument('--profile-id', type=int)
+        profile = parser.add_mutually_exclusive_group()
+        profile.add_argument('--profile-id', type=int)
+        profile.add_argument('--augmentation-probe', action='store_true', help='使用归一化专用增辉角色')
         parser.add_argument('--output')
         parser.add_argument('--ready-file')
         parser.add_argument('--scope-catalog', help='父进程已校验的全局增伤 DBC 目录')
@@ -49,11 +51,12 @@ class Command(BaseCommand):
                 ))
 
             profile_id = options.get('profile_id')
-            if profile_id:
+            if profile_id or options.get('augmentation_probe'):
                 output = options.get('output')
                 if not output:
                     raise CommandError('profile 子进程必须指定 --output')
-                profile = SimcProfile.objects.filter(pk=profile_id).first()
+                profile = (SimcProfile.objects.filter(pk=profile_id).first() if profile_id
+                           else service.augmentation_probe())
                 if profile is None:
                     raise CommandError('profile 不存在')
                 result = service._generate_profile_product_actor(profile)
