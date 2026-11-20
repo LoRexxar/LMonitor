@@ -15,6 +15,8 @@ VALUES = {
     # sc_evoker.cpp:create_expression；allied_cds_up 是数量，不是冷却是否就绪。
     'evoker.allied_cds_up': ('受黑檀之力影响的队友中处于主要爆发的数量（无黑檀目标时检查先知先觉目标）', '个'),
     'evoker.shifting_buffs': ('受自己的流沙影响的队友数量', '个'),
+    # sc_evoker.cpp:evoker_augment_t::create_expression reads the active buff, not its cooldown.
+    'target_cd_remains': ('目标队友主要爆发增益的剩余时间', '秒'),
     # sc_mage.cpp:create_expression
     'hot_streak_spells_in_flight': ('能够触发炽热连击且尚未命中的法术数量', '个'),
     'icicles': ('当前冰刺数量', '个'),

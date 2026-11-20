@@ -44,6 +44,31 @@ class UniversalConditionTests(SimpleTestCase):
         self.assertIn('阳炎术全部充能恢复时间', rows[1]['guide_text'])
         self.assertNotIn('月火术', rows[1]['guide_text'])
 
+    def test_updated_public_apl_expressions_keep_native_meaning(self):
+        cases = {
+            'soul_reaper,target_if=is_boss': '施法者被判定为首领',
+            'soul_reaper,target_if=first:target.is_boss': '当前目标是首领',
+            'potion,name=liquid_luster_2,if=potion.potion_of_recklessness': '角色配置的药水是鲁莽药水',
+            'potion,if=!potion.liquid_luster': '角色配置的药水不是液态光泽',
+            'thrash,if=set_bonus.midnight_season_2_4pc': '已激活至暗之夜第2赛季套装4件效果',
+            'thrash,if=!set_bonus.midnight_season_2_2pc': '未激活至暗之夜第2赛季套装2件效果',
+            'fan_of_knives,if=!(main_hand.dagger&off_hand.dagger)': '副手不是匕首',
+            'trueshot,if=target.time_to_pct_20>60': '当前目标预计降至20%生命值所需时间高于60秒',
+            'prescience,target_if=max:target_cd_remains': '目标队友主要爆发增益的剩余时间',
+        }
+        for action, expected in cases.items():
+            with self.subTest(action=action):
+                source = f'actions={action}'
+                self.assertEqual(audit_source(source, action)['unknown_fields'], [])
+                row = self.rows(source)[0]
+                actual = route_text(row['target_guide']) if ',target_if=' in action else row['condition_text']
+                self.assertIn(expected, actual)
+        source = 'actions=potion,if=potion.unreviewed_potion'
+        report = audit_source(source, 'unreviewed potion')
+        self.assertEqual(report['unknown_fields'], [])
+        self.assertEqual([(entry['reason'], entry['token']) for entry in report['identity_fallbacks']],
+                         [('item_identity', 'unreviewed_potion')])
+
     def test_resource_types_are_not_boolean_flags(self):
         cases = {'astral_power.deficit<=20': '星界能量距上限还缺少不超过20点',
                  'maelstrom>=60': '漩涡值达到60点', 'health.pct<40': '生命值比例低于40%',

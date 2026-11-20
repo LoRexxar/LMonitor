@@ -5,6 +5,7 @@ engine/player/{player,unique_gear}.cpp。专精表达式另按原生实现维护
 """
 
 import re
+from botend.services.simc_consumables import SIMC_POTION_LABELS
 from .condition_class_terms import VALUES as CLASS_VALUES, PREDICATES as CLASS_PREDICATES
 
 
@@ -126,6 +127,9 @@ def quantity(name, symbols):
                  'distance': ('事件移动距离', '码'), 'cooldown': ('事件间隔', '秒')}.get(parts[2])
         if event and label:
             return [text(event + label[0])], label[1]
+    health_threshold = re.fullmatch(r'target\.time_to_pct_([0-9]+(?:\.[0-9]+)?)', name)
+    if health_threshold and 0 < float(health_threshold[1]) <= 100:
+        return [text(f'当前目标预计降至{health_threshold[1]}%生命值所需时间')], '秒'
     values = {'time_to_die': ('当前目标预计存活时间', '秒'),
               'time_to_die.remains': ('当前目标预计存活时间', '秒'),
               'target.time_to_die.remains': ('当前目标预计存活时间', '秒'),
@@ -188,12 +192,19 @@ def predicate(name, symbols, negate=False):
             return [text(event + ('不包含首领' if negate else '包含首领'))]
     if len(parts) == 2 and parts[0] == 'equipped':
         return [text('未装备' if negate else '已装备'), {'raw': parts[1], 'reason': 'item_identity'}]
+    if len(parts) == 2 and parts[0] == 'potion':
+        # player_t::create_expression compares the configured/default potion,
+        # independently of the current action's name= override.
+        label = SIMC_POTION_LABELS.get(parts[1])
+        identity = text(label) if label else {'raw': parts[1], 'reason': 'item_identity'}
+        return [text('角色配置的药水' + ('不是' if negate else '是')), identity]
     if len(parts) == 2 and parts[0] == 'consumable' and getattr(symbols, 'action', '') in ('potion', 'flask', 'food', 'augmentation'):
         return [text('当前动作配置的消耗品' + ('不是' if negate else '是')),
                 {'raw': parts[1], 'reason': 'item_identity'}, text('（忽略品质后缀）')]
-    if len(parts) == 2 and parts[0] in ('main_hand', 'off_hand') and parts[1] in ('1h', '2h'):
-        return [text(('主手' if parts[0] == 'main_hand' else '副手') + ('不是' if negate else '是') +
-                     ('双手武器' if parts[1] == '2h' else '单手武器（含小型武器）'))]
+    if len(parts) == 2 and parts[0] in ('main_hand', 'off_hand'):
+        weapon = {'1h': '单手武器（含小型武器）', '2h': '双手武器', 'dagger': '匕首'}.get(parts[1])
+        if weapon:
+            return [text(('主手' if parts[0] == 'main_hand' else '副手') + ('不是' if negate else '是') + weapon)]
     trinket = _trinket(parts)
     if trinket:
         owner, attrs = trinket
@@ -217,11 +228,14 @@ def predicate(name, symbols, negate=False):
         owner = [{'reference': item}] if item else [text('召唤物「'), {'raw': parts[1], 'reason': 'pet_identity'}, text('」')]
         return [*owner, text('尚未激活' if negate else '正在场上')]
     if len(parts) == 2 and parts[0] == 'set_bonus':
-        match = re.fullmatch(r'([a-z]+\d+)_(\d+)pc', parts[1])
+        match = re.fullmatch(r'([a-z]+\d+|midnight_season_2)_(\d+)pc', parts[1])
         if match:
-            return [text(('未激活' if negate else '已激活') + match[1].upper() + '套装' + match[2] + '件效果')]
+            season = '至暗之夜第2赛季' if match[1] == 'midnight_season_2' else match[1].upper()
+            return [text(('未激活' if negate else '已激活') + season + '套装' + match[2] + '件效果')]
     labels = {'in_combat': ('正在战斗中', '尚未进入战斗'),
               'in_boss_encounter': ('当前是首领战', '当前不是首领战'),
+              # Bare is_boss is evaluated on the actor, even in target_if.
+              'is_boss': ('施法者被判定为首领', '施法者未被判定为首领'),
               'target.is_boss': ('当前目标是首领', '当前目标不是首领'),
               'target.has_absorb': ('当前目标有吸收护盾', '当前目标没有吸收护盾')}
     labels.update(CLASS_PREDICATES)

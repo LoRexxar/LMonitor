@@ -1,5 +1,10 @@
 """Authoritative Chinese labels for SimC consumable option values."""
 
+SIMC_POTION_LABELS = {
+    'liquid_luster': '液态光泽',
+    'potion_of_recklessness': '鲁莽药水',
+}
+
 SIMC_CONSUMABLE_LABELS = {
     # Midnight flasks
     'blood_knights_2': '血骑士合剂',
@@ -11,7 +16,8 @@ SIMC_CONSUMABLE_LABELS = {
     # Midnight potions
     'draught_of_rampant_abandon_2': '狂放恣意饮剂',
     'lights_potential_2': '圣光潜力',
-    'potion_of_recklessness_2': '鲁莽药水',
+    **SIMC_POTION_LABELS,
+    **{f'{token}_2': label for token, label in SIMC_POTION_LABELS.items()},
     # Midnight food
     'blooming_feast': '盛放筵席',
     'harandar_celebration': '哈籁恩达尔庆典大餐',
