@@ -109,7 +109,7 @@ class DungeonAggregationReuseTests(TestCase):
         SpecDungeonRanking.objects.filter(pk=second.pk).update(dps=200)
         timings = defaultdict(float)
         with patch.object(analysis, 'prepare_log_talents', side_effect=AssertionError('不应重新解析日志')), \
-             patch.object(stats, '_compute_gear_popularity', side_effect=AssertionError('不应重算装备')):
+             patch.object(stats, '_compute_equipment_statistics', side_effect=AssertionError('不应重算装备')):
             self.aggregate(phase_timings=timings)
         after = self.detail()
         self.assertEqual(timings['gear_statistics_reused'], 2)

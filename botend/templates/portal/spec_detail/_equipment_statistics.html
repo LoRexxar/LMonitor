@@ -1,0 +1,34 @@
+{% if slots %}
+<section class="section-block popularity-section">
+    <h4>装备热门度</h4>
+    <div class="popularity-section-note">按部位统计样本中使用各件装备的比例。</div>
+    <div class="gear-slot-grid">
+        {% for slot, items in slots %}
+        <div class="gear-slot-section">
+            <div class="slot-name">{{ slot }}</div>
+            {% for item in items %}{% include "portal/spec_detail/_gear_popularity_row.html" %}{% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% if singles %}
+<section class="section-block popularity-section">
+    <h4>饰品选择</h4>
+    <div class="gear-slot-grid">
+        <div class="gear-slot-section">
+            <div class="slot-name">单件选取率</div>
+            <p class="popularity-section-note">{% if legacy %}占全部 {{ sample_size }} 个入选场次的比例。{% else %}按记录到饰品的 {{ sample_size }} 个角色场次统计，同件饰品每场计一次。{% endif %}</p>
+            {% include "portal/spec_detail/_trinket_ranking.html" with rows=singles %}
+        </div>
+        <div class="gear-slot-section">
+            <div class="slot-name">组合选取率</div>
+            {% if legacy %}<p class="popularity-section-note">当前快照仅记录单件选取率，组合将在聚合更新后显示。</p>
+            {% elif pairs %}
+            <p class="popularity-section-note">按两个饰品槽都有记录的 {{ pair_sample_size }} 个角色场次统计，交换槽位计为同一组合。</p>
+            {% include "portal/spec_detail/_trinket_ranking.html" with rows=pairs show_pairs=True %}
+            {% else %}<p class="popularity-section-note">暂无两个饰品槽都有记录的场次。</p>{% endif %}
+        </div>
+    </div>
+</section>
+{% endif %}

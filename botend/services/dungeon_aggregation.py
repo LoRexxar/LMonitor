@@ -20,7 +20,7 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 
 # Bump when selection, aggregation, source interpretation or display code changes.
-ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v9-consumables'
+ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v10-trinket-pairs'
 _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at', 'variant_text_templates'}
 
 
@@ -96,7 +96,7 @@ def _variant_dependencies(items, gear_records, *, reads=None):
             selected.update(row.pk for row in candidates)
             continue
         for level in levels[item_id]:
-            # _compute_gear_popularity retains itemLevel but drops bonusIDs.
+            # 装备与饰品统计保留装等，省略奖励编号。
             variant, _branch = _select_ordinary_item_variant(
                 candidates, item_level=level, allow_default_variant=True, default_order='lowest')
             if variant is not None:

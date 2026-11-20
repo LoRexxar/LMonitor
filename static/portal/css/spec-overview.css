@@ -120,3 +120,39 @@
   .spec-module-metric { grid-column: 2; text-align: left; }
   .spec-module-row--fact .spec-module-metric { grid-column: auto; }
 }
+
+.gear-pop-card.trinket-pair-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 10px;
+}
+.trinket-pair-items {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.trinket-pair-plus {
+    flex: none;
+    color: #64748b;
+}
+.trinket-pair-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.trinket-pair-item .gear-name-link {
+    display: block;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.trinket-pair-row .popularity-stat small {
+    display: inline;
+    margin-left: 5px;
+}
+.trinket-pair-item .gear-icon {
+    width: 28px;
+    height: 28px;
+    flex: none;
+}

@@ -141,3 +141,22 @@ def wow_icon(icon_name, size='small'):
         return f"/static/{placeholder_rel.replace(os.sep, '/')}"
 
     return ''
+
+
+@register.inclusion_tag('portal/spec_detail/_equipment_statistics.html')
+def equipment_statistics(detail):
+    """部位顺序独立于 JSON 键序；旧快照仍可展示已发布的单件统计。"""
+    from botend.services.spec_stats_service import equipment_slot_sort_key
+
+    gear = detail.get('gear_popularity')
+    if not isinstance(gear, dict):
+        gear = {}
+    slots = [(slot, gear[slot]) for slot in sorted(gear, key=equipment_slot_sort_key) if slot != '饰品']
+    trinkets = detail.get('trinket_popularity') or {}
+    if not trinkets:
+        return {'slots': slots, 'legacy': True, 'sample_size': detail.get('sample_size'),
+                'singles': gear.get('饰品', [])}
+    items = {item['itemID']: item for item in trinkets['singles']}
+    pairs = [dict(pair, items=[items[item_id] for item_id in pair['item_ids']])
+             for pair in trinkets['pairs']]
+    return {**trinkets, 'slots': slots, 'pairs': pairs}

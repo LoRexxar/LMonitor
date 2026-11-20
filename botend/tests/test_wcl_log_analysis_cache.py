@@ -197,7 +197,7 @@ class LogAnalysisCacheTests(TestCase):
         SpecRaidRanking.objects.filter(character_name='玩家9').update(dps=9999)
         timing = defaultdict(float)
         with patch.object(analysis, 'prepare_log_talents', side_effect=AssertionError('排名变化不应解析日志')), \
-             patch.object(stats, '_compute_gear_popularity', side_effect=AssertionError('排名变化不应重算装备')):
+             patch.object(stats, '_compute_equipment_statistics', side_effect=AssertionError('排名变化不应重算装备')):
             after = raid.raid_stats(*self.scope, phase_timings=timing)[0]
         self.assertEqual(timing['gear_statistics_reused'], 1)
         self.assertNotEqual(before['dps'], after['dps'])

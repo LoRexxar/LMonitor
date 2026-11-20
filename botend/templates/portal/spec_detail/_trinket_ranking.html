@@ -1,0 +1,22 @@
+{% load wow_tags %}
+{% for row in rows %}
+    {% if forloop.counter == 9 %}<details><summary>查看其余 {{ rows|length|add:"-8" }} {% if show_pairs %}组{% else %}件{% endif %}</summary>{% endif %}
+    {% if show_pairs %}
+    <div class="gear-pop-card trinket-pair-row">
+        <div class="trinket-pair-items">
+            {% for item in row.items %}
+            {% if not forloop.first %}<span class="trinket-pair-plus">+</span>{% endif %}
+            <a class="trinket-pair-item" href="{{ item.wowhead_url }}" title="{{ item.display_name }}" target="_blank" rel="noopener">
+                {% if item.icon %}<img src="{% wow_icon item.icon 'small' %}" class="gear-icon" alt="" loading="lazy">{% endif %}
+                <span class="gear-name-link">{{ item.display_name }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        <div class="popularity-bar"><div class="popularity-fill" style="width:{{ row.pct }}%"></div></div>
+        <div class="popularity-stat">{{ row.pct }}%<small>{{ row.count }} 场</small></div>
+    </div>
+    {% else %}
+    {% include "portal/spec_detail/_gear_popularity_row.html" with item=row trinket=True %}
+    {% endif %}
+    {% if forloop.last and forloop.counter > 8 %}</details>{% endif %}
+{% endfor %}

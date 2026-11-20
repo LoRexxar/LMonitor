@@ -14,7 +14,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase
 from botend.services.spec_stats_service import (
     SpecStatsService,
     _compute_enchant_popularity,
-    _compute_gear_popularity,
+    _compute_equipment_statistics,
     _compute_talent_build_popularity,
     _compute_talent_popularity,
     _compute_talent_popularity_tree,
@@ -3267,7 +3267,8 @@ class SpecStatsTalentRenderTests(TestCase):
         # 此处验证槽位合并；中央装备本地化由独立数据库测试覆盖。
         with patch('botend.services.wow_item_display.WowItemSnapshot.objects.filter') as items:
             items.return_value.values_list.return_value = []
-            result = _compute_gear_popularity(records, top_n=10)
+            stats = _compute_equipment_statistics(records, top_n=10)
+            result = stats['gear_popularity']
 
         self.assertIn('戒指', result)
         self.assertNotIn('戒指1', result)
@@ -3276,11 +3277,11 @@ class SpecStatsTalentRenderTests(TestCase):
             [(item['itemID'], item['count']) for item in result['戒指']],
             [(101, 2), (102, 1)],
         )
-        self.assertIn('饰品', result)
+        self.assertNotIn('饰品', result)
         self.assertNotIn('饰品1', result)
         self.assertNotIn('饰品2', result)
         self.assertEqual(
-            [(item['itemID'], item['count']) for item in result['饰品']],
+            [(item['itemID'], item['count']) for item in stats['trinket_popularity']['singles']],
             [(201, 2), (202, 1)],
         )
         self.assertNotIn('衬衫', result)

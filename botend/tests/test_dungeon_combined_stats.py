@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
+from django.template.loader import render_to_string
 from botend.services import spec_stats_service as stats_module
 from django.test import TestCase, override_settings
 from botend.models import SeasonMeta, SpecDungeonRanking, PlayerSpecTopPlayer
@@ -20,6 +21,54 @@ class DungeonCombinedStatsTests(TestCase):
             report_code=f'report-{dungeon}', fight_id=1, dps=dps, keystone_level=10, faction=0)
         data.update(extra)
         return SpecDungeonRanking.objects.create(**data)
+
+    def test_trinkets_are_ranked_by_actor_fight_and_unordered_complete_pair(self):
+        def item(slot, iid):
+            return {'slot': slot, 'id': iid, 'name': f'饰品{iid}'}
+
+        first = dict(report_code='A', fight_id=1, wcl_actor_id=8,
+                     gear_json=[item('trinket1', 301), item('trinket2', 302), item('trinket1', 301)])
+        positional = [{} for _ in range(12)] + [{'id': 301}, {'id': 302}]
+        rows = [first, dict(first),
+                {'gear_json': [item('TRINKET_1', 302), item('TRINKET_2', 301)]},
+                {'gear_json': [item(12, 301), item(13, 301)]},
+                {'gear_json': [item('饰品1', 302)]},
+                {'gear_json': positional}, {'gear_json': []}]
+        stats = stats_module._compute_equipment_statistics(rows, top_n=1)
+        self.assertEqual(stats['gear_popularity'], {})
+        trinkets = stats['trinket_popularity']
+        self.assertEqual((trinkets['sample_size'], trinkets['pair_sample_size']), (5, 4))
+        self.assertEqual([(r['itemID'], r['count'], r['pct']) for r in trinkets['singles']],
+                         [(301, 4, 80), (302, 4, 80)])
+        self.assertEqual(trinkets['pairs'], [
+            {'item_ids': [301, 302], 'count': 3, 'pct': 75},
+            {'item_ids': [301, 301], 'count': 1, 'pct': 25}])
+
+    def test_slot_order_and_trinket_sections_on_dungeon_and_raid_pages(self):
+        equipment = [{'id': 3, 'slot': 'feet'}, {'id': 1, 'slot': 'head'}, {'id': 2, 'slot': 'back'},
+                     {'id': 4, 'slot': 'trinket1', 'name': '饰品甲'},
+                     {'id': 5, 'slot': 'trinket2', 'name': '饰品乙'}]
+        detail = stats_module._compute_equipment_statistics([{'gear_json': equipment}])
+        self.assertEqual(list(detail['gear_popularity']), ['头盔', '披风', '靴子'])
+        detail['gear_popularity'] = dict(reversed(detail['gear_popularity'].items()))
+        detail['sample_size'] = 1
+        legacy = {**detail, 'gear_popularity': {**detail['gear_popularity'], '饰品': detail['trinket_popularity']['singles']}}
+        del legacy['trinket_popularity']
+        for template, field in [('raid_stats', 'boss_detail'), ('dungeon_stats', 'dungeon_detail')]:
+            for data in (detail, legacy):
+                html = render_to_string(f'portal/spec_detail/{template}.html',
+                                        {field: data, 'class_name': 'Warrior', 'spec_name': 'Fury'})
+                doc = BeautifulSoup(html, 'html.parser')
+                gear = doc.find('h4', string='装备热门度').parent
+                self.assertEqual([s.get_text(strip=True) for s in gear.select('.slot-name')], ['头盔', '披风', '靴子'])
+                section = doc.find('h4', string='饰品选择').parent
+                self.assertEqual([s.get_text(strip=True) for s in section.select('.slot-name')], ['单件选取率', '组合选取率'])
+                self.assertIn('饰品甲', section.get_text())
+                if data is legacy:
+                    self.assertIn('组合将在聚合更新后显示', section.get_text())
+                else:
+                    self.assertEqual([s.get_text(strip=True) for s in section.select('.trinket-pair-item')],
+                                     ['饰品甲', '饰品乙'])
 
     def test_raw_weighted_union_identity_missing_and_isolation(self):
         self.row(faction=1, gear_json=[{'id': 123, 'name': 'Raw WCL item', 'slot': 'head',

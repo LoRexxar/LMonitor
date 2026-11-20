@@ -1037,7 +1037,7 @@ def refresh_aggregate_equipment(payload, *, class_name='', spec_name=''):
     def collect(node):
         if isinstance(node, dict):
             for key, value in node.items():
-                if key in {'gear_popularity', 'gear', 'equipment'}:
+                if key in {'gear_popularity', 'trinket_popularity', 'gear', 'equipment'}:
                     groups.append(value)
                 elif isinstance(value, (dict, list)):
                     collect(value)

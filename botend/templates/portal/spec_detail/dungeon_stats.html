@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="{% static 'portal/css/player-talent-tree.css' %}?v=20261116_dynamic_tree">
 <script defer src="{% static 'portal/js/player-talent-tree.js' %}?v=20261119_stats"></script>
 {% endif %}
-<link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20260820">
+<link rel="stylesheet" href="{% static 'portal/css/spec-overview.css' %}?v=20261120_trinkets_3">
 {% endblock %}
 
 {% block content %}
@@ -387,51 +387,7 @@
 
         {% include "portal/spec_detail/_consumable_statistics.html" with detail=dungeon_detail only %}
 
-        <!-- 装备热门度 -->
-        {% if dungeon_detail.gear_popularity %}
-        <div class="section-block popularity-section">
-            <h4>装备热门度</h4>
-            <div class="popularity-section-note">按部位统计样本玩家最常用装备，百分比代表样本中使用该装备的人数占比。</div>
-
-            <div class="gear-slot-grid">
-            {% for slot, items in dungeon_detail.gear_popularity.items %}
-            <div class="gear-slot-section">
-                <div class="slot-name">{{ slot|default:"未知部位" }}</div>
-                {% for item in items %}
-                <div class="gear-pop-card">
-                    {% if item.icon %}
-                    <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ item.itemID }}{% endif %}" target="_blank" aria-label="{{ item.display_name|default:item.name|default:item.itemID }}">
-                        <img src="{% wow_icon item.icon "small" %}" class="gear-icon" alt="{{ item.display_name|default:item.name|default:item.itemID }}">
-                    </a>
-                    {% endif %}
-                    <div class="gear-pop-main">
-                        <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ item.itemID }}{% endif %}" target="_blank" class="gear-name-link" title="{{ item.display_name|default:item.name|default:item.itemID }}">{{ item.display_name|default:item.name|default:item.itemID }}</a>
-                        <div class="gear-pop-meta">
-                            {% if item.itemLevel %}<span class="gear-ilvl">装等 {{ item.itemLevel }}</span>{% endif %}
-                            <div class="popularity-bar"><div class="popularity-fill" style="width:{{ item.pct }}%"></div></div>
-                        </div>
-                    </div>
-                    <div class="popularity-stat">{{ item.pct }}%<small>{{ item.count|default:"" }}{% if item.count %}人{% endif %}</small></div>
-                    <div class="popularity-tooltip">
-                        <strong>{{ item.display_name|default:item.name|default:item.itemID }}</strong>
-                        {% with desc_lines=item.display_description|wow_item_description_lines %}
-                        {% if desc_lines %}
-                        <div class="tooltip-desc-lines">
-                            {% for line in desc_lines %}
-                            <div class="tooltip-desc-line tooltip-desc-line--{{ line.class }}">{{ line.text }}</div>
-                            {% endfor %}
-                        </div>
-                        {% else %}<p>暂无中文描述</p>{% endif %}
-                        {% endwith %}
-                        <span>{{ item.count|default:0 }} 人使用 · {{ item.pct }}%</span>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+        {% equipment_statistics dungeon_detail %}
 
         {% if dungeon_detail.gem_popularity %}
         <div class="section-block popularity-section">

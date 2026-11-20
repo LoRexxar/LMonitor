@@ -1,0 +1,29 @@
+{% load wow_tags %}
+<div class="gear-pop-card">
+    {% if item.icon %}
+    <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ item.itemID }}{% endif %}" target="_blank" aria-label="{{ item.display_name|default:item.name|default:item.itemID }}">
+        <img src="{% wow_icon item.icon "small" %}" class="gear-icon" alt="{{ item.display_name|default:item.name|default:item.itemID }}">
+    </a>
+    {% else %}<span aria-hidden="true"></span>{% endif %}
+    <div class="gear-pop-main">
+        <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ item.itemID }}{% endif %}" target="_blank" class="gear-name-link" title="{{ item.display_name|default:item.name|default:item.itemID }}">{{ item.display_name|default:item.name|default:item.itemID }}</a>
+        <div class="gear-pop-meta">
+            {% if item.itemLevel %}<span class="gear-ilvl">装等 {{ item.itemLevel }}</span>{% endif %}
+            <div class="popularity-bar"><div class="popularity-fill" style="width:{{ item.pct }}%"></div></div>
+        </div>
+    </div>
+    <div class="popularity-stat">{{ item.pct }}%<small>{{ item.count|default:"" }}{% if trinket %} 场{% elif item.count %}人{% endif %}</small></div>
+    <div class="popularity-tooltip">
+        <strong>{{ item.display_name|default:item.name|default:item.itemID }}</strong>
+        {% with desc_lines=item.display_description|wow_item_description_lines %}
+        {% if desc_lines %}
+        <div class="tooltip-desc-lines">
+            {% for line in desc_lines %}
+            <div class="tooltip-desc-line tooltip-desc-line--{{ line.class }}">{{ line.text }}</div>
+            {% endfor %}
+        </div>
+        {% else %}<p>暂无中文描述</p>{% endif %}
+        {% endwith %}
+        <span>{{ item.count|default:0 }} {% if trinket %}场使用{% else %}人使用{% endif %} · {{ item.pct }}%</span>
+    </div>
+</div>

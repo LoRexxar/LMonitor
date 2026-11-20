@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from django.template.loader import render_to_string
+from django.contrib.staticfiles import finders
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
@@ -23,6 +24,24 @@ def envelope(events, cursor=None):
 
 
 class ConsumableEventTests(SimpleTestCase):
+    def test_existing_snapshot_renders_item_icons_and_shared_food_effect(self):
+        groups = [
+            ('food', '远行者口粮', 'inv_cooking_81_wildberrybread'),
+            ('food', '饱餐（急速）', 'spell_misc_food'),
+            ('flask', '魔导师合剂', 'inv_12_profession_alchemy_flask_sindoreipotion_black'),
+            ('potion', '鲁莽药水', 'inv_12_profession_alchemy_voidpotion_red'),
+            ('healing', '浓缩银月城治疗药水', 'inv_potion_49'),
+        ]
+        for key, name, icon in groups:
+            with self.subTest(name=name):
+                detail = {'sample_size': 4, 'consumables': [
+                    {'key': key, 'samples': 4, 'rows': [{'name': name, 'pct': 75, 'count': 3}]}]}
+                html = render_to_string('portal/spec_detail/_consumable_statistics.html', {'detail': detail})
+                self.assertIn(f'portal/img/consumables/{icon}.jpg', html)
+                self.assertTrue(finders.find(f'portal/img/consumables/{icon}.jpg'))
+                self.assertInHTML(f'<span class="popularity-name" title="{name}">{name}</span>', html)
+                self.assertInHTML('<div class="popularity-stat">75%<small>3 场</small></div>', html)
+
     def test_pagination_fight_and_actor_attribution(self):
         rows = [dict(event(), auras=[{'ability': 1294727}]), dict(event(actor=2), auras=[]), event(12)]
         initial = envelope([{'type': 'applybuff', 'fight': 11, 'sourceID': 2, 'targetID': 232,

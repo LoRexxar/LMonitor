@@ -628,7 +628,7 @@ class SpecStatsService:
             from .wcl_consumables import statistics as consumable_statistics
             stats['consumables'] = consumable_statistics(records)
             # Gear and enhancements are frozen in the same WCL observations.
-            stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+            stats.update(_compute_equipment_statistics(records, top_n=gear_limit))
             stats['gem_popularity'] = _compute_gem_popularity(records, top_n=20)
             stats['enchant_popularity'] = _compute_enchant_popularity(records, top_n=20)
             stats['secondary_stats'] = _compute_secondary_stats_distribution(records)
@@ -756,14 +756,14 @@ class SpecStatsService:
 
 
 LOG_STATISTIC_FIELDS = (
-    'gear_popularity', 'gem_popularity', 'enchant_popularity',
+    'gear_popularity', 'trinket_popularity', 'gem_popularity', 'enchant_popularity',
     'secondary_stats', 'race_distribution', 'consumables',
 )
 
 
 def _omit_unavailable_log_statistics(result):
     """没有日志事实的具体板块不输出；部分缺失时保留实际有效样本。"""
-    for key in ('gear_popularity', 'gem_popularity', 'enchant_popularity',
+    for key in ('gear_popularity', 'trinket_popularity', 'gem_popularity', 'enchant_popularity',
                 'secondary_stats', 'race_distribution'):
         if not result.get(key):
             result.pop(key, None)
@@ -774,7 +774,7 @@ def _omit_unavailable_log_statistics(result):
         sources.pop('secondary_stats', None)
     if not result.get('race_distribution'):
         sources.pop('race', None)
-    if not any(result.get(key) for key in ('gear_popularity', 'gem_popularity', 'enchant_popularity')):
+    if not any(result.get(key) for key in ('gear_popularity', 'trinket_popularity', 'gem_popularity', 'enchant_popularity')):
         sources.pop('gear', None)
     if not (result.get('talent_build_popularity') or {}).get('total'):
         result.pop('talent_build_popularity', None)
@@ -2819,17 +2819,6 @@ def _format_enchant_display_label(slot_label, enchant_name):
     return f'{slot_label}：{label}' if label else slot_label
 
 
-def _enchant_slot_sort_key(slot_label):
-    slot_order = [
-        '头盔', '项链', '肩甲', '披风', '胸甲', '护腕', '手套', '腰带',
-        '腿甲', '靴子', '戒指', '主手', '副手', '未知',
-    ]
-    try:
-        return (slot_order.index(slot_label), slot_label)
-    except ValueError:
-        return (len(slot_order), slot_label)
-
-
 def _compute_enchant_popularity(enchant_records, top_n=20):
     """计算附魔选取率：按装备位置分组，每个位置内按附魔统计玩家去重。"""
     snapshots = _collect_item_ids_from_records(enchant_records, include_gear=False, include_gems=False, include_enchants=True)
@@ -2870,7 +2859,7 @@ def _compute_enchant_popularity(enchant_records, top_n=20):
             slot_enchant_players.setdefault(slot_label, {}).setdefault(eid, set()).add(idx)
 
     result = []
-    for slot_label in sorted(slot_enchant_players.keys(), key=_enchant_slot_sort_key):
+    for slot_label in sorted(slot_enchant_players.keys(), key=equipment_slot_sort_key):
         enchants = []
         for eid, player_set in sorted(
             slot_enchant_players[slot_label].items(),
@@ -2920,68 +2909,92 @@ _GEAR_AGGREGATION_SLOT_LABELS = {
 _GEAR_AGGREGATION_EXCLUDED_SLOTS = {'shirt', 'SHIRT', '衬衫', 'tabard', 'TABARD', '战袍'}
 
 
-def _normalize_gear_aggregation_slot(slot):
-    raw_slot = slot or 'unknown'
-    if raw_slot in _GEAR_AGGREGATION_EXCLUDED_SLOTS:
+_EQUIPMENT_ORDER = ('头盔', '项链', '肩甲', '披风', '胸甲', '护腕', '手套', '腰带',
+                    '腿甲', '靴子', '戒指', '主手', '副手', '未知')
+
+
+def equipment_slot_sort_key(label):
+    return (_EQUIPMENT_ORDER.index(label) if label in _EQUIPMENT_ORDER else len(_EQUIPMENT_ORDER), label)
+
+
+def _trinket_pair(slots):
+    """只用同一场次的两个槽位配对，兼容只标为“饰品”的旧装备。"""
+    if any(len(ids) > 1 for slot, ids in slots.items() if slot != '饰品'):
         return None
-    normalized_slot = _GEAR_AGGREGATION_SLOT_MAP.get(raw_slot, raw_slot)
-    return _GEAR_AGGREGATION_SLOT_LABELS.get(normalized_slot) or SLOT_CN.get(normalized_slot, normalized_slot)
+    numbered = [next(iter(slots[slot])) for slot in ('饰品1', '饰品2') if slot in slots]
+    anonymous = slots.get('饰品', set()) - set(numbered)
+    items = numbered + list(anonymous)
+    return tuple(sorted(items)) if len(items) == 2 else None
 
 
-def _compute_gear_popularity(records, top_n=5):
-    """计算装备选取率（每个槽位 Top N）：同一玩家同槽位同物品只计 1 人。"""
+def _compute_equipment_statistics(records, top_n=5):
+    """按角色场次统计装备；同场单件去重，组合保留两个饰品槽位。"""
     snapshots = _collect_item_ids_from_records(records, include_gear=True, include_gems=False, include_enchants=False)
-    slot_item_players = {}  # cn_slot → itemID → set(record_idx)
-    slot_item_info = {}
+    counts = defaultdict(Counter)
+    info = {}
+    pairs = Counter()
+    trinket_samples = set()
 
-    for record_idx, r in enumerate(records):
-        gear = r.get('gear_json') or []
-        all_unknown = gear and all(
-            (g.get('slot', 'unknown') in ('unknown', '')) for g in gear if isinstance(g, dict)
-        )
-        player_slot_items = set()
-        for idx, g in enumerate(gear):
-            if not isinstance(g, dict):
+    for record in records:
+        gear = record.get('gear_json') or []
+        positional = all(g.get('slot', 'unknown') in ('unknown', '', None) for g in gear if isinstance(g, dict))
+        equipped = set()
+        trinkets = defaultdict(set)
+        for index, item in enumerate(gear):
+            if not isinstance(item, dict):
                 continue
-            slot = g.get('slot', 'unknown')
-            if all_unknown and slot in ('unknown', ''):
-                slot = _GEAR_DEFAULT_SLOTS[idx] if idx < len(_GEAR_DEFAULT_SLOTS) else f'slot_{idx}'
-            cn_slot = _normalize_gear_aggregation_slot(slot)
-            if not cn_slot:
-                continue
-            item_id = _coerce_item_id(g.get('id') or g.get('itemID') or g.get('item_id'))
+            item_id = _coerce_item_id(item.get('id') or item.get('itemID') or item.get('item_id'))
             if not item_id:
                 continue
-            player_slot_items.add((cn_slot, item_id))
-            key = (cn_slot, item_id)
-            if key not in slot_item_info:
-                slot_item_info[key] = _item_snapshot_payload(
-                    item_id,
-                    fallback_name=g.get('name', ''),
-                    fallback_icon=g.get('icon', ''),
-                    fallback_quality=g.get('quality') or 0,
-                    snapshots=snapshots,
-                )
-                slot_item_info[key]['itemLevel'] = g.get('itemLevel')
-        for cn_slot, item_id in player_slot_items:
-            slot_item_players.setdefault(cn_slot, {}).setdefault(item_id, set()).add(record_idx)
+            slot = item.get('slot')
+            if positional:
+                slot = index
+            if type(slot) is int:
+                slot = _GEAR_DEFAULT_SLOTS[slot] if 0 <= slot < len(_GEAR_DEFAULT_SLOTS) else f'slot_{slot}'
+            slot = str(slot or 'unknown')
+            raw_label = SLOT_CN.get(slot, SLOT_CN.get(slot.upper(), SLOT_CN.get(slot.lower(), slot.lower())))
+            label = _GEAR_AGGREGATION_SLOT_LABELS.get(_GEAR_AGGREGATION_SLOT_MAP.get(raw_label, raw_label), raw_label)
+            if label in _GEAR_AGGREGATION_EXCLUDED_SLOTS:
+                continue
+            if label == '饰品':
+                trinkets[raw_label if raw_label in ('饰品1', '饰品2') else '饰品'].add(item_id)
+            else:
+                equipped.add((label, item_id))
+            key = (label, item_id)
+            if key not in info:
+                info[key] = _item_snapshot_payload(item_id, fallback_name=item.get('name', ''),
+                    fallback_icon=item.get('icon', ''), fallback_quality=item.get('quality') or 0, snapshots=snapshots)
+                info[key]['itemLevel'] = item.get('itemLevel')
+        for label, item_id in equipped:
+            counts[label][item_id] += 1
+        if trinkets:
+            actor = record.get('wcl_actor_id')
+            identity = ((record['report_code'], record['fight_id'], actor)
+                        if actor and record.get('report_code') and record.get('fight_id')
+                        else _dungeon_log_identity(record))
+            if identity in trinket_samples:
+                continue
+            trinket_samples.add(identity)
+            counts['饰品'].update(set().union(*trinkets.values()))
+            pair = _trinket_pair(trinkets)
+            if pair:
+                pairs[pair] += 1
 
-    total = len(records)
-    result = {}
-    for slot, item_players in slot_item_players.items():
-        items = []
-        sorted_items = sorted(item_players.items(), key=lambda x: (-len(x[1]), x[0]))[:top_n]
-        for item_id, player_set in sorted_items:
-            info = slot_item_info.get((slot, item_id), {})
-            count = len(player_set)
-            items.append({
-                'itemID': item_id,
-                **info,
-                'itemLevel': info.get('itemLevel'),
-                'count': count,
-                'pct': round(count / total * 100, 1) if total else 0,
-            })
-        result[slot] = items
+    def ranked_items(label, total, limit=None):
+        ranked = sorted(counts[label].items(), key=lambda entry: (-entry[1], entry[0]))
+        return [dict(info[label, item_id], itemID=item_id, count=count, pct=round(100 * count / total, 1))
+                for item_id, count in ranked[:limit]]
+
+    result = {'gear_popularity': {label: ranked_items(label, len(records), top_n)
+              for label in sorted(counts, key=equipment_slot_sort_key) if label != '饰品'}}
+    if trinket_samples:
+        pair_samples = sum(pairs.values())
+        result['trinket_popularity'] = {
+            'sample_size': len(trinket_samples), 'pair_sample_size': pair_samples,
+            'singles': ranked_items('饰品', len(trinket_samples)),
+            'pairs': [{'item_ids': list(pair), 'count': count, 'pct': round(100 * count / pair_samples, 1)}
+                      for pair, count in sorted(pairs.items(), key=lambda entry: (-entry[1], entry[0]))],
+        }
 
     from botend.services.wow_item_display import refresh_localized_equipment
     return refresh_localized_equipment(result)

@@ -1,3 +1,4 @@
+{% load consumable_tags %}
 {% if detail.sample_size %}
 <section class="section-block popularity-section">
     <h4>战斗消耗品</h4>
@@ -10,9 +11,12 @@
             <p class="popularity-section-note">已采集 {{ group.samples }} / {{ detail.sample_size }} 个角色场次</p>
             {% for row in group.rows %}
             <div class="gear-pop-card">
+                <img src="{% consumable_icon row.name group.key %}" class="gear-icon" width="38" height="38" loading="lazy" alt="">
                 <div class="gear-pop-main">
-                    <span>{{ row.name }}</span>
-                    <div class="popularity-bar"><div class="popularity-fill" style="width:{{ row.pct }}%"></div></div>
+                    <span class="popularity-name" title="{{ row.name }}">{{ row.name }}</span>
+                    <div class="gear-pop-meta">
+                        <div class="popularity-bar"><div class="popularity-fill" style="width:{{ row.pct }}%"></div></div>
+                    </div>
                 </div>
                 <div class="popularity-stat">{{ row.pct }}%<small>{{ row.count }} 场</small></div>
             </div>

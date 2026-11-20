@@ -13,7 +13,7 @@ from botend.models import WowItemSnapshot, WowItemVariantSnapshot
 from botend.portal.adventure_journal import catalog_data, detail_data, instance_source
 from botend.services.kithix_localization import ITEM_IDS, import_localization, load_localization, localize_effect
 from botend.services.ptr_journal_gear_overlay import import_ptr_journal_gear_overlay, preserve_active_ptr_journal_overlay
-from botend.services.spec_stats_service import _compute_gear_popularity, _normalize_gear_items
+from botend.services.spec_stats_service import _compute_equipment_statistics, _normalize_gear_items
 from botend.services.wow_item_display import load_item_tooltip_metadata, refresh_aggregate_equipment
 from botend.tests import test_ptr_journal_gear_overlay as overlay_tests
 from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, seed_snapshot_difficulty_facts, warm_journal
@@ -120,7 +120,8 @@ class KithixLocalizationTests(TestCase):
         boss = {'boss_id': payload['boss_id'], 'name': payload['name'], **payload['detail']}
         with tempfile.TemporaryDirectory(prefix='kithix-aggregate-') as root:
             path = Path(root) / str(self.season.pk) / 'Warrior' / 'Arms' / 'raid.json'
-            publish_projection(path, {'zone_groups': [{'zone_id': 1, 'bosses': [boss]}]}, _write)
+            publish_projection(path, {'_data_contract': 'wcl-log-v2',
+                                      'zone_groups': [{'zone_id': 1, 'bosses': [boss]}]}, _write)
             with patch('botend.portal.spec_detail_views.AGGREGATED_DIR', root), self.assertNumQueries(0):
                 loaded = _load_json(self.season.pk, 'Warrior', 'Arms', 'raid.json', 'raid-5-281029')
         loaded_boss = loaded['zone_groups'][0]['bosses'][0]
@@ -128,8 +129,8 @@ class KithixLocalizationTests(TestCase):
         self.assertIn('酸巢灾虫', loaded_boss['gear_popularity']['手指'][0]['tooltip'])
         rows = _normalize_gear_items([{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}])
         self.assertIn('酸巢灾虫', rows[0]['display_description'])
-        popularity = _compute_gear_popularity([{'gear_json': [{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}]}])
-        self.assertIn('酸巢灾虫', next(iter(popularity.values()))[0]['display_description'])
+        popularity = _compute_equipment_statistics([{'gear_json': [{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}]}])
+        self.assertIn('酸巢灾虫', next(iter(popularity['gear_popularity'].values()))[0]['display_description'])
 
     def test_current_handbook_keeps_difficulty_facts_during_ordinary_catalog_refresh(self):
         self.apply()

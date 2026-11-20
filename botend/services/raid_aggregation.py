@@ -8,7 +8,7 @@ from botend.services import wcl_combatant_snapshot as combatants
 from botend.services.dungeon_aggregation import _metadata_dependencies
 from botend.services.spec_aggregation_cache import load_work, save_work, work_fingerprint_hint
 
-ALGORITHM_VERSION = 'raid-scope-v9-consumables'
+ALGORITHM_VERSION = 'raid-scope-v10-trinket-pairs'
 
 
 class RaidInputBuffer:
