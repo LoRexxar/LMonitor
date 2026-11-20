@@ -146,18 +146,16 @@ class SimcAplExpressionTests(SimpleTestCase):
                 self.assertEqual(document.issues[0].code, "empty-expression")
                 self.assertIsNotNone(document.lines[0].actions[0])
 
-    def test_forbidden_aliases_have_precise_ranges_and_suggestions(self):
+    def test_engine_operator_aliases_keep_original_ranges(self):
         source = "# offset\n  actions=x,if=a==b&&c||d"
         document = parse(source)
-        self.assertEqual([issue.code for issue in document.issues], [
-            "invalid-equality-operator", "invalid-logical-operator", "invalid-logical-operator",
-        ])
-        self.assertEqual([issue.suggestion for issue in document.issues], ["=", "&", "|"])
-        self.assertEqual([issue.range for issue in document.issues], [
-            SourceRange(SourcePosition(2, 17), SourcePosition(2, 19)),
-            SourceRange(SourcePosition(2, 20), SourcePosition(2, 22)),
-            SourceRange(SourcePosition(2, 23), SourcePosition(2, 25)),
-        ])
+        self.assertEqual(document.issues, ())
+        expression = document.lines[1].actions[0].options[0].expression
+        self.assertEqual(expression.operator, '|')
+        self.assertEqual(expression.left.operator, '&')
+        self.assertEqual(expression.left.left.operator, '=')
+        self.assertEqual(expression.left.left.range,
+                         SourceRange(SourcePosition(2, 16), SourcePosition(2, 20)))
 
     def test_unknown_token_parentheses_and_missing_operands(self):
         cases = {

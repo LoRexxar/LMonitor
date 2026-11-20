@@ -101,7 +101,7 @@ class ReadableAplTests(SimpleTestCase):
     def test_negated_composite_keeps_effective_or_grouping(self):
         rows = readable_apl('actions=hit,if=!(rage>10&energy>20)&active_enemies=1\nactions+=/hit,if=!(rage>10&energy>20)&variable.unknown', {})['groups'][0]['rows']
         self.assertIn('（怒气不超过10点，或者能量不超过20点），并且', rows[0]['guide_text'])
-        self.assertIn('（怒气不超过10点，或者能量不超过20点），并且额外判定', rows[1]['guide_text'])
+        self.assertIn('（怒气不超过10点，或者能量不超过20点），并且variable.unknown不为0', rows[1]['guide_text'])
 
     def test_upstream_hero_spec_and_bare_talent_routing(self):
         refs = {('talent', 'slayers_dominance'): {'name': '屠戮者的统御'},
@@ -129,9 +129,9 @@ class ReadableAplTests(SimpleTestCase):
 
     def test_unknown_conditions_are_not_summarized_as_unconditional(self):
         row = readable_apl('actions=hit,if=variable.burst&rage>50,line_cd=3', {})['groups'][0]['rows'][0]
-        self.assertIn('额外判定', row['guide_text'])
+        self.assertTrue(row['has_unexplained_conditions'])
         self.assertIn('执行设置', row['guide_text'])
-        self.assertIn('额外判定成立（详见原始规则），并且怒气高于50点', row['guide_text'])
+        self.assertIn('variable.burst不为0，并且怒气高于50点', row['guide_text'])
 
     def test_scenarios_use_final_call_edges_and_preserve_parent_conditions(self):
         refs = {('talent', 'slayer'): {'name': '屠戮者'}}
@@ -174,8 +174,7 @@ class ReadableAplTests(SimpleTestCase):
         text = ''.join(p.get('text', '技能') for p in segments)
         self.assertIn('或', text)
         self.assertIn('且', text)
-        self.assertIn('怒气 ≥ 80', text)
-        self.assertEqual(text.count('('), text.count(')'))
+        self.assertEqual(text, '（已学习技能，或者没有技能效果），并且怒气达到80点')
 
     def test_named_default_is_not_the_main_list_and_targets_remain_explicit(self):
         result = readable_apl('actions=call_action_list,name=default\nactions.default=hit\nactions.foo=run_action_list,name=missing', {})
@@ -187,15 +186,15 @@ class ReadableAplTests(SimpleTestCase):
         self.assertIn('停止', groups[2]['rows'][0]['behavior'])
 
     def test_invalid_condition_is_not_presented_as_unconditional(self):
-        result = readable_apl('actions=hit,if=foo&&bar', {})
+        result = readable_apl('actions=hit,if=foo&&&bar', {})
         self.assertTrue(result['groups'][0]['rows'][0]['unsupported'])
-        self.assertIn('if=foo&&bar', result['groups'][0]['rows'][0]['raw'])
+        self.assertIn('if=foo&&&bar', result['groups'][0]['rows'][0]['raw'])
 
     def test_target_selector_and_untranslated_tokens_are_preserved(self):
         result = readable_apl('actions=hit,target_if=min:target.health.pct,if=unknown.token>2', {})
         fields = result['groups'][0]['rows'][0]['fields']
         self.assertIn('取最小值', fields[0]['segments'][0]['text'])
-        self.assertIn('unknown.token', ''.join(s.get('text', '') for s in fields[1]['segments']))
+        self.assertIn('unknown.token', ''.join(s.get('raw', s.get('text', '')) for s in fields[1]['segments']))
 
 
 class ReferencePresentationTests(TestCase):

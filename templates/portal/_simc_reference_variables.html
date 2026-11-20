@@ -1,0 +1,12 @@
+{% if row.variables %}
+<details class="reference-technical reference-variable-definitions">
+    <summary>相关变量的计算方式 · {{ row.variables|length }} 个</summary>
+    <p class="reference-note">条件使用变量最近一次计算后保存的值。以下规则只有在对应列表执行到该项、且满足使用条件时才更新；不是用此刻的状态重新计算。</p>
+    {% for variable in row.variables %}<section class="reference-variable-definition"><h4>变量「{{ variable.name }}」</h4>
+        {% for definition in variable.definitions %}<div class="reference-variable-assignment">
+            <p><a href="#{{ definition.anchor }}" data-apl-jump data-apl-rule="{{ definition.rule_anchor }}">{{ definition.location }}</a> · {{ definition.operation }}{% if definition.cycling %} · 逐目标执行{% endif %}</p>
+            <dl class="reference-conditions">{% for field in definition.fields %}<div><dt>{{ field.label }}</dt><dd>{% include 'portal/_simc_reference_condition.html' with segments=field.segments only %}</dd></div>{% endfor %}</dl>
+        </div>{% endfor %}
+    </section>{% endfor %}
+</details>
+{% endif %}

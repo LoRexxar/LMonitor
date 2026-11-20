@@ -1,40 +1,15 @@
 """还原列表调用的进入门槛和前置转入规则，不把子列表误当成互斥场景。"""
 
-from .ast import BinaryExpression, CallExpression, IdentifierExpression, NumberExpression, UnaryExpression
-from .narrative import condition, text
-
-
-def expression_source(node):
-    """按语法树保留未知条件，括号保证组合含义不变。"""
-    if isinstance(node, IdentifierExpression):
-        return node.name
-    if isinstance(node, NumberExpression):
-        return node.value
-    if isinstance(node, UnaryExpression):
-        return f'{node.operator}({expression_source(node.operand)})'
-    if isinstance(node, BinaryExpression):
-        return f'({expression_source(node.left)}{node.operator}{expression_source(node.right)})'
-    if isinstance(node, CallExpression):
-        return f'{node.function}({expression_source(node.argument)})'
-    return ''
+from .narrative import text, plain
+from .condition_rendering import describe_condition, expression_source
 
 
 def route_condition(node, symbols, negate=False):
-    known = condition(node, symbols, negate)
-    if known is not None:
-        return known
-    if isinstance(node, UnaryExpression) and node.operator == '!':
-        return route_condition(node.operand, symbols, not negate)
-    if isinstance(node, BinaryExpression) and node.operator in ('&', '|'):
-        op = node.operator if not negate else ('|' if node.operator == '&' else '&')
-        return [text('（'), *route_condition(node.left, symbols, negate),
-                text('，并且' if op == '&' else '，或者'),
-                *route_condition(node.right, symbols, negate), text('）')]
-    return [{'raw': expression_source(node)}, text('不成立' if negate else '成立')]
+    return describe_condition(node, symbols, negate)
 
 
 def route_text(segments):
-    return ''.join(s['reference']['name'] if 'reference' in s else s.get('raw', s.get('text', '')) for s in segments)
+    return plain(segments)
 
 
 def annotate_routes(groups, symbols):

@@ -47,7 +47,7 @@ class AplRoutingTests(SimpleTestCase):
                              'actions+=/run_action_list,name=b\nactions.a=hit\nactions.b=hit')
         guard = groups['b']['entries'][0]['guards'][0]['text']
         self.assertIn('并且', guard)
-        self.assertIn('(variable.custom>3)不成立', guard)
+        self.assertIn('variable.custom不超过3', guard)
         self.assertIn('敌人', guard)
 
     def test_all_prior_runs_constrain_later_entry_but_calls_do_not(self):

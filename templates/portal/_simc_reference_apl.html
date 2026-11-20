@@ -37,12 +37,14 @@
                 <div class="reference-rule-detail">
                     {% if row.unsupported %}<p>此项暂无法转为可读说明，保留原文以免遗漏执行条件。</p>
                     {% else %}
-                    <p class="reference-rule-guide">{% for segment in row.guide %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>
-                    {% if row.target_guide %}<p>{% for segment in row.target_guide %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>{% endif %}
+                    <p class="reference-rule-guide">{% include 'portal/_simc_reference_condition.html' with segments=row.guide only %}</p>
+                    {% if row.target_guide %}<p>{% include 'portal/_simc_reference_condition.html' with segments=row.target_guide only %}</p>{% endif %}
+                    {% if row.has_unexplained_conditions %}<p class="reference-note">部分字段尚无可靠的中文语义，已保留具体标识；不能仅凭已翻译部分判断使用时机。</p>{% endif %}
+                    {% include 'portal/_simc_reference_variables.html' with row=row only %}
                     {% if row.target %}{% if row.target_anchor %}<a href="#{{ row.target_anchor }}" data-apl-jump class="reference-sublist-link">查看 {{ row.target_label }} <span aria-hidden="true">→</span></a>{% else %}<p>未找到子列表：{{ row.target }}</p>{% endif %}{% endif %}
                     {% if row.behavior %}<p class="reference-action-behavior">{{ row.behavior }}</p>{% endif %}
                     {% if row.fields %}<details class="reference-technical"><summary>详细判定与执行设置</summary><dl class="reference-conditions">
-                        {% for field in row.fields %}<div><dt>{{ field.label }}</dt><dd>{% for segment in field.segments %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}</dd></div>{% endfor %}
+                        {% for field in row.fields %}<div><dt>{{ field.label }}</dt><dd>{% include 'portal/_simc_reference_condition.html' with segments=field.segments only %}</dd></div>{% endfor %}
                     </dl></details>{% endif %}
                     {% endif %}
                     <details class="reference-action-source"><summary>原始规则 · 第 {{ row.line }} 行</summary><code>{{ row.raw }}</code></details>

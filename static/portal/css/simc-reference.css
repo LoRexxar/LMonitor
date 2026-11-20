@@ -1,4 +1,9 @@
 /* 专精工作区：统一选择上下文，以内容切换代替长页表单。 */
+.reference-variable-link { overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 3px; }
+.reference-variable-definition { margin-top: 12px; }
+.reference-variable-definition h4 { margin: 0 0 8px; font-size: 13px; overflow-wrap: anywhere; }
+.reference-variable-assignment { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--reference-border); background: var(--reference-soft); }
+.reference-variable-assignment p { overflow-wrap: anywhere; }
 body.simc-reference-page { height: auto; min-height: 100%; overflow-y: visible; }
 .simc-reference {
     --reference-text: var(--portal-text, #172033);

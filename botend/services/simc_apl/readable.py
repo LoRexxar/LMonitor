@@ -5,15 +5,17 @@ from collections import OrderedDict, defaultdict
 from botend.constants.wow import canonical_class_spec
 from botend.models import SimcAplSymbolScope, WowTalentNodeMetadata
 from botend.services.simc_apl.ast import (
-    ActionAssignment, ActionEntry, BinaryExpression, CallExpression,
-    IdentifierExpression, InvalidLine, NumberExpression, Option, UnaryExpression,
+    ActionAssignment, ActionEntry, InvalidLine, Option,
 )
 from botend.services.simc_apl.catalog import query_visible_symbols
 from botend.services.simc_apl.translation import CONTROL_ACTIONS
 from botend.services.simc_apl.parser import parse
-from botend.services.simc_apl.narrative import action_guide, list_title
+from botend.services.simc_apl.narrative import action_guide
 from botend.services.simc_apl.hero_filter import filter_options, reachable_groups, scenario_title
 from botend.services.simc_apl.routing import annotate_routes
+from botend.services.simc_apl.condition_context import ConditionContext
+from botend.services.simc_apl.condition_rendering import describe_condition, describe_amount, diagnostics
+from botend.services.simc_apl.condition_variables import collect_variables, attach_variable_details
 from botend.services.simc_apl.hierarchy import label_groups, build_hierarchy
 from botend.services.wow_spell_display import SpellDisplayReader, plain_text
 from botend.templatetags.wow_tags import wow_icon_oss_url
@@ -46,25 +48,6 @@ OPTION_LABELS = {
     'interrupt': '允许中断引导', 'chain': '连续引导', 'toggle': '启用状态',
     'line_cd': '此优先级检查间隔', 'sync': '同步技能', 'target': '目标',
 }
-VALUE_LABELS = {
-    'rage': '怒气', 'energy': '能量', 'focus': '集中值', 'mana': '法力',
-    'runic_power': '符文能量', 'rune': '符文', 'holy_power': '圣能',
-    'chi': '真气', 'combo_points': '连击点', 'essence': '精华',
-    'soul_shard': '灵魂碎片', 'fury': '恶魔之怒', 'insanity': '狂乱值',
-    'active_enemies': '敌人数量', 'time': '战斗时间', 'fight_remains': '战斗剩余时间',
-    'target.time_to_die': '目标预计存活时间', 'target.health.pct': '目标生命百分比',
-    'gcd': '公共冷却时间', 'gcd.max': '最大公共冷却时间',
-    'gcd.remains': '公共冷却剩余时间', 'movement.distance': '移动距离',
-    'true': '是', 'false': '否',
-}
-PROPERTIES = {
-    'up': '生效', 'down': '未生效', 'remains': '剩余时间', 'duration': '持续时间',
-    'stack': '层数', 'stacks': '层数', 'react': '可响应层数', 'ready': '就绪',
-    'enabled': '已学习', 'rank': '等级', 'ticking': '持续效果生效',
-    'refreshable': '可刷新', 'charges': '充能次数', 'charges_fractional': '充能进度',
-    'full_recharge_time': '全部充能恢复时间',
-}
-OPERATORS = {'&': '且', '|': '或', '^': '异或', '=': '=', '!=': '≠', '>=': '≥', '<=': '≤', '%': '÷', '%%': '取余'}
 
 
 def _talent_spell_id(entry):
@@ -159,42 +142,6 @@ def _text(value):
     return {'text': str(value)}
 
 
-def _identifier(name, symbols):
-    if name in VALUE_LABELS:
-        return [_text(VALUE_LABELS[name])]
-    parts = name.split('.')
-    if len(parts) >= 2 and parts[0] in ('talent', 'buff', 'debuff', 'dot', 'cooldown', 'action'):
-        kind, token = parts[:2]
-        item = symbols.get((kind, token))
-        # 冷却字段确实属于一个动作时，才允许用动作的已验证映射补充显示。
-        if item is None and kind == 'cooldown':
-            item = symbols.get(('action', token))
-        prefix = {'talent': '天赋', 'buff': '增益', 'debuff': '减益', 'dot': '持续伤害', 'cooldown': '冷却', 'action': '技能'}[kind]
-        suffix = ' · '.join(PROPERTIES.get(p, p) for p in parts[2:])
-        return [_text(prefix + ' '), {'reference': item} if item else _text(token), _text(' ' + suffix if suffix else '')]
-    if name.startswith('variable.'):
-        return [_text('变量 ' + name.removeprefix('variable.'))]
-    for resource, label in VALUE_LABELS.items():
-        if name.startswith(resource + '.'):
-            suffix = name[len(resource) + 1:]
-            return [_text(label + ' · ' + {'deficit': '缺口', 'max': '上限', 'pct': '百分比', 'regen': '每秒恢复', 'time_to_max': '恢复至上限时间'}.get(suffix, suffix))]
-    return [_text(name)]
-
-
-def _expression(node, symbols):
-    if isinstance(node, IdentifierExpression):
-        return _identifier(node.name, symbols)
-    if isinstance(node, NumberExpression):
-        return [_text(node.value)]
-    if isinstance(node, UnaryExpression):
-        return [_text({'!': '非 ', '@': '绝对值 '}.get(node.operator, node.operator) + '('), *_expression(node.operand, symbols), _text(')')]
-    if isinstance(node, BinaryExpression):
-        return [_text('('), *_expression(node.left, symbols), _text(' ' + OPERATORS.get(node.operator, node.operator) + ' '), *_expression(node.right, symbols), _text(')')]
-    if isinstance(node, CallExpression):
-        return [_text({'floor': '向下取整', 'ceil': '向上取整'}.get(node.function, node.function) + '('), *_expression(node.argument, symbols), _text(')')]
-    return []
-
-
 def readable_apl(source, symbols, *, hero_id=None):
     document = parse(source or '')
     groups, unsupported = OrderedDict(), []
@@ -221,19 +168,10 @@ def readable_apl(source, symbols, *, hero_id=None):
             if options is None:
                 continue
             target = options.get('name') if action.name in ('call_action_list', 'run_action_list') else None
-            fields = []
-            for opt in options.values():
-                if target is opt:
-                    continue
-                segments = _expression(opt.expression, symbols) if opt.expression else [_text(opt.value)]
-                selector = {'min': '取最小值的目标：', 'max': '取最大值的目标：', 'first': '首个符合条件的目标：'}.get(opt.expression_selector, '')
-                if selector:
-                    segments.insert(0, _text(selector))
-                fields.append({'label': OPTION_LABELS.get(opt.name, opt.name), 'segments': segments})
             group['rows'].append({
-                **action_guide(action.name, options, symbols),
                 'name': action.name, 'label': CONTROL_LABELS.get(action.name, action.name),
-                'reference': None if action.name in CONTROL_ACTIONS else symbols.get(('action', action.name)), 'fields': fields,
+                'reference': None if action.name in CONTROL_ACTIONS else symbols.get(('action', action.name)),
+                '_display_options': options,
                 **({'_routing_options': options} if target else {}),
                 'target': target.value if target else None,
                 'behavior': ('子列表没有执行技能时，继续检查下一项。' if action.name == 'call_action_list' else
@@ -254,7 +192,32 @@ def readable_apl(source, symbols, *, hero_id=None):
                 target = groups.get(row['target'])
                 row['target_anchor'] = target['anchor'] if target else ''
                 row['target_label'] = target['label'] if target else row['target']
-    annotate_routes(groups, symbols)
+    variables = collect_variables(groups)
+    context = ConditionContext(symbols, variables=variables)
+    for group in groups.values():
+        for row in group['rows']:
+            if row.get('unsupported'):
+                continue
+            local = context.for_action(row['name'])
+            options = row['_display_options']
+            fields = []
+            for opt in options.values():
+                if row['target'] is not None and opt.name == 'name':
+                    continue
+                if opt.expression:
+                    boolean = opt.name in ('if', 'condition', 'interrupt_if', 'cancel_if', 'early_chain_if') or opt.expression_selector == 'first'
+                    segments = (describe_condition if boolean else describe_amount)(opt.expression, local)
+                else:
+                    segments = [_text(opt.value)]
+                selector = {'min': '取最小值的目标：', 'max': '取最大值的目标：', 'first': '首个符合条件的目标：'}.get(opt.expression_selector, '')
+                if selector:
+                    segments.insert(0, _text(selector))
+                fields.append({'name': opt.name, 'label': OPTION_LABELS.get(opt.name, opt.name), 'segments': segments})
+            row.update(action_guide(row['name'], options, local), fields=fields)
+            row['condition_diagnostics'] = diagnostics([p for field in fields for p in field['segments']])
+            row['has_unexplained_conditions'] = any(d['reason'] in ('unknown_semantics', 'undefined_variable') for d in row['condition_diagnostics'])
+    attach_variable_details(groups, variables)
+    annotate_routes(groups, context)
     hierarchy = build_hierarchy(groups)
     return {'groups': list(groups.values()), 'hierarchy': hierarchy, 'unsupported': unsupported,
             'count': sum(len(g['rows']) for g in groups.values())}

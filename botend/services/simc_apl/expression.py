@@ -83,14 +83,8 @@ def tokenize(text: str) -> Tuple[List[Token], List[Tuple[str, int, int, Optional
             index += 1
             continue
         end = index + len(operator)
-        if operator == "^^":
-            operator = "^"
-        if operator in ("==", "&&", "||"):
-            errors.append((
-                "invalid-equality-operator" if operator == "==" else "invalid-logical-operator",
-                index, end, {"==": "=", "&&": "&", "||": "|"}[operator],
-            ))
-            operator = {"==": "=", "&&": "&", "||": "|"}[operator]
+        # 原生 expressions.cpp 接受单双写法；范围仍覆盖原文完整运算符。
+        operator = {"==": "=", "&&": "&", "||": "|", "^^": "^"}.get(operator, operator)
         tokens.append(Token("operator", operator, index, end))
         index = end
     tokens.append(Token("eof", "", len(text), len(text)))
