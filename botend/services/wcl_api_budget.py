@@ -47,6 +47,7 @@ class WclResult:
     payload: dict | None = None
     error: str = ''
     retry_at: object = None
+    quota_exhausted: bool = False
 
 
 class WclTransportError(Exception):
@@ -112,7 +113,7 @@ def _query_info(query, variables):
     return key, has_quota, measured
 
 
-def _wait(row, now, error='budget_wait'):
+def _wait(row, now, error='budget_wait', *, quota_exhausted=False):
     candidates = [now + timedelta(seconds=1)]
     if error == 'rate_limit' and row.blocked_until:
         candidates.append(row.blocked_until)
@@ -120,7 +121,7 @@ def _wait(row, now, error='budget_wait'):
         candidates.append(row.lease_expires_at)
     elif row.reset_at and row.reset_at > now:
         candidates.append(row.reset_at)
-    return WclResult(error=error, retry_at=max(candidates))
+    return WclResult(error=error, retry_at=max(candidates), quota_exhausted=quota_exhausted)
 
 
 def collection_worker_limit(client_id):
@@ -169,7 +170,7 @@ def _reserve(account, owner, cost_key, explicit_quota):
         available = row.limit_per_hour * (1 - _setting('WCL_BUDGET_RESERVE_FRACTION', .2, maximum=.99))
         if row.limit_per_hour > 0 and row.spent + cost > available:
             # An unsuccessful reset probe must not get an unlimited allowance.
-            return None, None, _wait(row, now)
+            return None, None, _wait(row, now, quota_exhausted=True)
         expires = now + timedelta(seconds=LEASE_SECONDS)
         if discovery or unknown:
             row.lease_owner, row.lease_expires_at = owner, expires

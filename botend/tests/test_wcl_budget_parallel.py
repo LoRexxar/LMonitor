@@ -158,6 +158,40 @@ class ParallelBudgetTests(TransactionTestCase):
         self.row.refresh_from_db()
         self.assertEqual(self.row.spent, 790)
 
+    def test_collector_only_classifies_ledger_quota_denial_as_quota_wait(self):
+        from django.db import OperationalError
+        from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
+        from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants
+        from botend.tests.test_wcl_combatant_snapshot import sample
+
+        def late_429(*args, **kwargs):
+            self.assertEqual(self.row.reservations.all().delete()[0], 1)
+            return Response(status=429)
+
+        with self.settings(WCL_V2_CONFIG={'client_id': 'parallel'}):
+            fetcher = SpecDetailBase(None, None)
+            with patch.object(fetcher, '_get_wcl_token', return_value='fixture'), \
+                    patch('botend.services.wcl_combatant_snapshot.load_staged_events', return_value=None), \
+                    patch.object(budget.requests, 'post', side_effect=late_429) as post:
+                def collect():
+                    result = collect_dungeon_combatants([sample()], fetcher, apply=True)
+                    self.assertEqual((result['pending'], result['failed'], fetcher._wcl_last_error), (1, 0, 'budget_wait'))
+                    return result
+
+                self.row.spent = 800
+                self.row.save(update_fields=['spent'])
+                self.assertEqual(collect().get('retry_reason'), 'budget_wait')
+                post.assert_not_called()
+                self.row.spent = 100
+                self.row.save(update_fields=['spent'])
+                with patch.object(budget, '_locked', side_effect=OperationalError('lock timeout')):
+                    with self.subTest(reason='ledger contention'):
+                        self.assertIsNone(collect().get('retry_reason'))
+                post.assert_not_called()
+                with self.subTest(reason='429 after reservation loss'):
+                    self.assertIsNone(collect().get('retry_reason'))
+                post.assert_called_once()
+
     def test_discovery_failure_cannot_spin_unmetered_probes(self):
         self.row.reset_at = None
         self.row.limit_per_hour = 0

@@ -227,6 +227,183 @@ class WclCollectionCycleTests(TestCase):
         self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(cycle.selected_samples, selected)
 
+    def _use_budget_test_clock(self):
+        self.enterContext(patch('django.utils.timezone.now', side_effect=lambda: self.now))
+        self.enterContext(patch('requests.sessions.Session.request',
+                                side_effect=AssertionError('local test must not use HTTP')))
+        self.enterContext(override_settings(WCL_RAW_STAGING_DIR=str(Path(self.media) / 'raw-staging')))
+
+    def _budget_cycle(self):
+        row = SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=101,
+            dungeon_name='One', class_name='Mage', spec_name='Fire', character_name='Player',
+            realm='Realm', region='eu', report_code='Frozen', fight_id=1, dps=123, keystone_level=12)
+        return self.cycle(phase='combatants', completed_scopes=['dungeon:101', 'dungeon:102'],
+            selected_samples={'Mage/Fire': {'101': [row.pk], '102': []}})
+
+    def _budget_attempt(self, cycle, **overrides):
+        result = dict(pending=1, failed=0, retry_reason='budget_wait',
+                      retry_at=(self.now + timedelta(hours=1)).isoformat())
+        result.update(overrides)
+
+        def collect(*args, **kwargs):
+            if kwargs['apply']:
+                kwargs['progress'](result)
+            return result
+
+        with patch(COMBATANTS + '.collect_dungeon_combatants', side_effect=collect):
+            self.assertTrue(self.monitor().scan(''))
+        cycle.refresh_from_db()
+
+    def test_only_first_and_final_budget_attempts_publish(self):
+        from botend.services.wcl_collection_cycle import begin_aggregation, scheduled_cycle_due_at
+        from botend.services.spec_stats_snapshot import read_projection
+
+        self._use_budget_test_clock()
+        cycle = self._budget_cycle()
+
+        def collect(*, complete=False):
+            ranking = self.monitor()
+
+            def source(query, variables, **kwargs):
+                self.assertEqual((variables['code'], variables['fightIDs']), ('Frozen', [1]))
+                if complete:
+                    return {'reportData': {'report': {
+                        'masterData': {'actors': [{'id': 7, 'name': 'Player', 'server': 'Realm', 'type': 'Player'}]},
+                        'events': {'data': [{'fight': 1, 'sourceID': 7, 'specID': 63, 'auras': []}],
+                                   'nextPageTimestamp': None},
+                        'consumableEvents': {'data': [{'type': 'cast', 'fight': 1, 'sourceID': 7,
+                                                     'abilityGameID': 1236994}], 'nextPageTimestamp': None}}}}
+                ranking._wcl_last_error = 'budget_wait'
+                ranking._wcl_quota_exhausted = True
+                setattr(ranking, '_wcl_retry_at', self.now + timedelta(hours=1))
+                return None
+
+            with patch.object(ranking, '_wcl_graphql', side_effect=source) as graphql:
+                self.assertTrue(ranking.scan(''))
+                graphql.assert_called_once()
+            cycle.refresh_from_db()
+
+        collect()
+        self.assertEqual(cycle.phase, 'ready')
+        monitor = SpecDetailAggregationMonitor(None, self.aggregation)
+        path = Path(self.media) / 'aggregated' / str(self.season.pk) / 'Mage/Fire/dungeon.json'
+        with patch(AGGREGATION + '.CLASS_SPEC_MAP', {'Mage': ['Fire']}), \
+                patch.object(monitor, '_aggregate_leaderboard'), \
+                patch.object(monitor, '_aggregate_dungeon', wraps=monitor._aggregate_dungeon) as dungeon:
+            self.assertTrue(monitor.scan(''))
+            cycle.refresh_from_db()
+            public_times = (cycle.published_at, cycle.collected_at)
+            before = path.read_bytes()
+            self.assertEqual(dungeon.call_count, 1)
+            for _ in range(2):
+                self.now = cycle.next_retry_at
+                retry = self.now + timedelta(hours=1)
+                collect()
+                self.assertEqual(cycle.phase, 'combatants')
+                self.assertEqual(cycle.next_retry_at, retry)
+                self.assertEqual((cycle.published_at, cycle.collected_at), public_times)
+                self.assertIsNone(scheduled_cycle_due_at(self.ranking, self.now))
+                self.assertEqual(scheduled_cycle_due_at(self.ranking, cycle.next_retry_at), cycle.next_retry_at)
+                self.assertIsNone(begin_aggregation(self.season, replay_published=True))
+                self.assertTrue(monitor.scan(''))  # Independent leaderboard ticks still work.
+                self.assertEqual(dungeon.call_count, 1)
+                self.assertEqual(path.read_bytes(), before)
+            self.now = cycle.next_retry_at
+            collect(complete=True)
+            self.assertEqual(cycle.phase, 'ready')
+            self.assertEqual(cycle.published_at, public_times[0])
+            self.assertEqual(cycle.collected_at, self.now)
+            self.assertTrue(monitor.scan(''))
+            cycle.refresh_from_db()
+            self.assertEqual(dungeon.call_count, 2)
+            self.assertEqual(cycle.phase, 'published')
+            self.assertEqual(cycle.counts['matched'], 1)
+            self.assertIn('鲁莽药水', json.dumps(read_projection(path, 'dungeon-101'), ensure_ascii=False))
+            self.assertEqual(cycle.published_at, self.now)
+            self.assertIsNone(cycle.next_retry_at)
+
+    def test_non_budget_or_changed_scope_still_requires_publication(self):
+        self._use_budget_test_clock()
+        for change in ('legacy timestamp only', 'unknown pending', 'failed', 'expired', 'invalid deadline',
+                       'ranking pending', 'ranking checkpoint changed', 'frozen IDs changed'):
+            with self.subTest(change=change):
+                WclCollectionCycle.objects.all().delete()
+                cycle = self._budget_cycle()
+                self._budget_attempt(cycle)
+                publish_attempt(cycle)
+                self.now = cycle.next_retry_at
+                attempt = {}
+                if change == 'legacy timestamp only':
+                    cycle.counts = {}
+                    cycle.save(update_fields=['counts'])
+                elif change == 'unknown pending':
+                    attempt['retry_reason'] = ''
+                elif change == 'failed':
+                    attempt['failed'] = 1
+                elif change == 'expired':
+                    attempt['retry_at'] = self.now.isoformat()
+                elif change == 'invalid deadline':
+                    attempt['retry_at'] = 'not a deadline'
+                elif change == 'ranking pending':
+                    cycle.counts['_ranking_pending'] = ['dungeon:102']
+                    cycle.save(update_fields=['counts'])
+                elif change == 'ranking checkpoint changed':
+                    cycle.completed_scopes.append('raid:5:201')
+                    cycle.save(update_fields=['completed_scopes'])
+                elif change == 'frozen IDs changed':
+                    cycle.selected_samples['Mage/Fire']['101'] = []
+                    cycle.save(update_fields=['selected_samples'])
+                self._budget_attempt(cycle, **attempt)
+                self.assertEqual(cycle.phase, 'ready')
+
+    def test_failed_publish_and_daily_turnover_do_not_reuse_unpublished_coverage(self):
+        from botend.services.wcl_collection_cycle import begin_collection, freeze_samples
+
+        self._use_budget_test_clock()
+        cycle = self._budget_cycle()
+        self._budget_attempt(cycle)
+        monitor = SpecDetailAggregationMonitor(None, self.aggregation)
+        with patch(AGGREGATION + '.CLASS_SPEC_MAP', {'Mage': ['Fire']}), \
+                patch.object(monitor, '_aggregate_leaderboard'), \
+                patch.object(monitor, '_aggregate_dungeon', side_effect=OSError('publish failed')):
+            self.assertFalse(monitor.scan(''))
+        cycle.refresh_from_db()
+        self.assertEqual(cycle.phase, 'aggregating')
+        self.assertIsNone(cycle.published_at)
+        self.assertIsNone(begin_collection(self.season, now=cycle.next_retry_at))
+        self.now = cycle.next_retry_at
+        publish_attempt(cycle)
+
+        self.now += timedelta(days=1)
+        new = begin_collection(self.season)
+        assert new is not None
+        cycle.refresh_from_db()
+        self.assertEqual(cycle.phase, 'published')
+        self.assertNotEqual(new.pk, cycle.pk)
+        new.completed_scopes = cycle.completed_scopes
+        new.save(update_fields=['completed_scopes'])
+        freeze_samples(new, self.season, [('Mage', 'Fire')])
+        self._budget_attempt(new)
+        self.assertEqual(new.phase, 'ready')
+        self.assertIsNone(new.published_at)
+
+    def test_scoped_manual_replay_does_not_establish_full_ranking_coverage(self):
+        from botend.services.wcl_collection_cycle import begin_aggregation, finish_publication
+
+        self._use_budget_test_clock()
+        cycle = self._budget_cycle()
+        self._budget_attempt(cycle)
+        # A retired legacy partial publication has a cutoff but no coverage marker.
+        WclCollectionCycle.objects.filter(pk=cycle.pk).update(phase='published', published_at=self.now)
+        self.now += timedelta(hours=1)
+        replay = begin_aggregation(self.season, replay_published=True)
+        assert replay is not None
+        finish_publication(replay, metadata_checked_at=cycle.last_attempt_at)
+        cycle.refresh_from_db()
+        self.now = cycle.next_retry_at
+        self._budget_attempt(cycle)
+        self.assertEqual(cycle.phase, 'ready')
+
     def test_scope_replacement_and_checkpoint_rollback_together(self):
         old = SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=101,
             dungeon_name='One', class_name='Mage', spec_name='Fire', character_name='Previous', dps=55)

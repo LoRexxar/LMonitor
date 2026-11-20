@@ -7,6 +7,7 @@ from queue import Empty, SimpleQueue
 import math
 import re
 import time
+from typing import Any
 
 from django.db.models import Q
 
@@ -344,7 +345,7 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None, require_consum
         if staged is not None:
             events, fetched_at_by_fight = staged
             if not require_consumables or all(isinstance(event.get('consumables'), dict) for event in events):
-                return events, '', None, time.monotonic() - started, fetched_at_by_fight
+                return events, '', None, time.monotonic() - started, fetched_at_by_fight, False
         if factory is not None:
             close_old_connections()
             fetcher = factory()
@@ -357,10 +358,10 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None, require_consum
         from django.utils import timezone
         fetched_at = timezone.now()
         return (events, error, getattr(fetcher, '_wcl_retry_at', None), time.monotonic() - started,
-                {fight: fetched_at for fight in batch})
+                {fight: fetched_at for fight in batch}, getattr(fetcher, '_wcl_quota_exhausted', False) is True)
     except Exception:
         # No exception bodies, report codes, player names, or credentials in logs.
-        return None, 'worker_exception', None, time.monotonic() - started, {}
+        return None, 'worker_exception', None, time.monotonic() - started, {}, False
     finally:
         business_requests_sent.reset(sent_token)
         if factory is not None:
@@ -468,7 +469,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     fetch_method = getattr(fetcher, 'fetch_wcl_combatant_info', None)
     require_consumables = (fetcher is None and apply) or getattr(fetch_method, 'collects_consumables', False) is True
     records = list(records)
-    counts = dict(selected=len(records), cached=0, matched=0, missing=0,
+    counts: dict[str, Any] = dict(selected=len(records), cached=0, matched=0, missing=0,
                   permission_denied=0, failed=0, pending=0, snapshots_written=0,
                   reports_requested=0, fights_requested=0, negative_cached=0,
                   transient_errors=0, transient_cached=0, deferred_reports=0, circuit_open=0)
@@ -571,6 +572,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     completed_responses = SimpleQueue()
     stopped = False
     fatal_error = ''
+    quota_stops = set()
     consecutive_transient = 0
     admission_parked = []
     admission_rounds = 0
@@ -579,9 +581,10 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     counts.update(batches_completed=0, batches_dispatched=0, fetch_seconds=0.0, save_seconds=0.0)
     counts.update({key: 0.0 for key in COMBATANT_SAVE_TIMINGS})
 
-    def stop_collection(error, deadline=None):
+    def stop_collection(error, deadline=None, *, quota_exhausted=False):
         nonlocal stopped, fatal_error, fatal_retry_at
         stopped = True
+        quota_stops.add(error == 'budget_wait' and quota_exhausted)
         fatal_error = fatal_error or error
         if isinstance(deadline, datetime):
             fatal_retry_at = max(fatal_retry_at, deadline) if fatal_retry_at else deadline
@@ -634,6 +637,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                     # A broken control/budget read cannot justify dispatching
                     # on a stale limit. Still persist already in-flight success.
                     stopped = True
+                    quota_stops.add(False)
                     if log:
                         log(f'WCL combatants control_failed error_type={type(exc).__name__}')
             if not counts['batches_dispatched']:
@@ -679,9 +683,10 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                     admission_check()
                 code, batch, batch_rows = inflight.pop(future)
                 try:
-                    events, error, retry_at, fetch_seconds, fetched_at_by_fight = future.result()
+                    events, error, retry_at, fetch_seconds, fetched_at_by_fight, quota_exhausted = future.result()
                 except Exception:
-                    events, error, retry_at, fetch_seconds, fetched_at_by_fight = None, 'worker_exception', None, 0.0, {}
+                    events, error, retry_at, fetch_seconds, fetched_at_by_fight, quota_exhausted = (
+                        None, 'worker_exception', None, 0.0, {}, False)
                 counts['batches_completed'] += 1
                 counts['fetch_seconds'] += fetch_seconds  # summed worker wall, not elapsed throughput
                 save_started = time.monotonic()
@@ -718,7 +723,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                         retry_at = max(retry_at, timezone.now() + timedelta(seconds=1))
                         stop_collection(error, retry_at)
                     elif isinstance(retry_at, datetime) and retry_at > timezone.now():
-                        stop_collection(error, retry_at)
+                        stop_collection(error, retry_at, quota_exhausted=quota_exhausted)
                     elif error == 'permission':
                         consecutive_transient = 0
                         _save_negative_fetch_state(code, 0, 'permission_denied', timezone.now())
@@ -748,5 +753,10 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
         if factory:
             fetcher._wcl_last_error = fatal_error
             fetcher._wcl_retry_at = fatal_retry_at
+        # Only classify the completed attempt, after all workers drain. A
+        # healthy response must not hide a concurrent non-budget failure.
+        if (quota_stops == {True} and fatal_retry_at and not counts['failed']
+                and not deferred_reports and not admission_parked):
+            counts['retry_reason'] = 'budget_wait'
         emit_progress(force=True)
     return counts

@@ -82,6 +82,7 @@ class SpecDetailBase(BaseScan):
 
         self._wcl_last_error = ''
         self._wcl_retry_at = None
+        self._wcl_quota_exhausted = False
         token = self._get_wcl_token()
         if not token:
             self._wcl_last_error = 'authentication'
@@ -89,6 +90,7 @@ class SpecDetailBase(BaseScan):
         client_id = (getattr(settings, 'WCL_V2_CONFIG', {}) or {}).get('client_id')
         result = graphql_request(client_id, token, query, variables, proxies=self._proxies)
         self._wcl_last_error, self._wcl_retry_at = result.error, result.retry_at
+        self._wcl_quota_exhausted = result.quota_exhausted is True
         if result.error:
             # Never log credentials, raw request exceptions or upstream bodies.
             log = logger.warning if result.error in ('permission', 'budget_wait', 'rate_limit', 'admission_busy') else logger.error
@@ -188,6 +190,7 @@ class SpecDetailBase(BaseScan):
         """
         self._wcl_last_error = ''
         self._wcl_retry_at = None
+        self._wcl_quota_exhausted = False
         if not report_code or not fight_id:
             return []
         try:

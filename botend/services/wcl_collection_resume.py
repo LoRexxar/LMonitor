@@ -3,7 +3,9 @@ import hashlib
 import json
 import time
 
-from botend.services.wcl_collection_cycle import fenced_cycle, frozen_combatant_records
+from botend.services.wcl_collection_cycle import (
+    fenced_cycle, frozen_combatant_records, with_publication_state,
+)
 
 
 CHECKPOINT_KEY = '_combatant_resume'
@@ -54,9 +56,9 @@ class CombatantResume:
 
     def save_counts(self, saved):
         with fenced_cycle(self.cycle, phases=('combatants',)) as current:
-            current.counts = saved
+            current.counts = with_publication_state(current, saved)
             current.save(update_fields=['counts'])
-            self.cycle.counts = saved
+            self.cycle.counts = current.counts
 
 
 def collect_cycle_combatants(cycle, fetcher, *, log=None, admission_check=None):
@@ -76,6 +78,7 @@ def collect_cycle_combatants(cycle, fetcher, *, log=None, admission_check=None):
             admission_check()
         started = time.monotonic()
         # 完成屏障不能信任断点：全部引用必须存在，正向事实和负缓存必须仍然有效。
+        counts.pop('retry_reason', None)
         records = frozen_combatant_records(cycle)
         resume.remaining = set(resume.references)
         verified = collect_dungeon_combatants(records, fetcher, apply=False, on_positive=resume.positive)

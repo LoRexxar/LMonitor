@@ -25,6 +25,7 @@ from django.utils import timezone
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, WclCollectionCycle, WclCombatantFetchState, WclCombatantSnapshot
 from botend.services import wcl_combatant_snapshot as service
+from botend.services.wcl_api_budget import WclResult
 from botend.services.wcl_collection_cycle import begin_collection, finish_collection
 
 
@@ -78,11 +79,11 @@ def local_api(respond):
             response = requests.post(f'http://127.0.0.1:{server.server_port}/',
                                      json=variables, timeout=8)
         except requests.RequestException:
-            return SimpleNamespace(payload=None, error='network', retry_at=None)
+            return WclResult(error='network')
         payload = response.json()
-        return SimpleNamespace(payload=payload, error=payload.get('error', ''),
-                               retry_at=timezone.now() + timedelta(minutes=5)
-                               if payload.get('error') == 'rate_limit' else None)
+        return WclResult(payload=payload, error=payload.get('error', ''),
+                         retry_at=timezone.now() + timedelta(minutes=5)
+                         if payload.get('error') == 'rate_limit' else None)
     try:
         with patch('botend.services.wcl_api_budget.graphql_request', side_effect=transport):
             yield calls, errors

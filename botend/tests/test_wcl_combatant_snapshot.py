@@ -167,6 +167,28 @@ class SnapshotLightReadRecoveryTests(TestCase):
 
 
 class SnapshotCollectionTests(RawStagingIsolationMixin, TestCase):
+    def test_quota_only_retry_is_not_inferred_from_a_deadline_alone(self):
+        from datetime import timedelta
+        from unittest.mock import Mock
+        from botend.models import WclCombatantFetchState
+        from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants
+
+        deadline = timezone.now() + timedelta(hours=1)
+        fetcher = Mock(_wcl_last_error='budget_wait', _wcl_retry_at=deadline, _wcl_quota_exhausted=True)
+        fetcher.fetch_wcl_combatant_info.return_value = None
+        quota = collect_dungeon_combatants([sample()], fetcher, apply=True)
+        self.assertEqual((quota['pending'], quota['failed'], quota.get('retry_reason')), (1, 0, 'budget_wait'))
+        self.assertEqual(quota['retry_at'], deadline.isoformat())
+        fetcher._wcl_last_error = 'rate_limit'
+        limited = collect_dungeon_combatants([sample()], fetcher, apply=True)
+        self.assertNotEqual(limited.get('retry_reason'), 'budget_wait')
+        fetcher._wcl_last_error = 'budget_wait'
+        WclCombatantFetchState.objects.create(report_code='Deferred', fight_id=0,
+            status='transient_error', checked_at=timezone.now(), retry_after=deadline)
+        mixed = collect_dungeon_combatants([sample(code='Deferred'), sample()], fetcher, apply=True)
+        self.assertEqual((mixed['pending'], mixed['failed'], mixed['transient_cached']), (2, 0, 1))
+        self.assertNotEqual(mixed.get('retry_reason'), 'budget_wait')
+
     def setUp(self):
         super().setUp()
         isolate_work_cache(self)

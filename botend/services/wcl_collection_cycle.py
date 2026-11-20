@@ -1,11 +1,14 @@
-"""WCL 每轮尝试后发布已有结果，来源失败在发布后继续补采。
+"""WCL 采集、部分发布和续采；同一榜单的纯配额等待不重复发布。
 
 控制状态只保存引用。锁顺序为任务、租约、赛季、周期；网络和聚合计算在事务外执行，
 榜单替换与最终文件发布仍验证周期所有权，发布失败时优先恢复发布。
 """
+import json
+import logging
 from contextlib import contextmanager
 from copy import copy
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
+from hashlib import sha256
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -21,6 +24,8 @@ RETRY_DELAY = timedelta(minutes=5)
 COLLECTING = ('rankings', 'combatants')
 PUBLISHING = ('ready', 'aggregating')
 NO_OVERRIDE = object()
+PUBLISHED_RANKING_COVERAGE = '_published_ranking_coverage'
+logger = logging.getLogger(__name__)
 
 
 class CycleOwnershipLost(RuntimeError):
@@ -71,6 +76,16 @@ def _save(current, cycle, **updates):
     current.save(update_fields=list(updates))
 
 
+def with_publication_state(current, counts):
+    """Attempt counters/checkpoints cannot replace evidence of publication."""
+    counts = dict(counts)
+    counts.pop(PUBLISHED_RANKING_COVERAGE, None)
+    prior_counts = current.counts or {}
+    if PUBLISHED_RANKING_COVERAGE in prior_counts:
+        counts[PUBLISHED_RANKING_COVERAGE] = prior_counts[PUBLISHED_RANKING_COVERAGE]
+    return counts
+
+
 def _retire_previous_partial(cycle, now):
     """已发布的旧日批次不阻塞新榜单；新批次继续复用其已采事实。"""
     if (cycle and cycle.published_at and cycle.phase in COLLECTING
@@ -118,17 +133,12 @@ def checkpoint_scope(cycle, scope):
 
 
 def defer_cycle(cycle, error, retry_at=None, *, counts=None):
-    if isinstance(retry_at, str):
-        retry_at = parse_datetime(retry_at)
-    if retry_at is not None and timezone.is_naive(retry_at):
-        retry_at = timezone.make_aware(retry_at, LOCAL_TZ)
     now = timezone.now()
-    # Invalid/past retry hints must not create a hot scheduler loop.
-    retry_at = retry_at if retry_at and retry_at > now else now + RETRY_DELAY
+    retry_at = _retry_deadline(retry_at, now=now)
     with fenced_cycle(cycle, phases=COLLECTING + ('aggregating',)) as current:
         updates = dict(next_retry_at=retry_at, error=str(error), last_attempt_at=now)
         if counts is not None:
-            updates['counts'] = counts
+            updates['counts'] = with_publication_state(current, counts)
         _save(current, cycle, **updates)
 
 
@@ -255,28 +265,65 @@ def collection_incomplete(counts):
     return bool(counts.get('failed', 0) or counts.get('pending', 0) or counts.get('_ranking_pending'))
 
 
+def _parse_retry_at(value):
+    if isinstance(value, str):
+        try:
+            value = parse_datetime(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, datetime) else None
+
+
 def _retry_deadline(value, *, now=None):
     now = now or timezone.now()
-    if isinstance(value, str):
-        value = parse_datetime(value)
+    value = _parse_retry_at(value)
     if value is not None and timezone.is_naive(value):
         value = timezone.make_aware(value, LOCAL_TZ)
+    # Invalid/past retry hints must not create a hot scheduler loop.
     return value if value and value > now else now + RETRY_DELAY
 
 
+def _ranking_coverage(cycle, published_at):
+    if not cycle.collected_at or not published_at or cycle.counts.get('_ranking_pending'):
+        return None
+    completed = set(cycle.completed_scopes)
+    expected = {f'{"raid" if name.startswith("raid:") else "dungeon"}:{scope}'
+                for name, scopes in cycle.selected_samples.items() for scope in scopes}
+    if not expected or not expected.issubset(completed):
+        return None
+    identity = [1, cycle.pk, cycle.season_id, sorted(completed), cycle.selected_samples,
+                cycle.collected_at.astimezone(dt_timezone.utc).isoformat(),
+                published_at.astimezone(dt_timezone.utc).isoformat()]
+    return sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
 def finish_collection(cycle, counts):
-    """一次采集尝试结束即可发布；来源缺项在发布后继续恢复。"""
-    counts = dict(counts)
-    counts.pop('_collection_retry_at', None)
-    deadlines = []
-    if counts.get('failed', 0) or counts.get('pending', 0):
-        deadlines.append(_retry_deadline(counts.get('retry_at')))
-    if counts.get('_ranking_pending'):
-        deadlines.append(_retry_deadline(counts.get('_ranking_retry_at')))
-    if deadlines:
-        counts['_collection_retry_at'] = min(deadlines).isoformat()
+    """Keep the last publication across proven budget-only waits."""
     with fenced_cycle(cycle, phases=('combatants',)) as current:
-        _save(current, cycle, phase='ready', counts=counts, collected_at=timezone.now(),
+        now = timezone.now()
+        counts = with_publication_state(current, counts)
+        counts.pop('_collection_retry_at', None)
+        retry_at = _parse_retry_at(counts.get('retry_at'))
+        coverage = counts.get(PUBLISHED_RANKING_COVERAGE)
+        # retry_reason is the collector's attempt-wide classification, not a
+        # single worker's last error or an inference from retry_at alone.
+        if (counts.get('pending', 0) > 0 and counts.get('failed') == 0
+                and not counts.get('_ranking_pending') and counts.get('retry_reason') == 'budget_wait'
+                and retry_at and timezone.is_aware(retry_at) and retry_at > now
+                and coverage and coverage == _ranking_coverage(current, current.published_at)):
+            # Progress and backoff advance; the public timestamps do not.
+            _save(current, cycle, counts=counts, next_retry_at=retry_at, last_attempt_at=now, error='')
+            logger.info('WCL retained partial publication: cycle=%s pending=%s retry_at=%s',
+                        current.pk, counts['pending'], retry_at.isoformat())
+            return True
+        deadlines = []
+        if counts.get('failed', 0) or counts.get('pending', 0):
+            deadlines.append(_retry_deadline(retry_at, now=now))
+        if counts.get('_ranking_pending'):
+            deadlines.append(_retry_deadline(counts.get('_ranking_retry_at'), now=now))
+        if deadlines:
+            counts['_collection_retry_at'] = min(deadlines).isoformat()
+        _save(current, cycle, phase='ready', counts=counts, collected_at=now,
               next_retry_at=None, error='')
     return True
 
@@ -323,14 +370,19 @@ def finish_publication(cycle, *, metadata_checked_at=None):
     with fenced_cycle(cycle, phases=('aggregating',)) as current:
         incomplete = collection_incomplete(current.counts or {})
         phase = ('rankings' if current.counts.get('_ranking_pending') else 'combatants') if incomplete else 'published'
-        fields = {'phase': phase, 'published_at': timezone.now(),
-                  'next_retry_at': _retry_deadline(current.counts.get('_collection_retry_at')) if incomplete else None,
-                  'error': '',
-                  'counts': ({**(current.counts or {}), 'statistics_contract': 'wcl-log-v2'}
-                             if metadata_checked_at is None else current.counts)}
+        now = timezone.now()
+        counts = dict(current.counts)
+        counts.pop(PUBLISHED_RANKING_COVERAGE, None)
+        fields = {'phase': phase, 'published_at': now,
+                  'next_retry_at': _retry_deadline(counts.get('_collection_retry_at'), now=now) if incomplete else None,
+                  'error': '', 'counts': counts}
         if metadata_checked_at is not None:
             # 手工只重建部分专精不能确认其他专精已消费本轮中央更新。
             fields['last_attempt_at'] = metadata_checked_at
+        else:
+            counts['statistics_contract'] = 'wcl-log-v2'
+            if incomplete and (coverage := _ranking_coverage(current, now)):
+                counts[PUBLISHED_RANKING_COVERAGE] = coverage
         _save(current, cycle, **fields)
 
 
