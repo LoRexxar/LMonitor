@@ -337,6 +337,8 @@ class SpecStatsService:
 
         # Observation projection is local-only; generation is an explicit command.
         from botend.services.player_observation import project_player_observation
+        from botend.services.player_consumables import project_player_consumables
+        activity = project_player_activity(player)
         return {
             'id': player.id,
             'rank': player.rank,
@@ -357,14 +359,15 @@ class SpecStatsService:
             'avatar_url': player.avatar_url,
             'profile_url': player.profile_url,
             'external_links': build_player_external_links(player),
-            'raiderio_activity': project_player_activity(player),
+            'raiderio_activity': activity,
+            'consumable_preferences': project_player_consumables(player, activity),
             'achievement_points': player.achievement_points,
             'item_level': player.item_level or avg_ilvl,
             'gear': gear_items,
             'gear_source': gear_payload['source'],
             'total_gems': total_gems,
-            'talents': talent_vm['nodes'],
-            'talent_groups': talent_vm['trees'],
+            'talents': talent_vm.get('nodes', []),
+            'talent_groups': talent_vm.get('trees', []),
             'talent_code': talent_view.get('talent_build_code', ''),
             'talent_build_code': talent_view.get('talent_build_code', ''),
             'has_talent_build_code': talent_view.get('has_talent_build_code', False),
@@ -2576,6 +2579,7 @@ def _normalize_gear_items(items):
             'slot': SLOT_CN.get(slot, '' if slot == 'unknown' else slot),
             'name': item_meta['name'],
             'name_zh': item_meta['name_zh'],
+            '_source_name': item_name,
             'display_name': item_meta['display_name'],
             'description': item_meta['description'],
             'description_zh': item_meta['description_zh'],
@@ -2598,7 +2602,17 @@ def _normalize_gear_items(items):
                 break
             item['slot'] = SLOT_CN.get(default_slots[idx], default_slots[idx])
     from botend.services.wow_item_display import refresh_localized_equipment
-    return refresh_localized_equipment(result)
+    result = refresh_localized_equipment(result)
+    for item in result:
+        candidates = (item['name_zh'], item.pop('_source_name'), item['name'])
+        names = []
+        for value in candidates:
+            name = str(value or '').strip()
+            if name and name not in ('未知物品', 'Unknown Item') and not name.lstrip('#').isdigit():
+                names.append(name)
+        fallback_name = names[-1] if names else '未知物品'
+        item['display_name'] = next((name for name in names if _has_cjk(name)), fallback_name)
+    return result
 
 
 def _resolve_player_gear(player):

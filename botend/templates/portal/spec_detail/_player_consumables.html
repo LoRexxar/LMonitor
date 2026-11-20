@@ -1,0 +1,42 @@
+{% if preferences %}
+<section class="detail-card detail-card--full player-consumables" aria-labelledby="player-consumables-title">
+    <h3 id="player-consumables-title">大秘境消耗品</h3>
+    <div class="player-consumables__grid">
+        <section aria-labelledby="player-consumables-recent">
+            <h4 id="player-consumables-recent">{% if preferences.recent.sample_size %}最近 {{ preferences.recent.sample_size }} 场{% else %}近期记录{% endif %}</h4>
+            {% if preferences.recent.groups %}
+            <p class="player-consumables__meta">按已收录的 WCL 日志统计，分母为该类消耗品可判定的场次。</p>
+            {% include "portal/spec_detail/_player_consumable_groups.html" with groups=preferences.recent.groups show_counts=True only %}
+            {% elif preferences.recent.sample_size %}
+            <p class="player-consumables__meta">已收录的日志暂无可统计的消耗品数据。</p>
+            {% else %}
+            <p class="player-consumables__meta">暂无已收录的大秘境日志。</p>
+            {% endif %}
+        </section>
+        <section aria-labelledby="player-consumables-highest">
+            <h4 id="player-consumables-highest">已收录最高限时</h4>
+            {% with highest=preferences.highest %}
+            {% if highest.run %}
+            <p class="player-consumables__run">
+                <strong>{{ highest.run.dungeon_name }} +{{ highest.run.level }}</strong>
+                {% if highest.log_url %}
+                <a href="{{ highest.log_url }}" target="_blank" rel="noopener noreferrer">查看 WCL 日志</a>
+                {% else %}
+                <a href="{{ highest.run.url }}" target="_blank" rel="noopener noreferrer">查看 Raider.IO 成绩</a>
+                {% endif %}
+            </p>
+            {% if highest.groups %}
+            {% include "portal/spec_detail/_player_consumable_groups.html" with groups=highest.groups only %}
+            {% elif highest.log_url %}
+            <p class="player-consumables__meta">该场日志暂无可统计的消耗品数据。</p>
+            {% else %}
+            <p class="player-consumables__meta">暂无可匹配的 WCL 日志。</p>
+            {% endif %}
+            {% else %}
+            <p class="player-consumables__meta">暂无可确认的赛季限时成绩。</p>
+            {% endif %}
+            {% endwith %}
+        </section>
+    </div>
+</section>
+{% endif %}

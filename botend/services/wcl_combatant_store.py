@@ -7,11 +7,13 @@ from collections import defaultdict
 from copy import deepcopy
 import hashlib
 import json
+import re
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
+from botend.constants.wow import resolve_spec_identity
 from botend.models import WclCombatantDocument, WclCombatantFact, WclCombatantSnapshot, WclConsumableObservation
 
 IDENTITY_KEYS = ('sourceID', 'specID')
@@ -56,6 +58,48 @@ def _positive_int(value):
         return int(value) if str(value).isdigit() and int(value) > 0 else None
     except (TypeError, ValueError):
         return None
+
+
+def normalize_combatant_realm(value):
+    return re.sub(r'[\s-]+', '', str(value or '')).casefold()
+
+
+def match_combatant(events, record, class_name, spec_name):
+    """按角色名、非空服务器和专精唯一匹配战斗成员。"""
+    try:
+        spec_id = resolve_spec_identity(class_name=class_name, spec_name=spec_name)[0]
+    except ValueError:
+        return None
+    name = str(record.get('character_name') or '').strip().casefold()
+    realm = normalize_combatant_realm(record.get('realm'))
+    if not name or name == 'anonymous' or not realm:
+        return None
+    matches = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        source = event.get('source') or {}
+        if not isinstance(source, dict):
+            continue
+        actor_id = _positive_int(event.get('sourceID'))
+        if (actor_id and _positive_int(source.get('id')) == actor_id
+                and _positive_int(event.get('specID')) == spec_id
+                and str(source.get('name') or '').strip().casefold() == name
+                and normalize_combatant_realm(source.get('server')) == realm):
+            matches.append(event)
+    return matches[0] if len(matches) == 1 else None
+
+
+def weapon_consumables(gear):
+    """返回开场武器上的临时强化，缺少武器信息时返回空值。"""
+    if not isinstance(gear, list):
+        return None
+    weapons = [item for index, item in enumerate(gear)
+               if isinstance(item, dict) and _positive_int(item.get('id'))
+               and item.get('slot', index) in (15, 16, 'main_hand', 'off_hand')]
+    if not weapons:
+        return None
+    return sorted({enchant for item in weapons if (enchant := _positive_int(item.get('temporaryEnchant')))})
 
 
 def _scope(keys):

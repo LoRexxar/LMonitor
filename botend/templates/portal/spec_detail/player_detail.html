@@ -74,6 +74,7 @@
     </div>
 
     {% include "portal/spec_detail/_player_raiderio_activity.html" with activity=player_detail.raiderio_activity only %}
+    {% include "portal/spec_detail/_player_consumables.html" with preferences=player_detail.consumable_preferences only %}
     {% include "portal/spec_detail/_player_observation.html" with observation=player_detail.observation only %}
 
     {% if player_detail.talent_render_model or player_detail.talent_groups %}
@@ -227,49 +228,18 @@
     {% if player_detail.gear %}
     <section class="detail-card detail-card--full">
         <h3>装备</h3>
-        <p class="source-note">{{ player_detail.gear_source }}</p>
-        <div class="gear-grid-detail">
+        <ul class="gear-grid-detail" role="list">
             {% for item in player_detail.gear %}
-            <a href="{% if item.wowhead_url %}{{ item.wowhead_url }}{% elif item.id %}https://www.wowhead.com/cn/item={{ item.id }}{% else %}#{% endif %}" target="_blank" class="gear-item-detail">
-                <div class="gear-item-icon">
-                    {% if item.icon %}
-                    <img src="{% wow_icon item.icon "small" %}" width="36" height="36" alt="{{ item.display_name|default:item.name }}">
-                    {% else %}
-                    <span>ID</span>
-                    {% endif %}
-                </div>
-                <div class="gear-item-info">
-                    {% if item.slot %}<span class="gear-slot-name">{{ item.slot }}</span>{% endif %}
-                    <span class="gear-name-link">{{ item.display_name|default:item.name }}</span>
-                    {% if item.name_zh and item.name %}<span class="gear-name-original">{{ item.name }}</span>{% endif %}
-                    {% if item.itemLevel %}<span class="gear-ilvl">物品等级 {{ item.itemLevel }}</span>{% endif %}
-                    {% if item.bonusIDs %}
-                    <span class="gear-extra-meta">BonusIDs: {{ item.bonusIDs|join:", " }}</span>
-                    {% endif %}
-                </div>
-                <div class="gear-item-tooltip">
-                    <div class="gear-tooltip-name">{{ item.display_name|default:item.name }}</div>
-                    {% if item.itemLevel or item.quality %}
-                    <div class="gear-tooltip-meta">
-                        {% if item.itemLevel %}<span>物品等级 {{ item.itemLevel }}</span>{% endif %}
-                        {% if item.quality %}<span>{{ item.quality }}</span>{% endif %}
-                    </div>
-                    {% endif %}
-                    {% with desc_lines=item.display_description|wow_item_description_lines %}
-                    {% if desc_lines %}
-                    <div class="gear-tooltip-desc">
-                        {% for line in desc_lines %}
-                        <div class="gear-tooltip-line gear-tooltip-line--{{ line.class }}">{{ line.text }}</div>
-                        {% endfor %}
-                    </div>
-                    {% else %}
-                    <div class="gear-tooltip-desc is-muted">暂无中文描述，点击查看 Wowhead。</div>
-                    {% endif %}
-                    {% endwith %}
-                </div>
-            </a>
+            <li class="gear-item-detail">
+                {% if item.wowhead_url %}
+                <a class="gear-item-name" href="{{ item.wowhead_url }}" target="_blank" rel="noopener noreferrer">{{ item.display_name }}</a>
+                {% else %}
+                <span class="gear-item-name">{{ item.display_name }}</span>
+                {% endif %}
+                <span class="gear-ilvl">{% if item.itemLevel %}装等 {{ item.itemLevel }}{% else %}装等未知{% endif %}</span>
+            </li>
             {% endfor %}
-        </div>
+        </ul>
     </section>
     {% endif %}
 </div>
@@ -327,6 +297,36 @@
 .stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .empty-note { color: #64748b; font-size: 13px; line-height: 1.6; margin: 0; }
 .source-note { color: #64748b; font-size: 12px; margin: 6px 0 14px; }
+.player-consumables__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.player-consumables h4 { color: #1e293b; font-size: 14px; margin: 0 0 6px; }
+.player-consumables__meta { color: #475569; font-size: 12px; margin: 0; }
+.player-consumables__run { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 0 5px; }
+.player-consumables__run strong { color: #1e293b; font-size: 13px; }
+.player-consumables__run a { color: #1d4ed8; font-size: 12px; text-underline-offset: .18em; }
+.player-consumables__run a:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.player-consumables__groups { margin: 10px 0 0; }
+.player-consumables__group {
+    display: grid;
+    grid-template-columns: minmax(72px, 25%) minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid #e2e8f0;
+    font-size: 13px;
+}
+.player-consumables__group dt { color: #334155; font-weight: 600; }
+.player-consumables__group dd { margin: 0; }
+.player-consumables__items { display: grid; gap: 5px; list-style: none; margin: 0; padding: 0; }
+.player-consumables__items li {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    color: #1e293b;
+    overflow-wrap: anywhere;
+}
+.player-consumables__items img { border-radius: 4px; }
+.player-consumables__items small { color: #475569; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .section-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
 .section-head p { margin: 6px 0 0; color: #64748b; }
 .talent-code-box { max-width: 420px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 14px; padding: 10px 12px; }
@@ -351,66 +351,33 @@
 .talent-copy-btn.is-copied { background: rgba(22,101,52,.9); border-color: rgba(134,239,172,.35); color: #dcfce7; }
 .talent-copy-btn__icon { font-size: 13px; line-height: 1; }
 .talent-copy-btn__label { font-size: 12px; font-weight: 700; }
-.gear-grid-detail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.gear-grid-detail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
 .gear-item-detail {
-    position: relative;
-    display: flex;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    gap: 12px;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 7px 0;
+    border-top: 1px solid #e2e8f0;
+}
+.gear-item-name { color: #1e293b; font-weight: 600; overflow-wrap: anywhere; }
+a.gear-item-name {
+    color: #1d4ed8;
     text-decoration: none;
-    color: inherit;
-    padding: 12px;
-    border: 1px solid #e5e7eb;
-    border-radius: 16px;
-    background: #ffffff;
-    transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    text-underline-offset: .18em;
 }
-.gear-item-detail:hover { transform: translateY(-1px); border-color: rgba(37,99,235,.35); background: #f8fafc; z-index: 20; }
-.gear-item-icon { width: 40px; height: 40px; border-radius: 10px; overflow: hidden; background: #e2e8f0; display: flex; align-items: center; justify-content: center; color: #64748b; flex-shrink: 0; }
-.gear-item-icon img { width: 100%; height: 100%; object-fit: cover; }
-.gear-item-info { min-width: 0; display: flex; flex-direction: column; }
-.gear-slot-name { color: #64748b; font-size: 12px; margin-bottom: 2px; text-transform: capitalize; }
-.gear-name-link { color: #1e293b; font-weight: 700; margin-bottom: 2px; }
-.gear-name-original { color: #64748b; font-size: 11px; margin-top: -1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gear-ilvl { color: #059669; font-size: 12px; }
-.gear-extra-meta { display: block; color: #64748b; font-size: 11px; margin-top: 3px; word-break: break-word; }
-.gear-item-tooltip {
-    display: none;
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 10px);
-    transform: translateX(-50%);
-    width: min(360px, calc(100vw - 48px));
-    z-index: 9999;
-    padding: 12px 14px;
-    border-radius: 14px;
-    border: 1px solid rgba(250, 204, 21, .38);
-    background: rgba(15, 23, 42, .98);
-    box-shadow: 0 18px 42px rgba(0,0,0,.42);
-    color: #e5e7eb;
-    pointer-events: none;
-}
-.gear-item-tooltip::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 100%;
-    transform: translateX(-50%);
-    border: 7px solid transparent;
-    border-top-color: rgba(15, 23, 42, .98);
-}
-.gear-item-detail:hover .gear-item-tooltip { display: block; }
-.gear-tooltip-name { color: #facc15; font-weight: 800; font-size: 14px; margin-bottom: 6px; }
-.gear-tooltip-meta { display: flex; gap: 8px; flex-wrap: wrap; color: #86efac; font-size: 12px; margin-bottom: 8px; }
-.gear-tooltip-desc { color: #cbd5e1; font-size: 12px; line-height: 1.55; }
-.gear-tooltip-line { margin-top: 4px; }
-.gear-tooltip-line:first-child { margin-top: 0; }
-.gear-tooltip-line--plain { color: #cbd5e1; }
-.gear-tooltip-line--equip, .gear-tooltip-line--use { color: #86efac; }
-.gear-tooltip-line--requirement { color: #fca5a5; }
-.gear-tooltip-line--set { color: #93c5fd; }
-.gear-tooltip-line--sell { color: #94a3b8; }
-.gear-tooltip-desc.is-muted { color: #94a3b8; }
+a.gear-item-name:hover { text-decoration: underline; }
+a.gear-item-name:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.gear-ilvl { color: #475569; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* 宝石与附魔板块 */
 .gem-enchant-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
@@ -427,7 +394,7 @@
 @media (max-width: 900px) {
     .player-hero-card, .section-head { flex-direction: column; }
     .player-hero-aside { align-items: flex-start; }
-    .detail-grid, .gear-grid-detail { grid-template-columns: 1fr; }
+    .detail-grid, .gear-grid-detail, .player-consumables__grid { grid-template-columns: 1fr; }
     .gem-enchant-grid { grid-template-columns: 1fr; }
     .talent-stage-scroll { margin: 0 -4px; }
 }

@@ -10,9 +10,9 @@ import time
 
 from django.db.models import Q
 
-from botend.constants.wow import resolve_spec_identity
 from botend.models import WclCombatantFetchState, WowItemSnapshot
 from botend.services import wcl_combatant_store
+from botend.services.wcl_combatant_store import match_combatant, normalize_combatant_realm as _realm, weapon_consumables
 from botend.services.wcl_raw_staging import load_staged_events, stage_events, discard_staged_events, record_duration
 
 
@@ -39,39 +39,9 @@ def _positive_int(value):
         return None
 
 
-def _realm(value):
-    return re.sub(r'[\s-]+', '', str(value or '')).casefold()
-
-
 def _fight_key(record):
     code, fight = record.get('report_code'), _positive_int(record.get('fight_id'))
     return (code, fight) if isinstance(code, str) and code and fight else None
-
-
-def match_combatant(events, record, class_name, spec_name):
-    """Require name + nonempty normalized server + canonical spec, uniquely."""
-    try:
-        spec_id = resolve_spec_identity(class_name=class_name, spec_name=spec_name)[0]
-    except ValueError:
-        return None
-    name = str(record.get('character_name') or '').strip().casefold()
-    realm = _realm(record.get('realm'))
-    if not name or name == 'anonymous' or not realm:
-        return None
-    matches = []
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        source = event.get('source') or {}
-        if not isinstance(source, dict):
-            continue
-        if (_positive_int(event.get('specID')) == spec_id
-                and str(source.get('name') or '').strip().casefold() == name
-                and _realm(source.get('server')) == realm
-                and _positive_int(source.get('id')) == _positive_int(event.get('sourceID'))
-                and _positive_int(event.get('sourceID'))):
-            matches.append(event)
-    return matches[0] if len(matches) == 1 else None
 
 
 def _load_facts(records, *, fetched_before=None, identities_only=False, actor_ids_by_fight=None,
@@ -219,10 +189,9 @@ def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
             gear = combatant_gear(event.get('gear'), catalog)
             if gear:
                 row['gear_json'] = gear
-                weapons = [item for item in gear if item['slot'] in ('main_hand', 'off_hand')]
-                if weapons:
-                    row.setdefault('consumables', {})['weapon'] = sorted({
-                        eid for item in weapons if (eid := _positive_int(item.get('temporaryEnchant')))})
+                weapons = weapon_consumables(gear)
+                if weapons is not None:
+                    row.setdefault('consumables', {})['weapon'] = weapons
         result.append(row)
     return result
 

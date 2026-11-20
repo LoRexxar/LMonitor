@@ -638,7 +638,7 @@ def _run(row):
     spec = row.get('spec') or {}
     return {'dungeon_name': cn_dungeon_from_slug(_slug(row['dungeon']), row['dungeon']),
             'level': row['mythic_level'], 'score': row.get('score'),
-            'clear_time': f'{seconds // 60:02d}:{seconds % 60:02d}',
+            'clear_time': f'{seconds // 60:02d}:{seconds % 60:02d}', 'clear_time_ms': row['clear_time_ms'],
             'completed_at': _date(row.get('completed_at')),
             'timed': upgrades > 0 if upgrades is not None else None, 'upgrades': upgrades,
             'spec_label': cn_spec_from_slug(spec.get('slug'), spec.get('name') or '') if spec else '',

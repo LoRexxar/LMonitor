@@ -3189,6 +3189,8 @@ class SpecDungeonRanking(models.Model):
             models.Index(fields=['season_id', 'dungeon_id', 'class_name', 'spec_name'], name='idx_dungeon_spec'),
             models.Index(fields=['class_name', 'spec_name', 'season_id', 'dps'], name='idx_dungeon_spec_dps'),
             models.Index(fields=['season_id', 'dungeon_id', 'last_updated'], name='idx_dungeon_freshness'),
+            models.Index(fields=['season_id', 'region', 'character_name', 'realm', '-fight_started_at'],
+                         name='idx_dungeon_character_fights'),
         ]
 
     def __str__(self):

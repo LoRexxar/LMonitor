@@ -1,0 +1,25 @@
+{% load consumable_tags %}
+<dl class="player-consumables__groups">
+    {% for group in groups %}
+    <div class="player-consumables__group">
+        <dt>{{ group.label }}</dt>
+        <dd>
+            {% if group.rows %}
+            <ul class="player-consumables__items" role="list">
+                {% for row in group.rows %}
+                <li>
+                    <img src="{% consumable_icon row.name group.key %}" width="22" height="22" loading="lazy" alt="">
+                    <span>{{ row.name }}</span>
+                    {% if show_counts %}<small>{{ row.count }}/{{ group.samples }} 场</small>{% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% elif group.samples %}
+            <span class="player-consumables__meta">未识别到{% if show_counts %}（{{ group.samples }} 场可统计）{% endif %}</span>
+            {% else %}
+            <span class="player-consumables__meta">暂无可统计数据</span>
+            {% endif %}
+        </dd>
+    </div>
+    {% endfor %}
+</dl>
