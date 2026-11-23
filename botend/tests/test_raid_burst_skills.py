@@ -66,26 +66,20 @@ class RaidBurstSkillTests(SimpleTestCase):
                                                        timestamp=11550, abilityGameID=ability))
         self.assertEqual(self.normalize(raw, config)[0], baseline)
 
-    def test_burst_potion_windows_follow_personal_buffs_within_the_fight(self):
+    def test_burst_potion_windows_use_own_casts_and_stop_at_kill(self):
         config = SUPPORTED[('Warrior', 'Fury')]
         raw = self.raw(config)
-        raw['streams']['combatants']['data'][0]['auras'] = [{'ability': 1236994}]
-        event = dict(sourceID=7, targetID=7, fight=3, abilityGameID=1236994, type='applybuff')
-        raw['streams']['buffs']['data'] += [
-            dict(event, timestamp=13000, type='removebuff'),
-            dict(event, timestamp=20000), dict(event, timestamp=20000),
-            dict(event, timestamp=23000, type='refreshbuff'),
-            dict(event, timestamp=24000, type='removebuff', targetID=8),
-            dict(event, timestamp=25000, type='removebuff', fake=True),
-            dict(event, timestamp=28000, type='removebuff'),
+        event = dict(sourceID=7, fight=3, abilityGameID=1236994, type='cast')
+        raw['streams']['casts']['data'] += [
+            dict(event, timestamp=10000), dict(event, timestamp=10000),
+            dict(event, timestamp=20000, sourceID=8), dict(event, timestamp=25000, fake=True),
             dict(event, timestamp=29000, abilityGameID=1234768),
-            dict(event, timestamp=30000, abilityGameID=1295132),
-            dict(event, timestamp=30100, abilityGameID=1295147),
+            dict(event, timestamp=29500, abilityGameID=1236648),
+            dict(event, timestamp=295100, abilityGameID=1295132),
         ]
         self.assertEqual(self.normalize(raw, config)[0]['potion_windows'], [
-            {'name': '鲁莽药水', 'start': 0, 'end': 3},
-            {'name': '鲁莽药水', 'start': 10, 'end': 18},
-            {'name': '液态光泽', 'start': 20.1, 'end': 300},
+            {'name': '鲁莽药水', 'start': 0, 'end': 30},
+            {'name': '液态光泽', 'start': 285.1, 'end': 300},
         ])
 
     def test_devourer_requires_confirmed_self_aura_applications(self):
@@ -183,11 +177,6 @@ class RaidBurstSkillTests(SimpleTestCase):
         raw['streams']['buffs']['data'][0]['timestamp'] = 27000
         raw['streams']['casts']['data'].append(dict(type='cast', sourceID=7, fight=3,
                                                    timestamp=12000, abilityGameID=1236994))
-        potion = dict(sourceID=7, targetID=7, fight=3, abilityGameID=1236994)
-        raw['streams']['buffs']['data'] += [
-            dict(potion, type='applybuff', timestamp=12000),
-            dict(potion, type='removebuff', timestamp=42000),
-        ]
         sample, _ = self.normalize(raw, config)
         payload = dict(skill_names=config['spells'], skill_sources=agg.skill_event_sources(config),
                        samples=[sample], groups=agg.build_groups([sample], config['spells']))
@@ -240,7 +229,7 @@ class RaidBurstSkillTests(SimpleTestCase):
             page.add_script_tag(path=str(Path(settings.BASE_DIR) / 'static/portal/js/raid-burst.js'))
             self.assertEqual(page.locator('#timeline-title').inner_text(), '成功施法时间轴')
             self.assertEqual(marker.count(), 0)
-            self.assertIn('重新生成战斗统计', page.locator('#potion-legend').inner_text())
+            self.assertIn('没有记录爆发药水的使用时间', page.locator('#potion-legend').inner_text())
             page.locator('#chart [data-sample-rank]').focus()
             self.assertNotIn('药水', page.locator('#burst-sample-tooltip').inner_text())
             self.assertIn('type=casts', page.locator('#groups a').first.get_attribute('href'))

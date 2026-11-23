@@ -184,6 +184,16 @@ class RaidBurstAggregationTests(TestCase):
         self.assertEqual(self.client.calls, [])
         self.assertEqual(read_blob(self.directory, descriptor['blob'])['samples'][0]['dps'], 777)
 
+    def test_v2_prepared_and_published_cache_hits_skip_event_reads_and_writes(self):
+        with patch.object(agg, 'ANALYSIS_VERSION', 2):
+            descriptor = self.build()
+        with patch.object(agg, 'fetch_events', side_effect=AssertionError('读取原始日志')), \
+                patch.object(agg, 'write_json', side_effect=AssertionError('改写旧快照')):
+            self.assertEqual(self.build(), descriptor)
+            self.publish(descriptor)
+            with patch.object(agg, 'read_json', return_value=None):
+                self.assertEqual(self.build(), descriptor)
+
     def test_parser_change_uses_complete_raw_and_duplicates_do_not_inflate(self):
         self.build()
         self.client.calls.clear()
@@ -388,7 +398,8 @@ class RaidBurstAggregationTests(TestCase):
             return Mock(values=Mock(return_value=rows if kwargs['difficulty'] == 5 else []))
         with patch('botend.models.SpecRaidRanking.objects.filter', side_effect=query), \
                 patch('botend.controller.plugins.portal.SpecDetailBase.SpecDetailBase', return_value=self.client):
-            agg.aggregate_raid_burst(season, 'Warrior', 'Arms', guard=nullcontext)
+            with patch.object(agg, 'ANALYSIS_VERSION', 2):
+                agg.aggregate_raid_burst(season, 'Warrior', 'Arms', guard=nullcontext)
             before = (self.directory / 'index.json').stat().st_mtime_ns
             self.client.calls.clear()
             agg.aggregate_raid_burst(season, 'Warrior', 'Arms', guard=nullcontext)

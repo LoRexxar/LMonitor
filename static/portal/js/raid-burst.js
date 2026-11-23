@@ -16,7 +16,7 @@
     }
     if (!payload) return;
     if (payload.samples.length && !payload.samples.some((row) => Array.isArray(row.potion_windows))) {
-        $('#potion-legend').textContent = '此快照尚未统计爆发药水的生效区间，重新生成战斗统计后可查看。';
+        $('#potion-legend').textContent = '此快照没有记录爆发药水的使用时间。';
     }
     const names = payload.skill_names;
     // Absent metadata means the historical, successful-cast-only contract.

@@ -31,7 +31,12 @@ class RaidBurstAccessTests(TestCase):
         payload.update(schema=1, scope={'key': '1/Warrior/Arms/5/3470', 'label': '测试首领'},
                        generated_at='2026-10-20', excluded_invalid=0,
                        skill_names=SUPPORTED[('Warrior', 'Arms')]['spells'])
-        payload['samples'][0]['potions'] = [{'spell_id': 1234768, 'name': '银月城治疗药水', 'time': 15}]
+        duration = payload['samples'][0]['duration']
+        payload['samples'][0]['potions'] = [
+            {'spell_id': 1234768, 'name': '银月城治疗药水', 'time': 15},
+            {'spell_id': 1236994, 'name': '鲁莽药水', 'time': 2.5},
+            {'spell_id': 1236994, 'name': '鲁莽药水', 'time': duration - 2},
+        ]
         payload['groups'] = build_groups(payload['samples'], SUPPORTED[('Warrior', 'Arms')]['spells'])
         directory = self.root / '1/Warrior/Arms'
         blob = digest(payload)
@@ -77,6 +82,15 @@ class RaidBurstAccessTests(TestCase):
         self.assertContains(response, '当前显示历史采样版本')
         self.assertNotContains(response, '每日团本统计')
         self.assertNotContains(response, '请等待团本每日任务完成')
+
+    def test_legacy_potion_times_render_without_rebuilding_the_snapshot(self):
+        with self.assertNumQueries(0):
+            payload, _ = load_published('1/Warrior/Arms/5/3470')
+        sample = payload['samples'][0]
+        self.assertEqual(sample['potion_windows'], [
+            {'name': '鲁莽药水', 'start': 2.5, 'end': 32.5},
+            {'name': '鲁莽药水', 'start': sample['duration'] - 2, 'end': sample['duration']},
+        ])
 
     def test_top10_policy_is_rendered_only_from_published_payload(self):
         payload, _ = load_published('1/Warrior/Arms/5/3470')

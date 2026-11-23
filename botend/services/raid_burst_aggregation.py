@@ -5,7 +5,7 @@ from utils.log import logger
 
 from botend.services.raid_burst_events import RAW_VERSION, fetch_events, realm_key
 from botend.services.raid_burst_skills import SUPPORTED, CATALOG_BUILD
-from botend.services.wcl_consumables import POTIONS
+from botend.services.wcl_consumables import burst_potion_windows, spell_id
 from botend.services.raid_burst_snapshot import (
     SCHEMA, digest, private_root, read_blob, read_json, read_manifest, write_json,
 )
@@ -15,9 +15,6 @@ ANALYSIS_VERSION = 4
 SAMPLE_LIMIT = 10
 SELECTION_POLICY = 'top-usable-unique-player-no-external-pi-v2'
 LUST = {2825, 32182, 80353, 390386, 264667, 272678}
-# 爆发药水的个人增益编号；液态光泽按实际提供属性的光环统计。
-BURST_POTION_AURAS = {1236616: 1236616, 1236994: 1236994, 1236998: 1236998,
-                      1238443: 1238443, 1295015: 1295015, 1295147: 1295132}
 FIELDS = ('report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name',
           'spec_name', 'boss_id', 'difficulty', 'dps')
 
@@ -89,13 +86,8 @@ def eligibility(raw, row, config):
             merged.append(window)
     if not merged:
         return None, 'no_lust'
-    potion_windows = [
-        {**window, 'name': POTIONS[BURST_POTION_AURAS[ability]][1]}
-        for ability, window in aura_windows(buffs, initial, BURST_POTION_AURAS, start, end)
-        if window['end'] > window['start']
-    ]
     return {'fight': fight, 'actor': actor, 'start': start, 'end': end, 'merged': merged,
-            'potion_windows': potion_windows, 'self_pi_observed': bool(pi_sources)}, None
+            'self_pi_observed': bool(pi_sources)}, None
 
 
 def skill_event_sources(config):
@@ -135,6 +127,7 @@ def normalize(raw, row, rank, config):
     casts = [e for e in streams['casts']['data'] if e.get('type') == 'cast' and not e.get('fake')
              and e.get('sourceID') == actor['id'] and e.get('fight') == fight['id']
              and start <= e.get('timestamp', -1) <= end]
+    duration = round((end - start) / 1000, 3)
     aliases = config.get('cast_aliases', {})
     auras = config.get('aura_applications', {})
     times = {spell: sorted({round((e['timestamp'] - start) / 1000, 3) for e in casts
@@ -155,13 +148,14 @@ def normalize(raw, row, rank, config):
     return {
         'rank': rank, 'player': {'name': actor['name'], 'realm': actor.get('server') or row['realm'],
                                  'region': row.get('region') or ''},
-        'dps': row['dps'], 'duration': round((end - start) / 1000, 3),
+        'dps': row['dps'], 'duration': duration,
         'url': f"https://www.warcraftlogs.com/reports/{row['report_code']}?fight={fight['id']}&type=casts&source={actor['id']}",
         'incoming_complete': True, 'pi_observed': eligible['self_pi_observed'],
         'self_pi_observed': eligible['self_pi_observed'],
         'external_pi_observed': False, 'pi_source_unknown': False,
         'times': times, 'phases': phases,
-        'potion_windows': eligible['potion_windows'],
+        'potion_windows': burst_potion_windows(
+            ((round((e['timestamp'] - start) / 1000, 3), spell_id(e)) for e in casts), duration),
         'lust_start': lust, 'lust_windows': merged, 'lust_group': group, 'lust_label': label,
         'lust_focus': {spell: [round(t - lust, 3) for t in sequence if -20 <= t - lust <= 40]
                        for spell, sequence in times.items()},
@@ -209,6 +203,17 @@ def player_key(row):
     return (region.strip().casefold(), realm, name.strip().casefold()) if realm else None
 
 
+def compatible_analysis_versions():
+    # 第 2 版保存逐次喝药时刻，第 4 版保存区间，两者使用相同的样本和分组规则。
+    return (4, 2) if ANALYSIS_VERSION == 4 else (ANALYSIS_VERSION,)
+
+
+def profile_digests(config):
+    return [digest({'analysis': version, 'raw': RAW_VERSION, 'config': config,
+                    'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT})
+            for version in compatible_analysis_versions()]
+
+
 def build_scope(rows, scope, config, root, guard, client):
     # 身份稳定排序后再按 DPS 排名；数据库换主键、刷新时间不导致重抓或重算。
     rows = sorted([{field: row.get(field) for field in FIELDS} for row in rows],
@@ -216,22 +221,23 @@ def build_scope(rows, scope, config, root, guard, client):
     rows = list({digest({k: r[k] for k in FIELDS if k != 'dps'}): r
                  for r in reversed(rows)}.values())
     rows.sort(key=lambda r: (-r['dps'], digest(r)))
-    fingerprint = digest({'version': ANALYSIS_VERSION, 'raw_version': RAW_VERSION,
-                          'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT,
-                          'scope': scope, 'config': config, 'rows': rows})
+    fingerprints = [digest({'version': version, 'raw_version': RAW_VERSION,
+                            'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT,
+                            'scope': scope, 'config': config, 'rows': rows})
+                    for version in compatible_analysis_versions()]
     directory = root / str(scope['season_id']) / scope['class_name'] / scope['spec_name']
-    prepared_path = directory / 'prepared' / f'{fingerprint}.json'
-    prepared = read_json(prepared_path)
-    if isinstance(prepared, dict) and prepared.get('key') == scope['key']:
-        published = read_blob(directory, prepared.get('blob'))
-        if published and published.get('input_fingerprint') == fingerprint:
-            logger.info('[RaidBurst] 复用已完成快照 %s', scope['key'])
-            return prepared
+    for fingerprint in fingerprints:
+        prepared = read_json(directory / 'prepared' / f'{fingerprint}.json')
+        if isinstance(prepared, dict) and prepared.get('key') == scope['key']:
+            published = read_blob(directory, prepared.get('blob'))
+            if published and published.get('input_fingerprint') == fingerprint:
+                logger.info('[RaidBurst] 复用已完成快照 %s', scope['key'])
+                return prepared
     old = read_manifest(directory) or read_manifest(directory, 'previous.json')
     previous = next((s for s in old['scopes'] if s['key'] == scope['key']), None) if old else None
     if previous:
         published = read_blob(directory, previous['blob'])
-        if published and published['input_fingerprint'] == fingerprint:
+        if published and published['input_fingerprint'] in fingerprints:
             logger.info('[RaidBurst] 复用已发布快照 %s', scope['key'])
             return previous
     logger.info('[RaidBurst] 开始生成 %s，日志数=%s', scope['key'], len(rows))
@@ -259,7 +265,7 @@ def build_scope(rows, scope, config, root, guard, client):
             samples.append(sample)
             selected.add(identity)
     payload = {
-        'schema': SCHEMA, 'input_fingerprint': fingerprint, 'scope': scope,
+        'schema': SCHEMA, 'input_fingerprint': fingerprints[0], 'scope': scope,
         'generated_at': timezone.now().isoformat(), 'skill_names': config['spells'],
         'skill_role': config.get('role', '输出'), 'catalog_build': CATALOG_BUILD,
         'selection_policy': SELECTION_POLICY, 'selection_limit': SAMPLE_LIMIT,
@@ -278,7 +284,7 @@ def build_scope(rows, scope, config, root, guard, client):
     with guard():
         write_json(directory / 'snapshots' / f'{signature}.json', payload)
         descriptor = dict(scope, blob=signature, sample_count=len(samples))
-        write_json(prepared_path, descriptor)
+        write_json(directory / 'prepared' / f'{fingerprints[0]}.json', descriptor)
     logger.info('[RaidBurst] 完成 %s，有效=%s，灌注=%s，无嗜血=%s，无效=%s',
                 scope['key'], len(samples), counts['pi'], counts['no_lust'], counts['invalid'])
     return descriptor
@@ -317,14 +323,16 @@ def aggregate_raid_burst(season, class_name, spec_name, *, guard, source_cutoff=
                 rows = list(rows.values(*FIELDS))
             scopes.append(build_scope(rows, scope, config, root, guard, client))
     directory = root / str(season.id) / class_name / spec_name
+    revisions = profile_digests(config)
     manifest = {'schema': SCHEMA, 'scopes': scopes,
                 'source_cutoff': source_cutoff.isoformat() if hasattr(source_cutoff, 'isoformat') else source_cutoff,
-                'profile_digest': digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config,
-                                          'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT})}
+                'profile_digest': revisions[0]}
     with guard():
         previous = read_manifest(directory)
-        if previous != manifest:
-            if previous:
-                write_json(directory / 'previous.json', {'data': previous, 'digest': digest(previous)})
-            write_json(directory / 'index.json', {'data': manifest, 'digest': digest(manifest)})
+        if previous and previous.get('profile_digest') in revisions and previous == dict(
+                manifest, profile_digest=previous['profile_digest']):
+            return previous
+        if previous:
+            write_json(directory / 'previous.json', {'data': previous, 'digest': digest(previous)})
+        write_json(directory / 'index.json', {'data': manifest, 'digest': digest(manifest)})
     return manifest

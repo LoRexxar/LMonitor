@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from django.conf import settings
+from botend.services.wcl_consumables import burst_potion_windows
 
 
 SCHEMA = 1
@@ -98,9 +99,11 @@ def load_published(selection=None):
     if data and data.get('scope', {}).get('key') != selection:
         data = None
     if data:
-        # 历史快照的逐次喝药记录含治疗药水，不随页面下发。
         for sample in data.get('samples', []):
-            sample.pop('potions', None)
+            uses = sample.pop('potions', None)
+            if isinstance(uses, list):
+                sample['potion_windows'] = burst_potion_windows(
+                    ((use.get('time'), use.get('spell_id')) for use in uses), sample['duration'])
     return data, [dict(key=item['key'], label=item['label']) for item, _ in options]
 
 
@@ -112,16 +115,13 @@ def needs_raid_burst_refresh(cycle):
     raid_scopes = [scope for scope in cycle.completed_scopes if scope.startswith('raid:')]
     if not raid_scopes or not cycle.collected_at:
         return False
-    from botend.services.raid_burst_aggregation import (
-        ANALYSIS_VERSION, RAW_VERSION, SUPPORTED, SELECTION_POLICY, SAMPLE_LIMIT,
-    )
+    from botend.services.raid_burst_aggregation import SUPPORTED, profile_digests
     cutoff = cycle.collected_at.isoformat()
     root = private_root() / str(cycle.season_id)
     for (class_name, spec_name), config in SUPPORTED.items():
         manifest = read_manifest(root / class_name / spec_name, verify_blobs=False)
-        revision = digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config,
-                           'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT})
-        if not manifest or manifest.get('profile_digest') != revision or manifest.get('source_cutoff') != cutoff:
+        if (not manifest or manifest.get('profile_digest') not in profile_digests(config)
+                or manifest.get('source_cutoff') != cutoff):
             return True
         keys = {scope['key'] for scope in manifest['scopes']}
         expected = {f'{cycle.season_id}/{class_name}/{spec_name}/{scope.split(":")[1]}/{scope.split(":")[2]}'

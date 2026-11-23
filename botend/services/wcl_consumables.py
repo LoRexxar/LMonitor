@@ -54,6 +54,11 @@ POTIONS = {
     1263074: ('potion', '阿曼尼提取物'),
     1295132: ('potion', '液态光泽'),
 }
+
+# 战斗时间轴使用喝药时的施法编号，液态光泽的施法编号为 1295132。
+BURST_POTION_IDS = {1236616, 1236994, 1236998, 1238443, 1295015, 1295132}
+
+
 # 武器油和磨刀石使用装备上的临时附魔编号，不能与永久附魔混用。
 WEAPON = {
     7905: '耀辉磨刀石', 7906: '耀辉磨刀石',
@@ -76,6 +81,14 @@ def spell_id(event):
     if isinstance(ability, dict):
         ability = ability.get('guid') or ability.get('id')
     return ability
+
+
+def burst_potion_windows(uses, duration):
+    """按每次施放起算 30 秒，区间最多画到战斗结束。时间单位为秒。"""
+    casts = {(time, ability) for time, ability in uses if ability in BURST_POTION_IDS
+             and type(time) in (int, float) and 0 <= time < duration}
+    return [{'name': POTIONS[ability][1], 'start': time, 'end': min(round(time + 30, 3), duration)}
+            for time, ability in sorted(casts)]
 
 
 EVENT_SELECTION = """
