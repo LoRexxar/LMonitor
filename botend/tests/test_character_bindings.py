@@ -8,6 +8,7 @@ from django.test import Client, RequestFactory, TestCase
 from django.template import Context, Template
 from django.urls import reverse
 
+from botend.constants.wow import SPEC_ICON
 from botend.models import CharacterBindingQuota, UserCharacterBinding, PlayerSpecTopPlayer, SeasonMeta, WowRealmDirectory
 from botend.services import character_bindings as service
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
@@ -51,7 +52,7 @@ class CharacterBindingTests(TestCase):
 
     def test_account_menu_is_private_and_includes_closed_character_details(self):
         from botend.templatetags.character_binding_tags import character_shortcuts
-        player = self.player('MyCharacter')
+        self.player('MyCharacter', avatar_url='https://example.org/portrait.jpg')
         binding = self.bind('MyCharacter')
         self.player('OtherCharacter')
         self.bind('OtherCharacter', user=self.other)
@@ -63,11 +64,14 @@ class CharacterBindingTests(TestCase):
         self.assertEqual([item['name'] for item in payload['shortcuts']], ['MyCharacter'])
         self.assertEqual(payload['shortcuts'][0]['url'], service.detail_url(binding))
         self.assertFalse(payload['shortcuts'][0]['active'])
-        self.assertTrue(payload['shortcuts'][0]['icon'])
+        self.assertEqual(payload['shortcuts'][0]['icon'], SPEC_ICON[('Warrior', 'Fury')])
         with self.assertNumQueries(0):
             html = Template('{% load character_binding_tags %}{% character_shortcuts %}').render(Context({'request': request}))
-        self.assertIn('MyCharacter', html)
+        self.assertInHTML('<strong>MyCharacter</strong>', html)
+        self.assertInHTML('<small>Area 52 · US</small>', html)
         self.assertIn('已关闭', html)
+        self.assertIn(f'src="{SPEC_ICON[("Warrior", "Fury")]}"', html)
+        self.assertNotIn('portrait.jpg', html)
         self.assertNotIn('OtherCharacter', html)
 
     def test_anonymous_menu_has_no_query_and_missing_profile_has_no_broken_link(self):
@@ -83,6 +87,11 @@ class CharacterBindingTests(TestCase):
         with self.assertNumQueries(1):
             payload = character_shortcuts({'request': request})
         self.assertEqual(payload['shortcuts'][0]['url'], '')
+        html = Template('{% load character_binding_tags %}{% character_shortcuts %}').render(Context({'request': request}))
+        self.assertIn('#icon-user', html)
+        self.assertNotIn('<a ', html)
+        self.assertInHTML('<strong>Example</strong>', html)
+        self.assertInHTML('<small>area-52 · US</small>', html)
 
     def test_shortcut_menu_is_bounded_and_reloads_after_binding_changes(self):
         from botend.templatetags.character_binding_tags import character_shortcuts, MENU_LIMIT

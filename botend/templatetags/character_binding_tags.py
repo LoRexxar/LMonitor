@@ -19,7 +19,7 @@ def character_shortcuts(context):
         bindings = list(UserCharacterBinding.objects.filter(user=user)
             .select_related('player').only(
                 'id', 'user_id', 'character_name', 'realm_slug', 'region', 'is_active', 'player_id',
-                'player__id', 'player__class_name', 'player__spec_name', 'player__realm', 'player__avatar_url')
+                'player__id', 'player__class_name', 'player__spec_name', 'player__realm')
             .order_by('-is_active', 'created_at', 'pk')[:MENU_LIMIT + 1])
         shortcuts = []
         for binding in bindings[:MENU_LIMIT]:
@@ -31,7 +31,7 @@ def character_shortcuts(context):
                 'region': binding.region.upper(),
                 'active': binding.is_active,
                 'url': detail_url(binding),
-                'icon': (player.avatar_url if player else '') or SPEC_ICON.get(scope, ''),
+                'icon': SPEC_ICON.get(scope, ''),
             })
         request._character_menu_context = {'shortcuts': shortcuts, 'authenticated': True,
                                             'has_more': len(bindings) > MENU_LIMIT}
