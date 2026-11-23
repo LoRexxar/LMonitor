@@ -1,6 +1,5 @@
-"""不加入公开导航的 SimC 专精资料内测页。"""
+"""只读展示已发布的 SimC 专精资料和模拟排行榜。"""
 
-from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.http import Http404, JsonResponse
@@ -15,8 +14,7 @@ from botend.services.simc_reference import reference_context, ReferenceTimings
 
 @method_decorator(never_cache, name='dispatch')
 @method_decorator(vary_on_cookie, name='dispatch')
-class PortalSimcReferenceView(LoginRequiredMixin, View):
-    login_url = '/auth/login/'
+class PortalSimcReferenceView(View):
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request):
@@ -53,8 +51,7 @@ class PortalSimcReferenceView(LoginRequiredMixin, View):
 
 @method_decorator(never_cache, name='dispatch')
 @method_decorator(vary_on_cookie, name='dispatch')
-class PortalSimcReferenceRankingsView(LoginRequiredMixin, View):
-    login_url = '/auth/login/'
+class PortalSimcReferenceRankingsView(View):
     http_method_names = ['get', 'head', 'options']
 
     def get(self, request, config_id=None, signature=None, scope='overall'):

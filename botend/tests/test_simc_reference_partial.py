@@ -25,7 +25,8 @@ class ReferencePartialTests(TestCase):
                 self.assertContains(response, 'data-loaded="true"', count=1)
                 self.assertContains(response, 'data-loaded="false"', count=2)
 
-    def test_fragment_is_private_and_uses_canonical_resource_selection(self):
+    def test_anonymous_fragment_uses_canonical_resource_selection_without_caching(self):
+        self.client.logout()
         response = self.client.get(self.url, {'spec': 'warrior_fury', 'view': 'reference-equipment'},
                                    HTTP_X_SIMC_REFERENCE='workspace')
         data = response.json()
@@ -39,10 +40,9 @@ class ReferencePartialTests(TestCase):
         self.assertIn('Cookie', response['Vary'])
         self.assertIn('X-Simc-Reference', response['Vary'])
         self.assertEqual(response['X-Robots-Tag'], 'noindex, nofollow')
-        self.client.logout()
-        self.assertEqual(self.client.get(self.url, HTTP_X_SIMC_REFERENCE='workspace').status_code, 302)
 
     def test_fragment_cannot_read_unpublished_or_cross_spec_inputs(self):
+        self.client.logout()
         for params in ({'spec': 'mage_fire', 'talent': self.talent.pk}, {'view': 'invalid'}):
             self.assertEqual(self.client.get(self.url, params, HTTP_X_SIMC_REFERENCE='workspace').status_code, 404)
         self.publication.talents.remove(self.talent)

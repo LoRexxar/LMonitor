@@ -1,4 +1,4 @@
-"""专精资料内测页的权限、现行数据与专精隔离回归。"""
+"""专精模拟资料的公开访问、现行数据与专精隔离回归。"""
 
 from unittest.mock import patch
 
@@ -14,7 +14,7 @@ from botend.tests.simc_reference_test_fixtures import publish_resources
 class PortalSimcReferenceTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.user = User.objects.create_user(username='资料内测账号')
+        cls.user = User.objects.create_user(username='资料普通账号')
         cls.apl = SimcApl.objects.create(
             name='狂怒默认 APL', spec='warrior_fury', class_name='warrior',
             content='actions=/bloodthirst\nactions+=/rampage', source='simc_upstream',
@@ -37,13 +37,15 @@ class PortalSimcReferenceTests(TestCase):
     def setUp(self):
         self.client.force_login(self.user)
 
-    def test_anonymous_redirects_before_loading_any_resources(self):
+    def test_anonymous_can_read_shared_resources_without_beta_badge(self):
         self.client.logout()
-        with patch('botend.portal.simc_reference.reference_context') as build:
-            response = self.client.get(self.url, {'spec': 'warrior_fury'})
-        self.assertEqual(response.status_code, 302)
-        self.assertIn('/auth/login/?next=', response.url)
-        build.assert_not_called()
+        response = self.client.get(self.url, {'spec': 'warrior_fury'})
+        self.assertContains(response, '<h1>专精模拟资料</h1>', html=True)
+        self.assertContains(response, '测试天赋代码')
+        self.assertNotContains(response, '内测')
+        self.assertNotContains(response, '/dashboard/frontend-simulations/')
+        self.assertEqual(self.client.post(self.url).status_code, 405)
+        self.assertEqual(self.client.get('/dashboard/frontend-simulations/').status_code, 403)
 
     def test_request_timing_keeps_stage_costs_without_logging_unrelated_inputs(self):
         from botend.services.simc_reference import ReferenceTimings
@@ -81,6 +83,7 @@ class PortalSimcReferenceTests(TestCase):
         self.assertEqual(response['X-Robots-Tag'], 'noindex, nofollow')
 
     def test_personal_and_inactive_resources_are_never_exposed(self):
+        self.client.logout()
         other = User.objects.create_user(username='另一个账号')
         for owner in (self.user.id, other.id):
             profile = SimcProfile.objects.create(name='私有装备', user_id=owner, spec='warrior_fury')
