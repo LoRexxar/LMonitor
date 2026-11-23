@@ -1,4 +1,5 @@
 {% load static character_binding_tags %}
+{% simulation_management_url as management_url %}
 <header class="portal-header">
     <div class="portal-header-inner">
         <div class="portal-header-left">
@@ -14,52 +15,70 @@
             </a>
         </div>
         <div class="portal-header-actions">
-            <nav id="portal-primary-nav" class="portal-quick-nav portal-primary-nav" aria-label="Portal 快捷入口">
-                <details class="portal-nav-group" data-nav-category="today">
-                    <summary class="portal-nav-summary">
-                        <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-calendar"></use></svg>
-                        <span>今日动态</span>
-                        <svg class="portal-nav-chevron" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
-                    </summary>
-                    <div class="portal-nav-panel">
-                        <a href="/#section-news" class="portal-quick-nav-link">今日魔兽与资讯</a>
-                        <a href="/#section-events" class="portal-quick-nav-link">活动提醒</a>
-                    </div>
-                </details>
+            <nav id="portal-primary-nav" class="portal-quick-nav portal-primary-nav" aria-label="Portal 快捷入口"{% if management_url %} data-simulation-management-url="{{ management_url }}"{% endif %}>
                 <details class="portal-nav-group" data-nav-category="data">
                     <summary class="portal-nav-summary">
                         <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
-                        <span>职业与数据</span>
+                        <span>职业与实战</span>
                         <svg class="portal-nav-chevron" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
                     </summary>
                     <div class="portal-nav-panel">
+                        <a href="/portal/class-guides/" class="portal-quick-nav-link{% if request.path == '/portal/class-guides/' %} is-active{% endif %}">全职业攻略</a>
                         <a href="/portal/specs/" class="portal-quick-nav-link{% if request.path == '/portal/specs/' %} is-active{% endif %}">全职业数据</a>
-                        <a href="/portal/rio-statistics/" class="portal-quick-nav-link{% if request.path == '/portal/rio-statistics/' %} is-active{% endif %}">魔兽世界数据观察</a>
                         <a href="/portal/mplus/dps-rankings/" class="portal-quick-nav-link{% if request.path == '/portal/mplus/dps-rankings/' %} is-active{% endif %}">大秘境 DPS 榜单</a>
-                        <a href="/portal/simc-benchmarks/" class="portal-quick-nav-link{% if request.path == '/portal/simc-benchmarks/' %} is-active{% endif %}">SimC 模拟数据</a>
+                        <a href="/#section-peak-spec" class="portal-quick-nav-link">职业巅峰榜</a>
+                        <a href="/portal/rio-statistics/" class="portal-quick-nav-link{% if request.path == '/portal/rio-statistics/' %} is-active{% endif %}">魔兽世界数据观察</a>
                     </div>
                 </details>
                 <details class="portal-nav-group" data-nav-category="tools">
                     <summary class="portal-nav-summary">
                         <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
-                        <span>玩家工具</span>
+                        <span>模拟与配装</span>
                         <svg class="portal-nav-chevron" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
                     </summary>
                     <div class="portal-nav-panel">
-                        <a href="/portal/talents/" class="portal-quick-nav-link{% if request.path == '/portal/talents/' %} is-active{% endif %}">天赋模拟器</a>
-                        <a href="/portal/gear-builder/" class="portal-quick-nav-link{% if request.path == '/portal/gear-builder/' %} is-active{% endif %}">职业配装器</a>
+                        <a href="/portal/simc-reference/" class="portal-quick-nav-link{% if request.path == '/portal/simc-reference/' %} is-active{% endif %}">
+                            <span class="portal-nav-item-icon"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg></span>
+                            <span class="portal-nav-item-copy"><strong>专精模拟资料</strong><small>按专精查看天赋、装备、APL 和模拟排名</small></span>
+                        </a>
+                        <a href="/portal/gear-builder/" class="portal-quick-nav-link{% if request.path == '/portal/gear-builder/' %} is-active{% endif %}">
+                            <span class="portal-nav-item-icon"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg></span>
+                            <span class="portal-nav-item-copy"><strong>职业配装器</strong><small>搭配装备、宝石、附魔并计算属性</small></span>
+                        </a>
+                        <a href="/portal/talents/" class="portal-quick-nav-link{% if request.path == '/portal/talents/' %} is-active{% endif %}">
+                            <span class="portal-nav-item-icon"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg></span>
+                            <span class="portal-nav-item-copy"><strong>天赋模拟器</strong><small>导入、编辑并导出天赋字符串</small></span>
+                        </a>
+                        <a href="/portal/simc-benchmarks/" class="portal-quick-nav-link{% if request.path == '/portal/simc-benchmarks/' %} is-active{% endif %}">
+                            <span class="portal-nav-item-icon"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg></span>
+                            <span class="portal-nav-item-copy"><strong>模拟专题</strong><small>查看全部装备模拟与历期结果</small></span>
+                        </a>
+                        {% if management_url %}<a class="portal-nav-management" href="{{ management_url }}">模拟数据管理</a>{% endif %}
+                    </div>
+                </details>
+                <details class="portal-nav-group" data-nav-category="mythic">
+                    <summary class="portal-nav-summary">
+                        <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-refresh"></use></svg>
+                        <span>副本与路线</span>
+                        <svg class="portal-nav-chevron" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
+                    </summary>
+                    <div class="portal-nav-panel">
+                        <a href="/portal/adventure-journal/" class="portal-quick-nav-link{% if request.path == '/portal/adventure-journal/' %} is-active{% endif %}">冒险手册</a>
                         <a href="/portal/mythic-planner/" class="portal-quick-nav-link{% if request.path == '/portal/mythic-planner/' %} is-active{% endif %}">MDT 路线</a>
+                        <a href="/#section-mplus-cutoffs" class="portal-quick-nav-link">大秘境分数线</a>
+                        <a href="/#section-rank" class="portal-quick-nav-link">大秘境最高限时排行</a>
                     </div>
                 </details>
                 <details class="portal-nav-group" data-nav-category="community">
                     <summary class="portal-nav-summary">
                         <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-newspaper"></use></svg>
-                        <span>内容社区</span>
+                        <span>资讯与社区</span>
                         <svg class="portal-nav-chevron" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
                     </summary>
                     <div class="portal-nav-panel">
-                        <a href="/portal/news/" class="portal-quick-nav-link{% if request.path == '/portal/news/' %} is-active{% endif %}">新闻聚合</a>
-                        <a href="/portal/nga/" class="portal-quick-nav-link{% if '/portal/nga/' in request.path %} is-active{% endif %}">NGA 帖子</a>
+                        <a href="/portal/wow-updates/" class="portal-quick-nav-link{% if request.path == '/portal/wow-updates/' %} is-active{% endif %}">改动挖掘</a>
+                        <a href="/portal/news/" class="portal-quick-nav-link{% if request.path == '/portal/news/' %} is-active{% endif %}">魔兽新闻聚合</a>
+                        <a href="/portal/nga/" class="portal-quick-nav-link{% if request.path == '/portal/nga/' %} is-active{% endif %}">NGA 热议帖</a>
                         <a href="/#section-videos" class="portal-quick-nav-link">视频攻略</a>
                     </div>
                 </details>

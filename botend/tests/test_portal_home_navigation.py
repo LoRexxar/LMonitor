@@ -139,8 +139,8 @@ class PortalHomeNavigationTests(TestCase):
         navigation_data = self.client.get('/portal/api/navigation/').json()['data']
         self.assertNotIn('/#section-tools', {item['url'] for item in navigation_data['items']})
         categories = {item['key']: item for item in navigation_data['categories']}
-        self.assertEqual(categories['data']['name'], '数据中心')
-        self.assertEqual(categories['tools']['name'], '站内工具')
+        self.assertEqual(categories['data']['name'], '职业与实战')
+        self.assertEqual(categories['tools']['name'], '模拟与配装')
         category_keys = {item['category'] for item in navigation_data['items']}
         self.assertEqual(category_keys, {'data', 'mythic', 'tools', 'community'})
         self.assertNotIn('today', categories)
@@ -148,9 +148,33 @@ class PortalHomeNavigationTests(TestCase):
             item['name'] for item in navigation_data['categories']
             if item['key'] in category_keys
         ]
-        self.assertEqual(ordered_category_names, ['数据中心', '大秘境&团本', '站内工具', '资讯社区'])
+        self.assertEqual(ordered_category_names, ['职业与实战', '模拟与配装', '副本与路线', '资讯与社区'])
+        links = {item['url']: item for item in navigation_data['items']}
+        self.assertEqual(links['/portal/simc-reference/']['category'], 'tools')
+        for url in ('/portal/gear-builder/', '/portal/talents/'):
+            self.assertEqual(links[url]['category'], 'tools')
+            self.assertEqual(links[url]['subheading'], '')
+            self.assertLess(links[url]['sort_order'], links['/portal/simc-benchmarks/']['sort_order'])
+        self.assertEqual(links['/portal/mythic-planner/']['category'], 'mythic')
         journal = next(item for item in navigation_data['items'] if item['url'] == '/portal/adventure-journal/')
         self.assertEqual(journal['category'], 'mythic')
+
+    def test_simulation_management_link_requires_dashboard_permission(self):
+        viewer = User.objects.create_user('portal-viewer')
+        manager = User.objects.create_superuser('portal-manager')
+        management_url = '/dashboard/frontend-simulations/'
+        for user in (None, viewer, manager):
+            if user:
+                self.client.force_login(user)
+            for page in ('/', '/portal/specs/'):
+                with self.subTest(user=user, page=page):
+                    response = self.client.get(page)
+                    if user == manager:
+                        self.assertContains(response, f'data-simulation-management-url="{management_url}"', count=1)
+                        self.assertContains(response, f'class="portal-nav-management" href="{management_url}"')
+                    else:
+                        self.assertNotContains(response, management_url)
+            self.assertNotContains(self.client.get('/portal/api/navigation/'), management_url)
 
     def test_dashboard_has_dedicated_group_and_item_navigation_editor(self):
         PortalNavigationGroup.objects.all().delete()
@@ -176,6 +200,7 @@ class PortalHomeNavigationTests(TestCase):
                 'description': '只包含 Portal 页面与板块', 'icon_key': 'chart',
                 'items': [{
                     'id': None, 'name': 'DPS 排行榜', 'url': '/#section-mythicstats',
+                    'subheading': '当季榜单',
                     'desc': '跳转首页排行榜', 'icon_key': 'chart', 'badge': '新', 'badge_tone': 'new',
                     'is_active': True,
                 }],
@@ -185,6 +210,7 @@ class PortalHomeNavigationTests(TestCase):
         self.assertEqual(save_response.status_code, 200, save_response.content)
         self.assertEqual(PortalNavigationGroup.objects.count(), 1)
         self.assertEqual(PortalNavigationItem.objects.get().url, '/#section-mythicstats')
+        self.assertEqual(save_response.json()['records'][0]['items'][0]['subheading'], '当季榜单')
 
         record = save_response.json()['records'][0]
         record['items'][0]['url'] = 'https://example.com/not-allowed'

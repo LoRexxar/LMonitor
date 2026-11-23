@@ -182,9 +182,7 @@ class PortalSimcReferenceTests(TestCase):
         self.assertNotContains(response, '<script>alert(1)</script>')
         self.assertEqual(self.client.post(self.url, {'name': '禁止写入'}).status_code, 405)
 
-    def test_shared_header_and_home_have_no_entry_to_beta_page(self):
-        from pathlib import Path
-        from django.conf import settings
-        for name in ('_header.html', 'index.html'):
-            content = (Path(settings.BASE_DIR) / 'templates' / 'portal' / name).read_text(encoding='utf-8')
-            self.assertNotIn(self.url, content)
+    def test_simulation_reference_is_listed_in_shared_navigation(self):
+        self.assertContains(self.client.get('/'), f'href="{self.url}"', count=1)
+        items = self.client.get('/portal/api/navigation/').json()['data']['items']
+        self.assertEqual([item['category'] for item in items if item['url'] == self.url], ['tools'])

@@ -510,24 +510,44 @@ async function loadTools() {
         topEl.innerHTML = `<div class="portal-guide-empty">暂无分类入口，可在后台“首页导航”中添加。</div>`;
       } else {
         const categoryByKey = new Map(navigationCategories.map((item) => [String(item.key || ""), item]));
+        const managementUrl = document.getElementById("portal-primary-nav")?.dataset.simulationManagementUrl;
         topEl.innerHTML = orderedCategoryKeys(navigationItems, navigationCategories).map((key) => {
           const groupItems = navigationItems.filter((item) => String(item?.category || "tools") === key);
           const meta = categoryByKey.get(key) || { name: key, description: "自定义入口", icon_key: "globe" };
-          const links = groupItems.map((item) => {
+          const blocks = [];
+          for (const item of groupItems) {
+            const title = item.subheading || "";
+            if (!blocks.length || title !== blocks[blocks.length - 1].title) blocks.push({ title, items: [] });
+            blocks[blocks.length - 1].items.push(item);
+          }
+          const renderLink = (item, compact) => {
             const { href, attrs } = linkAttrs(item);
             const badgeTone = item?.badge_tone === "new" ? " is-new" : "";
             const badge = item.badge ? `<span class="portal-guide-link-badge${badgeTone}">${escapeHtml(item.badge)}</span>` : "";
             const name = escapeHtml(item.name || "未命名入口");
             const desc = escapeHtml(item.desc || "打开站内页面");
-            const content = `<span class="portal-guide-link-copy"><strong>${name}</strong><small>${desc}</small></span>${badge}<span class="portal-guide-link-arrow" aria-hidden="true">→</span>`;
+            if (compact) {
+              return href ? `<a class="portal-guide-child" href="${href}"${attrs}>${name}<span aria-hidden="true">›</span></a>`
+                : `<span class="portal-guide-child">${name}</span>`;
+            }
+            const arrow = item.url === "/portal/simc-benchmarks/" ? "查看全部 →" : "→";
+            const content = `<span class="portal-guide-link-copy"><strong>${name}</strong><small>${desc}</small></span>${badge}<span class="portal-guide-link-arrow" aria-hidden="true">${arrow}</span>`;
             return href
               ? `<a class="portal-guide-link" href="${href}"${attrs}>${content}</a>`
               : `<span class="portal-guide-link is-disabled">${content}</span>`;
+          };
+          const links = blocks.map((block) => {
+            const content = block.items.map((item) => renderLink(item, !!block.title)).join("");
+            return block.title
+              ? `<div class="portal-guide-subgroup" role="group" aria-label="${escapeHtml(block.title)}"><div class="portal-guide-subtitle">${escapeHtml(block.title)}</div><div class="portal-guide-children">${content}</div></div>`
+              : content;
           }).join("");
+          const management = groupItems.some((item) => item.url === "/portal/simc-reference/") && managementUrl
+            ? `<a class="portal-guide-manage" href="${escapeHtml(managementUrl)}">模拟数据管理</a>` : "";
           return `<section class="portal-guide-group" data-guide-category="${escapeHtml(key)}">
             <div class="portal-guide-group-head">
               <span class="portal-guide-group-icon">${iconHtml(meta.icon_key)}</span>
-              <span><strong>${escapeHtml(meta.name || key)}</strong><small>${escapeHtml(meta.description || "")}</small></span>
+              <span class="portal-guide-heading"><strong>${escapeHtml(meta.name || key)}</strong><small>${escapeHtml(meta.description || "")}</small></span>${management}
             </div>
             <div class="portal-guide-links">${links}</div>
           </section>`;

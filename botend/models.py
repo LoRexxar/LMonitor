@@ -854,6 +854,7 @@ class PortalNavigationItem(models.Model):
 
     group = models.ForeignKey(PortalNavigationGroup, related_name='items', on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
+    subheading = models.CharField(max_length=64, default='', blank=True)
     url = models.CharField(max_length=1000)
     desc = models.CharField(max_length=500, default='', blank=True)
     icon_key = models.CharField(max_length=48, default='', blank=True)

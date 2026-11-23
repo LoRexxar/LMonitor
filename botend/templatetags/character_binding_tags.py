@@ -1,12 +1,22 @@
 """Request-local, account-scoped links for the shared account menus."""
 from django import template
+from django.urls import reverse
 
+from botend.dashboard.permissions import has_dashboard_permission
 from botend.constants.wow import SPEC_ICON, canonical_class_spec
 from botend.models import UserCharacterBinding
 from botend.services.character_bindings import detail_url
 
 register = template.Library()
 MENU_LIMIT = 20
+
+
+@register.simple_tag(takes_context=True)
+def simulation_management_url(context):
+    user = getattr(context.get('request'), 'user', None)
+    if has_dashboard_permission(user, 'frontend.simulations'):
+        return reverse('simc_reference_entry')
+    return ''
 
 
 @register.inclusion_tag('shared/_character_shortcuts.html', takes_context=True)

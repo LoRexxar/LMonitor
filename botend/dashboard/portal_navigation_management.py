@@ -32,6 +32,7 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                 {
                     'id': item.id,
                     'name': item.name,
+                    'subheading': item.subheading,
                     'url': item.url,
                     'desc': item.desc,
                     'icon_key': item.icon_key,
@@ -104,6 +105,9 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                 if item_id is not None and (not isinstance(item_id, int) or item_id <= 0 or item_id in item_ids):
                     return JsonResponse({'success': False, 'error': f'“{name}”存在无效或重复的入口 ID'}, status=400)
                 item_name = str(raw_item.get('name') or '').strip()
+                subheading = str(raw_item.get('subheading') or '').strip()
+                if len(subheading) > 64:
+                    return JsonResponse({'success': False, 'error': '入口小标题最多 64 个字符'}, status=400)
                 url = str(raw_item.get('url') or '').strip()
                 desc = str(raw_item.get('desc') or '').strip()
                 item_icon = str(raw_item.get('icon_key') or '').strip()
@@ -122,6 +126,7 @@ class DashboardPortalNavigationAPIView(DashboardPermissionRequiredMixin, View):
                 normalized_items.append({
                     'id': item_id,
                     'name': item_name,
+                    'subheading': subheading,
                     'url': url,
                     'desc': desc,
                     'icon_key': item_icon,

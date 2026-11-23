@@ -100,17 +100,44 @@
             const panel = document.createElement('div');
             panel.className = 'portal-nav-panel';
 
+            let previousSubheading = '';
+            let childLinks;
             groupItems.forEach((item) => {
                 const href = safeUrl(item.url);
                 if (!href) return;
+                if (item.subheading && item.subheading !== previousSubheading) {
+                    const subgroup = document.createElement('div');
+                    subgroup.className = 'portal-nav-subgroup';
+                    subgroup.setAttribute('role', 'group');
+                    subgroup.setAttribute('aria-label', item.subheading);
+                    const subtitle = document.createElement('small');
+                    subtitle.className = 'portal-nav-subtitle';
+                    subtitle.textContent = item.subheading;
+                    childLinks = document.createElement('div');
+                    childLinks.className = 'portal-guide-children';
+                    subgroup.append(subtitle, childLinks);
+                    panel.appendChild(subgroup);
+                }
+                previousSubheading = item.subheading || '';
                 const link = document.createElement('a');
-                link.className = 'portal-quick-nav-link';
+                link.className = item.subheading ? 'portal-guide-child' : 'portal-quick-nav-link';
                 link.href = href;
                 const parsed = new URL(href, window.location.origin);
-                if (parsed.pathname === window.location.pathname && !parsed.hash) link.classList.add('is-active');
+                if (parsed.pathname === window.location.pathname && !parsed.hash) {
+                    link.classList.add('is-active');
+                    link.setAttribute('aria-current', 'page');
+                }
                 if (item.open_in_new_tab && parsed.origin !== window.location.origin) {
                     link.target = '_blank';
                     link.rel = 'noreferrer';
+                }
+                if (item.subheading) {
+                    const arrow = document.createElement('span');
+                    arrow.setAttribute('aria-hidden', 'true');
+                    arrow.textContent = '›';
+                    link.append(item.name, arrow);
+                    childLinks.appendChild(link);
+                    return;
                 }
                 const icon = document.createElement('span');
                 icon.className = 'portal-nav-item-icon';
@@ -135,6 +162,13 @@
                 }
                 panel.appendChild(link);
             });
+            if (nav.dataset.simulationManagementUrl && groupItems.some((item) => item.url === '/portal/simc-reference/')) {
+                const manage = document.createElement('a');
+                manage.className = 'portal-nav-management';
+                manage.href = nav.dataset.simulationManagementUrl;
+                manage.textContent = '模拟数据管理';
+                panel.appendChild(manage);
+            }
             details.append(summary, panel);
             nav.appendChild(details);
         });

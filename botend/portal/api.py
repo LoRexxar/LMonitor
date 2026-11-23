@@ -210,6 +210,7 @@ def _tool_to_dict(t):
 def _navigation_item_to_dict(item, group):
     return {
         'name': item.name or '',
+        'subheading': item.subheading,
         'url': _normalize_url(item.url),
         'desc': item.desc or '',
         'icon_key': item.icon_key or group.icon_key or 'globe',

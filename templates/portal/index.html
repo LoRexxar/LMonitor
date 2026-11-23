@@ -8,13 +8,13 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'shared/css/bluepost-channel.css' %}?v=20261108_channel_colors_1">
-    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20261109_activity_calendar_1">
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20261123_shared_navigation"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20261123_shared_navigation">
     <link rel="stylesheet" href="{% static 'portal/css/home-news.css' %}?v=20261112_icy_veins_1">
 </head>
-<body class="portal-bg font-sans">
+<body class="portal-bg portal-home-page font-sans">
     {% include 'portal/_header.html' %}
-    <div class="max-w-[1200px] mx-auto px-4 py-6">
+    <div class="portal-home-container mx-auto px-4 py-6">
         <div id="toast-root" class="fixed top-4 right-4 z-50 space-y-2"></div>
         <div id="portal-topbar" class="portal-topbar snap-section">
             <div class="portal-topbar-inner">
@@ -186,7 +186,7 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20261113_nga_no_preview_button_1"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20261123_shared_navigation"></script>
     <script src="{% static 'portal/js/home-news-layout.js' %}?v=20261106_home_masonry_1"></script>
     <script src="{% static 'portal/js/site-updates.js' %}?v=20260911_focus_digest"></script>
 </body>
