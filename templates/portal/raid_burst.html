@@ -66,7 +66,7 @@
             </div>
             <p id="skill-source" class="burst-muted" role="status"></p>
             <div id="chart" class="burst-chart"></div>
-            <p class="burst-muted"><span id="potion-legend">绿色三角标记喝药时间。悬停、点击或用键盘聚焦样本行，可查看每次使用的药水名称和时间。</span><span id="event-legend">圆点：技能事件</span>；菱形：阶段转换；橙线：嗜血持续时间；末端竖线：击杀。横轴为分:秒。</p>
+            <p class="burst-muted">橙线表示嗜血持续时间。<span id="potion-legend">下方绿线表示爆发药水的生效区间。</span><span id="event-legend">圆点：技能事件</span>；菱形表示阶段转换，末端竖线表示击杀。横轴为分:秒。</p>
         </section>
         <section class="burst-panel">
             <h2>不同的爆发选择</h2>
@@ -81,6 +81,6 @@
         <p class="burst-muted">按当前专精标注爆发与关键技能，默认统计本人成功施法；显式配置的形态技能统计本人光环生效，来源口径随技能展示，不等同于主动施法。治疗和坦克专精同时包含主要治疗、减伤技能；样本仍来自团本 DPS 排名，不代表治疗量或承伤排名。</p>
     </main>
     {{ raid_burst_payload|json_script:"raid-burst-data" }}
-    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261119_potion_times" defer></script>
+    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261123_player_labels_v2" defer></script>
 </body>
 </html>

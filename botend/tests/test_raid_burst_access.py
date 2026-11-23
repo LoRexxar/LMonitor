@@ -31,6 +31,7 @@ class RaidBurstAccessTests(TestCase):
         payload.update(schema=1, scope={'key': '1/Warrior/Arms/5/3470', 'label': '测试首领'},
                        generated_at='2026-10-20', excluded_invalid=0,
                        skill_names=SUPPORTED[('Warrior', 'Arms')]['spells'])
+        payload['samples'][0]['potions'] = [{'spell_id': 1234768, 'name': '银月城治疗药水', 'time': 15}]
         payload['groups'] = build_groups(payload['samples'], SUPPORTED[('Warrior', 'Arms')]['spells'])
         directory = self.root / '1/Warrior/Arms'
         blob = digest(payload)
@@ -59,6 +60,8 @@ class RaidBurstAccessTests(TestCase):
         response = PortalRaidBurstView.as_view()(self.request(authenticated=True))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="raid-burst-data"')
+        self.assertNotContains(response, '"potions"')
+        self.assertNotContains(response, '银月城治疗药水')
         self.assertNotContains(response, 'id="portal-raid-burst-entry"')
         self.assertContains(response, '测试首领 · 战斗统计')
         self.assertNotContains(response, 'id="scope"')

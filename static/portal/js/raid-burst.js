@@ -15,8 +15,8 @@
         return;
     }
     if (!payload) return;
-    if (payload.samples.length && !payload.samples.some((row) => Array.isArray(row.potions))) {
-        $('#potion-legend').textContent = '当前历史快照尚未统计药水时间。';
+    if (payload.samples.length && !payload.samples.some((row) => Array.isArray(row.potion_windows))) {
+        $('#potion-legend').textContent = '此快照尚未统计爆发药水的生效区间，重新生成战斗统计后可查看。';
     }
     const names = payload.skill_names;
     // Absent metadata means the historical, successful-cast-only contract.
@@ -52,10 +52,6 @@
         return `${value < 0 ? '提前' : value > 0 ? '延后' : ''}${formatTime(value)}`;
     }
 
-    function potionTime(potion, row) {
-        return `${potion.name} · 开怪后${formatTime(potion.time)} · 嗜血${relativeTime(potion.time - row.lust_start)}`;
-    }
-
     const tooltip = element('div', undefined, 'burst-tooltip');
     tooltip.id = 'burst-sample-tooltip';
     tooltip.setAttribute('role', 'tooltip');
@@ -85,21 +81,24 @@
         tooltip.style.top = `${top}px`;
     }
 
-    function bindSample(target, row, sampleLabel = '样本') {
+    function playerName(row) {
+        return row.player?.name || '玩家未知';
+    }
+
+    function bindSample(target, row) {
         target.classList.add('burst-sample-trigger');
         target.setAttribute('tabindex', '0');
-        target.setAttribute('aria-label', `${sampleLabel} ${row.rank}，${row.player?.name || '玩家未知'}，查看样本详情`);
+        target.setAttribute('aria-label', `${playerName(row)}，查看日志详情`);
         const show = (event) => {
             if (tooltipOwner !== target) {
                 hideSample();
                 tooltipOwner = target;
                 target.setAttribute('aria-describedby', tooltip.id);
                 tooltip.replaceChildren();
-                tooltip.append(element('strong', row.player?.name || '玩家未知', 'burst-tooltip-name'));
+                tooltip.append(element('strong', playerName(row), 'burst-tooltip-name'));
                 const server = [row.player?.region, row.player?.realm].filter(Boolean).join(' · ');
                 tooltip.append(element('div', server || '服务器未知', 'burst-muted'));
                 const fields = [
-                    [sampleLabel, String(row.rank).padStart(3, '0')],
                     ['DPS', Number.isFinite(row.dps) ? new Intl.NumberFormat('zh-CN', {maximumFractionDigits: 1}).format(row.dps) : '未记录'],
                     ['战斗时长', formatTime(row.duration)],
                     ['嗜血时间', row.lust_start === null ? '未记录' : `开怪后${formatTime(row.lust_start)}`],
@@ -107,14 +106,6 @@
                 ];
                 const list = element('dl', undefined, 'burst-tooltip-fields');
                 fields.forEach(([label, value]) => list.append(element('dt', label), element('dd', value)));
-                list.append(element('dt', '药水'));
-                const potions = element('dd');
-                if (row.potions?.length) {
-                    row.potions.forEach((potion) => potions.append(element('div', potionTime(potion, row))));
-                } else {
-                    potions.textContent = Array.isArray(row.potions) ? '未记录到药水施放' : '历史快照未统计';
-                }
-                list.append(potions);
                 tooltip.append(list, element('div', 'DPS 来自该场战斗的排名记录', 'burst-muted'));
             }
             tooltip.hidden = false;
@@ -196,10 +187,17 @@
             }));
             svg.append(sampleGroup);
             sampleGroup.append(svgElement('text', {x: 4, y: y + 4, 'font-size': 11},
-                `样本 ${String(row.rank).padStart(3, '0')} · ${formatTime(row.duration)}`));
+                playerName(row)));
             line(sampleGroup, x(-offset), y, x(row.duration - offset), y, '#94a3b8', .6);
             row.lust_windows.forEach((window) =>
                 line(sampleGroup, x(window.start - offset), y + 7, x(window.end - offset), y + 7, '#f59e0b', 4));
+            for (const potion of row.potion_windows || []) {
+                sampleGroup.append(svgElement('line', {
+                    x1: x(potion.start - offset), x2: x(potion.end - offset), y1: y + 14, y2: y + 14,
+                    stroke: '#059669', 'stroke-width': 4, class: 'burst-potion', role: 'img',
+                    'aria-label': `${potion.name}，开怪后${formatTime(potion.start)}至${formatTime(potion.end)}`,
+                }));
+            }
             row.phases.filter((phase) => phase.id !== 1).forEach((phase) => {
                 const px = x(phase.start - offset);
                 sampleGroup.append(svgElement('polygon', {
@@ -214,14 +212,6 @@
                 circle.append(svgElement('title', {}, `${source().label} · 开怪后${formatTime(time)} · 嗜血${relativeTime(time - row.lust_start)}`));
                 sampleGroup.append(circle);
             });
-            for (const potion of row.potions || []) {
-                const px = x(potion.time - offset);
-                const marker = svgElement('path', {
-                    d: `M ${px} ${y + 10} l 4 7 h -8 Z`, fill: '#059669', class: 'burst-potion',
-                });
-                marker.append(svgElement('title', {}, potionTime(potion, row)));
-                sampleGroup.append(marker);
-            }
         });
         container.append(svg);
     }
@@ -255,12 +245,12 @@
             }).filter((plan) => plan.rows.length)
                 .sort((a, b) => b.rows.length - a.rows.length || a.reference.rank - b.reference.rank);
             section.append(element('p', `${plans.length}种完整选择 · 以下节点从开怪起算，保留真实代表日志`, 'burst-muted'));
-            plans.forEach((plan, index) => {
+            plans.forEach((plan) => {
                 const row = element('div', undefined, 'burst-scheme');
                 const head = element('div');
-                head.append(element('div', `方案 ${index + 1} · ${plan.rows.length}份`, 'burst-scheme-title'));
-                head.append(element('div', `${source().label} ${plan.ranges.length}次 · ${formatTime(plan.reference.duration)}`, 'burst-muted'));
-                bindSample(head, plan.reference, '参考样本');
+                head.append(element('div', playerName(plan.reference), 'burst-scheme-title'));
+                head.append(element('div', `${plan.rows.length}份日志 · ${source().label} ${plan.ranges.length}次 · ${formatTime(plan.reference.duration)}`, 'burst-muted'));
+                bindSample(head, plan.reference);
                 const points = element('div', undefined, 'burst-points');
                 plan.ranges.forEach((window, i) => {
                     const label = Math.abs(window.end - window.start) < .05

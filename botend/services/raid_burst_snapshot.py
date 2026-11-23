@@ -97,6 +97,10 @@ def load_published(selection=None):
         data = read_blob(selected[1], old['blob']) if old else None
     if data and data.get('scope', {}).get('key') != selection:
         data = None
+    if data:
+        # 历史快照的逐次喝药记录含治疗药水，不随页面下发。
+        for sample in data.get('samples', []):
+            sample.pop('potions', None)
     return data, [dict(key=item['key'], label=item['label']) for item, _ in options]
 
 

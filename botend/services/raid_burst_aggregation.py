@@ -5,16 +5,19 @@ from utils.log import logger
 
 from botend.services.raid_burst_events import RAW_VERSION, fetch_events, realm_key
 from botend.services.raid_burst_skills import SUPPORTED, CATALOG_BUILD
-from botend.services.wcl_consumables import POTIONS, spell_id
+from botend.services.wcl_consumables import POTIONS
 from botend.services.raid_burst_snapshot import (
     SCHEMA, digest, private_root, read_blob, read_json, read_manifest, write_json,
 )
 
 
-ANALYSIS_VERSION = 2
+ANALYSIS_VERSION = 4
 SAMPLE_LIMIT = 10
 SELECTION_POLICY = 'top-usable-unique-player-no-external-pi-v2'
 LUST = {2825, 32182, 80353, 390386, 264667, 272678}
+# 爆发药水的个人增益编号；液态光泽按实际提供属性的光环统计。
+BURST_POTION_AURAS = {1236616: 1236616, 1236994: 1236994, 1236998: 1236998,
+                      1238443: 1238443, 1295015: 1295015, 1295147: 1295132}
 FIELDS = ('report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name',
           'spec_name', 'boss_id', 'difficulty', 'dps')
 
@@ -28,6 +31,23 @@ def pi_source(record, field):
     if other in record and (type(record[other]) is not int or record[other] != source):
         return None
     return source
+
+
+def aura_windows(buffs, initial, abilities, start, end):
+    """从开场光环及后续增益事件还原战斗内的有效区间。"""
+    opened = {ability: start for ability in abilities if ability in initial}
+    windows = []
+    for event in sorted((e for e in buffs if e.get('abilityGameID') in abilities),
+                        key=lambda e: e['timestamp']):
+        ability = event['abilityGameID']
+        if event.get('type') == 'applybuff':
+            opened.setdefault(ability, event['timestamp'])
+        elif event.get('type') == 'removebuff' and ability in opened:
+            windows.append((ability, opened.pop(ability), event['timestamp']))
+    windows.extend((ability, timestamp, end) for ability, timestamp in opened.items())
+    return [(ability, {'start': round((left - start) / 1000, 3),
+                       'end': round((right - start) / 1000, 3)})
+            for ability, left, right in sorted(windows, key=lambda w: w[1])]
 
 
 def eligibility(raw, row, config):
@@ -61,31 +81,21 @@ def eligibility(raw, row, config):
                       if event.get('abilityGameID') == 10060)
     if any(source != actor['id'] for source in pi_sources):
         return None, 'pi'
-    windows = []
-    for ability in LUST:
-        opened = start if ability in initial else None
-        for event in sorted(buffs, key=lambda e: e['timestamp']):
-            if event.get('abilityGameID') != ability:
-                continue
-            if event.get('type') == 'applybuff' and opened is None:
-                opened = event['timestamp']
-            elif event.get('type') == 'removebuff' and opened is not None:
-                windows.append({'start': round((opened - start) / 1000, 3),
-                                'end': round((event['timestamp'] - start) / 1000, 3)})
-                opened = None
-        if opened is not None:
-            windows.append({'start': round((opened - start) / 1000, 3),
-                            'end': round((end - start) / 1000, 3)})
     merged = []
-    for window in sorted(windows, key=lambda w: w['start']):
+    for _, window in aura_windows(buffs, initial, LUST, start, end):
         if merged and window['start'] <= merged[-1]['end']:
             merged[-1]['end'] = max(merged[-1]['end'], window['end'])
         else:
             merged.append(window)
     if not merged:
         return None, 'no_lust'
+    potion_windows = [
+        {**window, 'name': POTIONS[BURST_POTION_AURAS[ability]][1]}
+        for ability, window in aura_windows(buffs, initial, BURST_POTION_AURAS, start, end)
+        if window['end'] > window['start']
+    ]
     return {'fight': fight, 'actor': actor, 'start': start, 'end': end, 'merged': merged,
-            'self_pi_observed': bool(pi_sources)}, None
+            'potion_windows': potion_windows, 'self_pi_observed': bool(pi_sources)}, None
 
 
 def skill_event_sources(config):
@@ -125,9 +135,6 @@ def normalize(raw, row, rank, config):
     casts = [e for e in streams['casts']['data'] if e.get('type') == 'cast' and not e.get('fake')
              and e.get('sourceID') == actor['id'] and e.get('fight') == fight['id']
              and start <= e.get('timestamp', -1) <= end]
-    # 重叠分页可能重复同一次施放。同一药水在不同时间使用时逐次保留。
-    potion_casts = sorted({(e['timestamp'], ability) for e in casts
-                           if (ability := spell_id(e)) in POTIONS})
     aliases = config.get('cast_aliases', {})
     auras = config.get('aura_applications', {})
     times = {spell: sorted({round((e['timestamp'] - start) / 1000, 3) for e in casts
@@ -154,8 +161,7 @@ def normalize(raw, row, rank, config):
         'self_pi_observed': eligible['self_pi_observed'],
         'external_pi_observed': False, 'pi_source_unknown': False,
         'times': times, 'phases': phases,
-        'potions': [{'time': round((timestamp - start) / 1000, 3), 'spell_id': ability,
-                     'name': POTIONS[ability][1]} for timestamp, ability in potion_casts],
+        'potion_windows': eligible['potion_windows'],
         'lust_start': lust, 'lust_windows': merged, 'lust_group': group, 'lust_label': label,
         'lust_focus': {spell: [round(t - lust, 3) for t in sequence if -20 <= t - lust <= 40]
                        for spell, sequence in times.items()},
