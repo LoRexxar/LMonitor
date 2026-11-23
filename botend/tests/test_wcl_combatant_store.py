@@ -239,6 +239,7 @@ class CompactStoreTests(TestCase):
 
     def test_identity_reads_preserve_matching_without_loading_documents(self):
         from botend.services.wcl_combatant_snapshot import match_combatant
+        _, Fact = self.models()
         old = timezone.now() - timedelta(days=2)
         for actor in (1, 2):
             WclCombatantSnapshot.objects.create(report_code='Report', fight_id=11, actor_id=actor,
@@ -247,7 +248,8 @@ class CompactStoreTests(TestCase):
         store.persist_events('Report', {11: [event(4)]})
         records = [dict(report_code='Report', fight_id=11)]
         cutoff = old + timedelta(hours=1)
-        with CaptureQueriesContext(connection) as queries:
+        with patch.object(Fact, 'from_db', side_effect=AssertionError('身份校验无需构建 ORM 实例')), \
+             CaptureQueriesContext(connection) as queries:
             identities = store.load_facts(records, identities_only=True, fetched_before=cutoff)
         self.assertEqual([e['sourceID'] for e in identities['Report', 11]], [1, 2, 3])
         self.assertFalse(any('wow_wcl_combatant_document' in q['sql'] for q in queries))

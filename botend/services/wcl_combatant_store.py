@@ -111,7 +111,8 @@ def _scope(keys):
 
 class StoredCombatant(dict):
     """携带已入库、不可覆盖的日志身份；标识不进入业务 JSON。"""
-    pass
+    cache_token: tuple
+    cache_identity: tuple
 
 
 def _project_fact(row):
@@ -125,11 +126,17 @@ def _project_fact(row):
     return result
 
 
-def _project_identity(row):
-    """轻量匹配保留不可变事实摘要，不加载装备和天赋正文。"""
-    result = StoredCombatant(deepcopy(row.identity_json))
-    result.cache_token = (row.report_code, row.fight_id, row.actor_id, row.canonical_hash)
-    return result
+def _compact_projections(queryset, *, identities_only, document_reads):
+    if identities_only:
+        for pk, code, fight, actor, identity, digest in queryset.values_list(
+                'pk', 'report_code', 'fight_id', 'actor_id', 'identity_json', 'canonical_hash'):
+            # Each row owns freshly decoded JSON; only wrap the identity dict.
+            payload = StoredCombatant(identity)
+            payload.cache_token = (code, fight, actor, digest)
+            yield pk, (code, fight, actor), payload
+    else:
+        for row in _bind_documents(queryset, document_reads):
+            yield row.pk, (row.report_code, row.fight_id, row.actor_id), _project_fact(row)
 
 
 def _bind_documents(rows, reads):
@@ -179,18 +186,16 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
             for code, fight in batch:
                 where |= Q(report_code=code, fight_id=fight, actor_id__in=actor_scopes[code, fight])
         compact = WclCombatantFact.objects.filter(where)
-        if identities_only:
-            compact = compact.only('pk', 'report_code', 'fight_id', 'actor_id', 'identity_json', 'canonical_hash')
         legacy = WclCombatantSnapshot.objects.filter(where)
         if fetched_before is not None:
             compact = compact.filter(fetched_at__lte=fetched_before)
             legacy = legacy.filter(fetched_at__lte=fetched_before)
         actors = {}
         compact_ids = []
-        for row in (compact if identities_only else _bind_documents(compact, document_reads)):
-            compact_ids.append(row.pk)
-            actors[(row.report_code, row.fight_id, row.actor_id)] = (
-                _project_identity(row) if identities_only else _project_fact(row))
+        for pk, key, payload in _compact_projections(
+                compact, identities_only=identities_only, document_reads=document_reads):
+            compact_ids.append(pk)
+            actors[key] = payload
         # Inspect only legacy identities first: never transfer its large raw
         # JSON when a compact actor already satisfies the requested cutoff.
         missing_ids = [row['pk'] for row in legacy.values('pk', 'report_code', 'fight_id', 'actor_id')
@@ -212,9 +217,9 @@ def load_facts(records, *, fetched_before=None, identities_only=False, actor_ids
         # not a max-PK watermark: a lower allocated PK can commit later.
         # Already projected documents are never transferred a second time.
         catchup = compact.exclude(pk__in=compact_ids)
-        for row in (catchup if identities_only else _bind_documents(catchup, document_reads)):
-            actors[(row.report_code, row.fight_id, row.actor_id)] = (
-                _project_identity(row) if identities_only else _project_fact(row))
+        for _, key, payload in _compact_projections(
+                catchup, identities_only=identities_only, document_reads=document_reads):
+            actors[key] = payload
         if actors and include_consumables:
             usage = WclConsumableObservation.objects.filter(where)
             if fetched_before is not None:

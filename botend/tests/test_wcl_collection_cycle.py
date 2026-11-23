@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import InterfaceError, OperationalError
 from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -426,11 +427,22 @@ class WclCollectionCycleTests(TestCase):
         cycle = self.cycle(phase='ready', collected_at=self.now,
             selected_samples={'Mage/Fire': {'101': [row.pk], '102': []}})
         monitor = SpecDetailAggregationMonitor(None, self.aggregation)
+
+        def fail_raid(*args, **kwargs):
+            raise OperationalError(1205, 'UNSAFE_DB_EXCEPTION_TEXT_MUST_NOT_APPEAR')
+
         with patch(AGGREGATION + '.CLASS_SPEC_MAP', {'Mage': ['Fire']}), \
                 patch(AGGREGATION + '.timezone.now', return_value=self.now), \
                 patch.object(monitor, '_aggregate_leaderboard'), \
-                patch.object(monitor, '_aggregate_raid', side_effect=RuntimeError('crash after dungeon')):
+                patch.object(monitor, '_aggregate_raid', side_effect=fail_raid), \
+                self.assertLogs('LSpider', level='WARNING') as errors:
             self.assertFalse(monitor.scan(''))
+        message, = errors.output
+        self.assertIn(f'cycle={cycle.pk} phase=raid spec=Mage/Fire', message)
+        self.assertIn('db_errno=1205', message)
+        self.assertIn('SpecDetailAggregationMonitor.scan:', message)
+        self.assertEqual(errors.records[0].levelname, 'WARNING')
+        self.assertNotIn('UNSAFE_DB_EXCEPTION_TEXT_MUST_NOT_APPEAR', message)
         path = Path(self.media) / 'aggregated' / str(self.season.pk) / 'Mage' / 'Fire' / 'dungeon.json'
         before = path.read_bytes()
         generation = json.loads(before)['_snapshot']['generation']
@@ -445,6 +457,30 @@ class WclCollectionCycleTests(TestCase):
         self.assertEqual(cycle.phase, 'published')
         self.assertEqual(path.read_bytes(), before)
         self.assertEqual(json.loads(path.read_bytes())['_snapshot']['generation'], generation)
+
+    def test_database_connection_errors_at_aggregation_boundaries_are_safe(self):
+        from utils.log import DatabaseLogHandler, logger
+
+        cycle = self.cycle(phase='ready', collected_at=self.now)
+        monitor = SpecDetailAggregationMonitor(None, self.aggregation)
+        secret = 'UNSAFE_CONNECTION_EXCEPTION_TEXT_MUST_NOT_APPEAR'
+        for error_type in (InterfaceError, OperationalError):
+            for phase, boundary in (
+                    ('season', 'SeasonMeta.objects.filter'), ('claim', 'begin_aggregation'),
+                    ('defer', 'defer_cycle')):
+                with self.subTest(error=error_type.__name__, phase=phase), \
+                        patch(AGGREGATION + '.CLASS_SPEC_MAP', {'Mage': ['Fire']}), \
+                        patch(AGGREGATION + '.begin_aggregation', return_value=cycle), \
+                        patch.object(monitor, '_aggregate_leaderboard', side_effect=RuntimeError(secret)), \
+                        patch(AGGREGATION + '.' + boundary, side_effect=error_type(2006, secret)), \
+                        patch.object(logger, 'warning', wraps=logger.warning) as warn, \
+                        patch.object(DatabaseLogHandler, 'emit', autospec=True) as db_alert:
+                    self.assertFalse(monitor.scan(''))
+                    db_alert.assert_not_called()
+                    messages = [call.args[0] % call.args[1:] for call in warn.call_args_list]
+                    self.assertTrue(any(f'phase={phase} ' in m and 'db_errno=2006' in m
+                                        and error_type.__name__ in m for m in messages))
+                    self.assertNotIn(secret, '\n'.join(messages))
 
     def test_old_owner_cannot_publish_files(self):
         from botend.services.wcl_collection_cycle import CycleOwnershipLost

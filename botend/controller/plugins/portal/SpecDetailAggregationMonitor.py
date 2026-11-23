@@ -8,13 +8,14 @@ import json
 import os
 import tempfile
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from contextlib import nullcontext, contextmanager
 from functools import partial
 from decimal import Decimal
 from datetime import date, datetime
 
 from django.conf import settings
+from django.db import Error as DatabaseDriverError
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
@@ -107,6 +108,32 @@ def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_se
         separators=(',', ':')), publication_guard=publication_fence())
 
 
+def _log_aggregation_failure(exc, *, cycle, phase, spec):
+    # Do not format the exception or traceback: upstream/SQL messages and
+    # local variables can contain credentials or report payloads.
+    errno = None
+    frames = deque(maxlen=6)
+    if isinstance(exc, DatabaseDriverError):
+        for error in (exc, exc.__cause__):
+            code = error.args[0] if error is not None and error.args else None
+            if type(code) is int and 0 < code <= 65535:
+                errno = code
+                break
+        tb = exc.__traceback__
+        while tb is not None:
+            module = tb.tb_frame.f_globals.get('__name__', '')
+            if module.startswith(('botend.services.', 'botend.controller.')):
+                frames.append(f'{module}.{tb.tb_frame.f_code.co_name}:{tb.tb_lineno}')
+            tb = tb.tb_next
+    error = f'publication_failed:{type(exc).__name__}'
+    # ERROR invokes the synchronous database alert handler before deferral.
+    # The worker already raises a task alert for a False result.
+    logger.warning('[SpecDetailAggregation] %s cycle=%s phase=%s spec=%s db_errno=%s frames=%s',
+                   error, cycle.pk if cycle is not None else '-', phase, spec,
+                   errno if errno is not None else '-', ','.join(frames) or '-')
+    return error
+
+
 class SpecDetailAggregationMonitor(BaseScan):
 
     def __init__(self, req, task):
@@ -116,7 +143,11 @@ class SpecDetailAggregationMonitor(BaseScan):
     def scan(self, url):
         logger.info("[SpecDetailAggregation] 开始聚合统计")
 
-        season = SeasonMeta.objects.filter(is_active=True).first()
+        try:
+            season = SeasonMeta.objects.filter(is_active=True).first()
+        except DatabaseDriverError as exc:
+            _log_aggregation_failure(exc, cycle=None, phase='season', spec='-')
+            return False
         if not season:
             logger.error("[SpecDetailAggregation] 无活跃赛季，跳过")
             return False
@@ -126,13 +157,20 @@ class SpecDetailAggregationMonitor(BaseScan):
             cycle = begin_aggregation(season, self.task)
         except CycleOwnershipLost:
             return False
+        except DatabaseDriverError as exc:
+            _log_aggregation_failure(exc, cycle=None, phase='claim', spec='-')
+            return False
+        phase, spec = 'leaderboard', '-'
         try:
             # This source is independent of WCL, including on the daily 06:00 run.
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
+                    spec = f'{class_name}/{spec_name}'
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
                     self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
+            phase, spec = 'freeze', '-'
             if cycle is None:
+                phase = 'active_cycle'
                 from botend.services.wcl_collection_cycle import active_cycle
                 pending = active_cycle(season.pk)
                 logger.info('[SpecDetailAggregation] 团本战斗统计未启动：%s；仅刷新人物榜',
@@ -148,12 +186,14 @@ class SpecDetailAggregationMonitor(BaseScan):
             season = frozen_season(cycle, season)
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
+                    phase, spec = 'dungeon', f'{class_name}/{spec_name}'
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
                     runtime = defaultdict(float)
                     started = time.monotonic()
                     self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle,
                                             phase_timings=runtime)
                     dungeon_finished = time.monotonic()
+                    phase = 'raid'
                     self._aggregate_raid(season, class_name, spec_name, spec_dir,
                                          publish=partial(publish_stats, cycle=cycle), cycle=cycle,
                                          phase_timings=runtime)
@@ -162,20 +202,21 @@ class SpecDetailAggregationMonitor(BaseScan):
                         class_name, spec_name, dungeon_finished - started,
                         time.monotonic() - dungeon_finished,
                         {key: round(value, 3) for key, value in runtime.items()})
+            phase, spec = 'finish', '-'
             finish_publication(cycle)
             return True
         except CycleOwnershipLost:
             logger.warning('[SpecDetailAggregation] cycle ownership lost; stop publication')
             return False
         except Exception as exc:
-            # Exception text may include credentials from upstream metadata URLs.
-            error = f'publication_failed:{type(exc).__name__}'
+            error = _log_aggregation_failure(exc, cycle=cycle, phase=phase, spec=spec)
             if cycle is not None:
                 try:
                     defer_cycle(cycle, error, retry_at=getattr(exc, 'retry_at', None))
                 except CycleOwnershipLost:
                     pass
-            logger.error('[SpecDetailAggregation] %s', error)
+                except DatabaseDriverError as defer_error:
+                    _log_aggregation_failure(defer_error, cycle=cycle, phase='defer', spec=spec)
             return False
 
     @staticmethod

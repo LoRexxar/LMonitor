@@ -686,7 +686,7 @@ class RetentionTests(SimpleTestCase):
         mod = import_module('botend.controller.plugins.portal.SpecDetailAggregationMonitor')
         self.publish()
         self.hashless('dungeon')
-        cycle, season = Mock(), Mock(id=77)
+        cycle, season = Mock(pk=1, counts={}), Mock(id=77)
         monitor = object.__new__(mod.SpecDetailAggregationMonitor)
         monitor.task = Mock()
         with patch.object(mod.SeasonMeta.objects, 'filter') as query, \
