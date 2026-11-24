@@ -8,6 +8,7 @@ import tempfile
 from unittest.mock import patch
 from unittest.mock import Mock
 
+from django.core.management import call_command, CommandError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -89,6 +90,65 @@ class RioPublicViewsTests(SimpleTestCase):
             self.assertEqual(result['scope']['token'], changed['token'])
             self.assertEqual(self.data(module='catalog')['available'], [])
 
+    def test_registered_same_season_archive_fills_only_exact_missing_current_coordinate(self):
+        old = self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})
+        old_file = views.entry_path(self.h)
+        assert old_file is not None
+        original_bytes = old_file.read_bytes()
+        changed = dict(self.scope, token='b' * 64, game_build='12.1.5.70100')
+        self.meta['scope'] = changed
+        with patch.object(rio, 'active_scope', return_value=changed):
+            rio._write(self.directory / 'catalog.json', self.meta)
+            current = rio.coordinate('heatmaps', {'dungeon': 'den-of-nalorakk'})
+            rio._failure(current, '来源失败')
+            views.refresh_views()
+            with patch.object(rio.store(), '_connect', side_effect=AssertionError('GET must use prepared files')):
+                restored = self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})
+                self.assertEqual(restored['data'], old['data'])
+                self.assertEqual(restored['coordinate'], self.h)
+                self.assertEqual(restored['scope']['token'], changed['token'])
+                self.assertEqual(restored['source_scope']['token'], self.scope['token'])
+                self.assertEqual(restored['snapshot']['state'], 'stale')
+                self.assertIn(self.scope['game_build'], restored['snapshot']['message'])
+                self.assertEqual(restored['snapshot']['fetched_at'], old['fetched_at'])
+                for extra in ({'region': 'world'}, {'level': '20-plus'}, {'layer': 'npc_death'}):
+                    self.assertIsNone(self.data(module='heatmaps', params={
+                        'dungeon': 'den-of-nalorakk', **extra})['data'])
+                with patch.object(rio, 'active_scope', return_value=dict(changed, id=2, token='c' * 64)):
+                    self.assertIsNone(self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})['data'])
+                old_file.write_bytes(original_bytes.replace(b'"checksum":"', b'"checksum":"0'))
+                self.assertIsNone(self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'}).get('data'))
+                old_file.write_bytes(original_bytes)
+            rio._publish(current, {'floors': [], 'num_runs': 50})
+            views.refresh_views()
+            ready = self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})
+            self.assertEqual(ready['data']['num_runs'], 50)
+            self.assertEqual(ready['snapshot']['state'], 'ready')
+            self.assertNotIn('source_scope', ready)
+
+    def test_explicit_archive_recovery_does_not_rewrite_stored_facts(self):
+        from io import StringIO
+
+        old, _ = rio.store().read(self.h)
+        changed = dict(self.scope, token='b' * 64, game_build='12.1.5.70100')
+        self.meta['scope'] = changed
+        with patch.object(rio, 'active_scope', return_value=changed):
+            rio._write(self.directory / 'catalog.json', self.meta)
+            with patch.object(views, 'capture_previous', return_value=0):
+                views.refresh_views()
+            self.assertIsNone(self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})['data'])
+            args = ('rebuild_rio_statistics_views', '--register-archive', self.scope['token'],
+                    self.scope['rio_season'], self.scope['game_build'])
+            revision = self.data(module='catalog', params={'status': '1'})['revision']
+            call_command(*args, stdout=StringIO())
+            self.assertIsNone(self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})['data'])
+            call_command(*args, '--apply-archive', stdout=StringIO())
+            self.assertNotEqual(revision, self.data(module='catalog', params={'status': '1'})['revision'])
+            actual = self.data(module='heatmaps', params={'dungeon': 'den-of-nalorakk'})
+            self.assertEqual(actual['data']['num_runs'], old['data']['num_runs'])
+            self.assertEqual(actual['fetched_at'], old['fetched_at'])
+            self.assertEqual(rio.store().read(self.h)[0], old)
+
     def test_missing_files_never_trigger_request_time_rebuild(self):
         empty = Path(tempfile.mkdtemp(prefix='rio-empty-views-'))
         with self.settings(RIO_STATISTICS_ROOT=empty), \
@@ -96,6 +156,31 @@ class RioPublicViewsTests(SimpleTestCase):
                 patch.object(views, 'refresh_views', side_effect=AssertionError('不得请求内重建')):
             self.assertEqual(self.data()['snapshot']['state'], 'pending')
             self.assertFalse((empty / 'views').exists())
+
+    def test_archive_preview_cannot_initialize_missing_cache(self):
+        with tempfile.TemporaryDirectory() as empty, self.settings(RIO_STATISTICS_ROOT=empty):
+            with self.assertRaises(CommandError):
+                call_command('rebuild_rio_statistics_views', '--register-archive',
+                             'b' * 64, self.scope['rio_season'], self.scope['game_build'])
+            self.assertEqual(list(Path(empty).iterdir()), [])
+
+    def test_archive_disk_failure_does_not_block_current_publication(self):
+        changed = dict(self.scope, token='b' * 64, game_build='12.1.5.70100')
+        self.meta['scope'] = changed
+        write = views._write_view
+
+        def write_without_archive(path, data):
+            if 'archives' in path.parts:
+                raise OSError('archive directory unavailable')
+            return write(path, data)
+
+        with patch.object(rio, 'active_scope', return_value=changed):
+            rio._write(self.directory / 'catalog.json', self.meta)
+            c = rio.coordinate('overview', {'region': 'cn'})
+            rio._publish(c, {'value': 20})
+            with patch.object(views, '_write_view', side_effect=write_without_archive):
+                views.refresh_views()
+            self.assertEqual(self.data()['data'], {'value': 20})
 
     def test_corrupt_file_is_not_served_and_background_repairs_it(self):
         path = views.entry_path(self.c)

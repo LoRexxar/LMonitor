@@ -50,12 +50,13 @@ class SnapshotStore:
         self.path = self.root / 'snapshots.sqlite3'
         self._size_check = None
 
-    def _connect(self, *, create=False):
+    def _connect(self, *, create=False, readonly=False):
         if create:
             self.root.mkdir(parents=True, exist_ok=True)
             db = sqlite3.connect(str(self.path), timeout=30, isolation_level=None)
         else:
-            db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=rw', uri=True, timeout=30, isolation_level=None)
+            mode = 'ro' if readonly else 'rw'
+            db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=' + mode, uri=True, timeout=30, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute('PRAGMA busy_timeout=30000')
         return db
@@ -70,9 +71,9 @@ class SnapshotStore:
             return version == SCHEMA
 
     @contextmanager
-    def connection(self, *, create=False):
+    def connection(self, *, create=False, readonly=False):
         try:
-            db = self._connect(create=create)
+            db = self._connect(create=create, readonly=readonly)
         except sqlite3.Error as exc:
             raise StorageError('统计缓存数据库无法打开') from exc
         try:
@@ -303,12 +304,15 @@ class SnapshotStore:
             rows = db.execute('SELECT coordinate,error FROM snapshots WHERE scope=? AND payload IS NOT NULL', (scope or '',)).fetchall()
         return [{'coordinate': json.loads(r['coordinate']), 'state': 'stale' if r['error'] else 'ready'} for r in rows]
 
-    def projection_entries(self, scope, *, keys=None):
+    def projection_entries(self, scope, *, keys=None, readonly=False):
         """仅供后台投影枚举当前范围，不在公开请求路径使用。"""
-        self.ensure()
+        if not readonly:
+            self.ensure()
         rows = []
         selected = None if keys is None else sorted(set(keys))
-        with self.connection() as db:
+        with self.connection(readonly=readonly) as db:
+            if readonly and db.execute('PRAGMA user_version').fetchone()[0] != SCHEMA:
+                raise StorageError('历史缓存数据库尚未初始化或版本不兼容')
             for start in ([0] if selected is None else range(0, len(selected), 400)):
                 batch = [] if selected is None else selected[start:start + 400]
                 clause = '' if selected is None else ' AND key IN (' + ','.join('?' for _ in batch) + ')'

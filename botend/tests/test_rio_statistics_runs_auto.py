@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import requests
 from django.test import SimpleTestCase
+from django.db import InterfaceError
 from django.utils import timezone
 
 from botend.services import rio_statistics as rio
@@ -42,6 +43,7 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
         rio._write(self.directory / 'catalog.json', self.meta)
         self.received = []
         self.mode = 'ready'
+        self.unavailable_regions = set()
         self.mutate = lambda data: None
         case = self
 
@@ -66,7 +68,8 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
                 else:
                     payload = case.source(q)
                     case.mutate(payload)
-                    status = 429 if case.mode == 'limited' else 200
+                    status = (429 if case.mode == 'limited'
+                              else 503 if q.get('region', 'world') in case.unavailable_regions else 200)
                     headers = {'Retry-After': '180'} if status == 429 else {}
                 raw = json.dumps(payload).encode()
                 self.send_response(status)
@@ -179,6 +182,38 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
         count = len(self.received)
         later = self.collect(force=True).run(modules=['runs'], regions=['cn'])
         self.assertEqual((later['state'], later['requests'], len(self.received)), ('backoff', 0, count))
+
+    def test_three_unavailable_run_ranges_do_not_stop_other_ranges(self):
+        self.unavailable_regions = {'cn', 'world', 'us'}
+        with patch('utils.log.logger.warning') as warning:
+            result = self.collect(max_requests=4).run(
+                modules=['runs'], regions=['cn', 'world', 'us', 'eu'], levels=['10-plus'])
+        self.assertEqual((result['state'], result['requests'], result['failed'], result['ready']),
+                         ('partial', 4, 3, 1))
+        self.assertFalse((self.directory / 'cooldown.json').exists())
+        messages = [call.args[0] % call.args[1:] for call in warning.call_args_list]
+        for region in ('cn', 'world', 'us', 'eu'):
+            c = rio.coordinate('runs', {'region': region}, meta=self.meta)
+            available = region not in self.unavailable_regions
+            self.assertEqual(read_view(c)['snapshot']['state'], 'ready' if available else 'pending')
+            if not available:
+                _, entry = rio.store().read(c)
+                self.assertTrue(entry['error'])
+                self.assertTrue(any(f'region={region} ' in message and 'http_status=503' in message
+                                    for message in messages))
+
+    def test_local_scope_or_display_failure_stops_further_source_requests(self):
+        for broken, error in (('guard_scope', InterfaceError('not logged')),
+                              ('publish_views', rio.StorageError('not logged'))):
+            with self.subTest(broken=broken):
+                self.received.clear()
+                collector = self.collect(force=False)
+                with patch.object(collector, broken, side_effect=error), patch.object(collector, 'metadata',
+                        side_effect=lambda: (setattr(collector, 'scope', self.scope) or self.meta)):
+                    result = collector.run(modules=['runs'], regions=['cn'])
+                self.assertEqual(result['requests'], 1)
+                self.assertEqual(len(self.received), 1)
+                self.assertGreater(result['remaining'], 0)
 
     def test_older_source_is_rejected_and_equal_ready_source_can_recover_failure(self):
         c = rio.coordinate('runs', {'region': 'cn'}, meta=self.meta)
