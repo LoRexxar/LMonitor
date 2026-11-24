@@ -85,12 +85,26 @@ def serialize_owned_item(row, class_name='', spec_name=''):
     }
 
 
-def list_owned_items(user, *, class_name='', spec_name='', slot=''):
-    rows = GearBuilderOwnedItem.objects.filter(user=user).select_related('variant__item')
+def load_owned_rows(user, *, slot='', require_variant=False):
+    rows = GearBuilderOwnedItem.objects.filter(user=user)
     if slot:
         slot = canonical_equipment_slot(slot)
         rows = rows.filter(slot_key__in=[slot, *[alias for alias, target in SLOT_ALIASES.items() if target == slot]])
-    rows = list(rows)
+    if require_variant:
+        rows = rows.filter(variant__isnull=False)
+    # Preserve the model's order without passing the large JSON fields through MySQL's filesort.
+    ids = list(rows.values_list('pk', flat=True))
+    unordered = rows.order_by().select_related('variant__item')
+    result = []
+    for offset in range(0, len(ids), 300):
+        batch = ids[offset:offset + 300]
+        found = unordered.in_bulk(batch)
+        result.extend(found[pk] for pk in batch if pk in found)
+    return result
+
+
+def list_owned_items(user, *, class_name='', spec_name='', slot=''):
+    rows = load_owned_rows(user, slot=slot)
     from botend.services.gear_builder import current_variants
     replacements = current_variants(row.variant for row in rows if row.variant)
     for row in rows:

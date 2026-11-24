@@ -1,7 +1,9 @@
 import json
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 
 from botend.models import GearBuilderOwnedItem, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder import EQUIPMENT_SLOTS
@@ -186,21 +188,45 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             data=json.dumps({'variant_id': self.support_variant.id, 'slot': 'finger1'}),
             content_type='application/json',
         )
-        response = self.client.post(
-            '/portal/api/gear-assistant/optimize/',
-            data=json.dumps({
-                'class_name': 'Warrior',
-                'spec_name': 'Fury',
-                'equipment': {},
-                'target': {'crit': 12, 'haste': 8, 'mastery': 14, 'versatility': 0},
-                'include_gems': True,
-                'include_enchants': True,
-                'flask': 'auto',
-                'use_ai': False,
-            }),
-            content_type='application/json',
+        external = GearBuilderOwnedItem.objects.create(
+            user=self.user, item_id=88888, slot_key='head', item_level=900,
+            fingerprint='a' * 64, snapshot_json={'name': '外部快照'},
         )
+        other = get_user_model().objects.create_user(username='other-inventory')
+        GearBuilderOwnedItem.objects.create(user=other, variant=self.hero, slot_key='head', fingerprint='a' * 64)
+        with CaptureQueriesContext(connection) as bootstrap_queries:
+            bootstrap = self.client.get('/portal/api/gear-assistant/bootstrap/')
+        self.assertEqual(bootstrap.status_code, 200)
+        inventory = bootstrap.json()['owned_items']
+        self.assertEqual([row['item_id'] for row in inventory],
+                         [self.support_variant.item.item_id, external.item_id, self.hero.item.item_id])
+        self.assertEqual((inventory[1]['name'], inventory[1]['external']), ('外部快照', True))
+
+        with CaptureQueriesContext(connection) as optimize_queries:
+            response = self.client.post(
+                '/portal/api/gear-assistant/optimize/',
+                data=json.dumps({
+                    'class_name': 'Warrior',
+                    'spec_name': 'Fury',
+                    'equipment': {},
+                    'target': {'crit': 12, 'haste': 8, 'mastery': 14, 'versatility': 0},
+                    'include_gems': True,
+                    'include_enchants': True,
+                    'flask': 'auto',
+                    'use_ai': False,
+                }),
+                content_type='application/json',
+            )
         self.assertEqual(response.status_code, 200, response.content)
+        for queries in (bootstrap_queries, optimize_queries):
+            # MySQL 1038 is reproduced on production; SQLite protects the offending query shape.
+            sorted_reads = [row['sql'].upper() for row in queries.captured_queries
+                            if row['sql'].upper().startswith('SELECT ')
+                            and 'GEAR_BUILDER_OWNED_ITEM' in row['sql'].upper() and 'ORDER BY' in row['sql'].upper()]
+            self.assertEqual(len(sorted_reads), 1)
+            projection = sorted_reads[0].split(' FROM ', 1)[0]
+            self.assertNotIn('SNAPSHOT_JSON', projection)
+            self.assertNotIn('JOIN ', sorted_reads[0])
         plans = {row['key']: row for row in response.json()['plans']}
         self.assertEqual(set(plans), {'prefer_owned', 'all', 'dungeon'})
         self.assertEqual(plans['prefer_owned']['name'], '优先备选装备')

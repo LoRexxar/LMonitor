@@ -9,7 +9,7 @@ from heapq import heappush, heapreplace
 from itertools import combinations, islice
 
 from botend.constants.wow import localize_gear_source
-from botend.models import GearBuilderOwnedItem, WowItemVariantSnapshot
+from botend.models import WowItemVariantSnapshot
 from botend.services.gear_builder import (
     ADDITIONAL_SOCKET_SLOTS,
     EQUIPMENT_SLOTS,
@@ -29,7 +29,7 @@ from botend.services.gear_builder import (
     spec_matches,
     stats_for_identity,
 )
-from botend.services.gear_builder_owned import list_owned_items
+from botend.services.gear_builder_owned import list_owned_items, load_owned_rows
 from botend.services.wow_item_display import _effect_text
 
 
@@ -217,8 +217,7 @@ def _current_pool(class_name, spec_name, *, allow_mythic_last_two=True):
 
 def _owned_pool(user, class_name, spec_name):
     result = defaultdict(list)
-    rows = GearBuilderOwnedItem.objects.filter(user=user, variant__isnull=False).select_related('variant__item')
-    rows = list(rows)
+    rows = load_owned_rows(user, require_variant=True)
     from botend.services.gear_builder import current_variants
     replacements = current_variants(row.variant for row in rows)
     for row in rows:
