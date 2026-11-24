@@ -737,9 +737,12 @@ class Collector:
                                c['module'], c['season'], c['region'], c.get('level', '-'), type(exc).__name__, status)
                 transient = (isinstance(exc, (requests.ConnectionError, requests.Timeout, ValueError))
                              or (isinstance(exc, requests.HTTPError) and response is not None and response.status_code >= 500))
-                # An unavailable completion range must not starve other modules.
+                # 503 and unavailable completion ranges affect only this snapshot.
                 # 429 still trips the transport's global cooldown immediately.
-                consecutive_errors = consecutive_errors + 1 if transient and c['module'] != 'runs' else 0
+                if transient and status != 503 and c['module'] != 'runs':
+                    consecutive_errors += 1
+                else:
+                    consecutive_errors = 0
                 if consecutive_errors >= 3:
                     self.stopped = True
                     with _lock(root() / 'publish.lock'):
