@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from django.test import TestCase
 
@@ -68,7 +69,7 @@ class GearAssistantExactTwoTests(GearAssistantDataMixin, TestCase):
         self.client.force_login(self.user)
         for invalid in (['raid', 'mythic_plus'], 'both', '', None, True, {}):
             response = self.client.post('/portal/api/gear-assistant/optimize/', data=json.dumps({
-                'target': self.target, 'source_preference': invalid,
+                'request_id': str(uuid4()), 'target': self.target, 'source_preference': invalid,
             }), content_type='application/json')
             self.assertEqual(response.status_code, 400, response.content)
             self.assertIn('来源偏好', response.json()['error'])

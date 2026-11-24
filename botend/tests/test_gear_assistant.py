@@ -1,16 +1,30 @@
 import json
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
-from botend.models import GearBuilderOwnedItem, WowItemSnapshot, WowItemVariantSnapshot
+from botend.models import GearAssistantJob, GearBuilderOwnedItem, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder import EQUIPMENT_SLOTS
+from botend.services.gear_assistant_jobs import run_job
 from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
 class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
+    def submit_and_run(self, payload):
+        request_id = uuid4()
+        response = self.client.post('/portal/api/gear-assistant/optimize/',
+                                    {**payload, 'request_id': str(request_id)}, content_type='application/json')
+        self.assertEqual(response.status_code, 202, response.content)
+        self.assertEqual(response.json()['job']['state'], 'queued')
+        self.assertNotIn('result', response.json()['job'])
+        self.assertTrue(run_job(GearAssistantJob.objects.get(request_id=request_id).pk))
+        reply = self.client.get(response['Location'])
+        self.assertEqual(reply.status_code, 200)
+        return reply.json()['job']
+
     def setUp(self):
         super().setUp()
         self.user = get_user_model().objects.create_user(username='gear-helper', password='test-password')
@@ -203,21 +217,17 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual((inventory[1]['name'], inventory[1]['external']), ('外部快照', True))
 
         with CaptureQueriesContext(connection) as optimize_queries:
-            response = self.client.post(
-                '/portal/api/gear-assistant/optimize/',
-                data=json.dumps({
-                    'class_name': 'Warrior',
-                    'spec_name': 'Fury',
-                    'equipment': {},
-                    'target': {'crit': 12, 'haste': 8, 'mastery': 14, 'versatility': 0},
-                    'include_gems': True,
-                    'include_enchants': True,
-                    'flask': 'auto',
-                    'use_ai': False,
-                }),
-                content_type='application/json',
-            )
-        self.assertEqual(response.status_code, 200, response.content)
+            job = self.submit_and_run({
+                'class_name': 'Warrior',
+                'spec_name': 'Fury',
+                'equipment': {},
+                'target': {'crit': 12, 'haste': 8, 'mastery': 14, 'versatility': 0},
+                'include_gems': True,
+                'include_enchants': True,
+                'flask': 'auto',
+                'use_ai': False,
+            })
+        self.assertEqual(job['state'], 'done', job)
         for queries in (bootstrap_queries, optimize_queries):
             # MySQL 1038 is reproduced on production; SQLite protects the offending query shape.
             sorted_reads = [row['sql'].upper() for row in queries.captured_queries
@@ -227,11 +237,11 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             projection = sorted_reads[0].split(' FROM ', 1)[0]
             self.assertNotIn('SNAPSHOT_JSON', projection)
             self.assertNotIn('JOIN ', sorted_reads[0])
-        plans = {row['key']: row for row in response.json()['plans']}
+        plans = {row['key']: row for row in job['result']['plans']}
         self.assertEqual(set(plans), {'prefer_owned', 'all', 'dungeon'})
         self.assertEqual(plans['prefer_owned']['name'], '优先备选装备')
-        self.assertIn('优先备选装备', response.json()['explanation'])
-        self.assertNotIn('已有', response.json()['explanation'])
+        self.assertIn('优先备选装备', job['result']['explanation'])
+        self.assertNotIn('已有', job['result']['explanation'])
         self.assertEqual(plans['prefer_owned']['equipment']['head']['variant']['id'], self.hero.id)
         self.assertEqual(plans['prefer_owned']['owned_count'], 2)
         missing_ring_slots = [
@@ -251,22 +261,18 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
 
     def test_fixed_slot_is_preserved_and_not_reported_missing(self):
         self.client.force_login(self.user)
-        response = self.client.post(
-            '/portal/api/gear-assistant/optimize/',
-            data=json.dumps({
-                'class_name': 'Warrior', 'spec_name': 'Fury',
-                'equipment': {'head': {
-                    'variant': {'id': self.hero.id}, 'selectedStats': [],
-                    'gems': [{'variant': {'id': self.gem.id}}],
-                    'enchant': {'variant': {'id': self.enchant.id}},
-                }},
-                'target': {'crit': 20, 'haste': 15, 'mastery': 20, 'versatility': 5},
-                'include_gems': False, 'include_enchants': False, 'flask': 'none', 'use_ai': False,
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        for plan in response.json()['plans']:
+        job = self.submit_and_run({
+            'class_name': 'Warrior', 'spec_name': 'Fury',
+            'equipment': {'head': {
+                'variant': {'id': self.hero.id}, 'selectedStats': [],
+                'gems': [{'variant': {'id': self.gem.id}}],
+                'enchant': {'variant': {'id': self.enchant.id}},
+            }},
+            'target': {'crit': 20, 'haste': 15, 'mastery': 20, 'versatility': 5},
+            'include_gems': False, 'include_enchants': False, 'flask': 'none', 'use_ai': False,
+        })
+        self.assertEqual(job['state'], 'done', job)
+        for plan in job['result']['plans']:
             self.assertEqual(plan['equipment']['head']['variant']['id'], self.hero.id)
             self.assertEqual(plan['equipment']['head']['gems'][0]['variant']['id'], self.gem.id)
             self.assertEqual(plan['equipment']['head']['enchant']['variant']['id'], self.enchant.id)
@@ -296,22 +302,18 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             source_json=[{'type': 'mythic_plus'}],
         )
         self.client.force_login(self.user)
-        response = self.client.post(
-            '/portal/api/gear-assistant/optimize/',
-            data=json.dumps({
-                'class_name': 'DeathKnight', 'spec_name': 'Frost',
-                'equipment': {
-                    'main_hand': {'variant': {'id': main_variant.id}},
-                    'off_hand': {'variant': {'id': offhand_variant.id}},
-                },
-                'target': {'crit': 20}, 'flask': 'none', 'use_ai': False,
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertFalse(response.json()['success'])
-        self.assertIn('锁定的主手', response.json()['error'])
-        self.assertIn('未生成不完整方案', response.json()['error'])
+        job = self.submit_and_run({
+            'class_name': 'DeathKnight', 'spec_name': 'Frost',
+            'equipment': {
+                'main_hand': {'variant': {'id': main_variant.id}},
+                'off_hand': {'variant': {'id': offhand_variant.id}},
+            },
+            'target': {'crit': 20}, 'flask': 'none', 'use_ai': False,
+        })
+        self.assertEqual(job['state'], 'failed', job)
+        self.assertNotIn('result', job)
+        self.assertIn('锁定的主手', job['error'])
+        self.assertIn('未生成不完整方案', job['error'])
 
     def test_unlocked_gems_and_enchants_can_be_replaced(self):
         crit_gem_item = WowItemSnapshot.objects.create(
@@ -333,24 +335,20 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             metadata={'simc_name': 'haste_test_enchant_3'},
         )
         self.client.force_login(self.user)
-        response = self.client.post(
-            '/portal/api/gear-assistant/optimize/',
-            data=json.dumps({
-                'class_name': 'Warrior', 'spec_name': 'Fury',
-                'equipment': {'head': {
-                    'variant': {'id': self.hero.id},
-                    'gems': [{'variant': {'id': self.gem.id}}],
-                    'enchant': {'variant': {'id': self.enchant.id}},
-                }},
-                'target': {'crit': 35, 'haste': 30, 'mastery': 11.2, 'versatility': 0},
-                'include_gems': True, 'lock_gems': False,
-                'include_enchants': True, 'lock_enchants': False,
-                'flask': 'none', 'use_ai': False,
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        entry = response.json()['plans'][0]['equipment']['head']
+        job = self.submit_and_run({
+            'class_name': 'Warrior', 'spec_name': 'Fury',
+            'equipment': {'head': {
+                'variant': {'id': self.hero.id},
+                'gems': [{'variant': {'id': self.gem.id}}],
+                'enchant': {'variant': {'id': self.enchant.id}},
+            }},
+            'target': {'crit': 35, 'haste': 30, 'mastery': 11.2, 'versatility': 0},
+            'include_gems': True, 'lock_gems': False,
+            'include_enchants': True, 'lock_enchants': False,
+            'flask': 'none', 'use_ai': False,
+        })
+        self.assertEqual(job['state'], 'done', job)
+        entry = job['result']['plans'][0]['equipment']['head']
         self.assertEqual(entry['gems'][0]['variant']['id'], crit_gem.id)
         self.assertEqual(entry['enchant']['variant']['id'], haste_enchant.id)
 
@@ -368,6 +366,6 @@ class GearAssistantFrontendContractTests(TestCase):
             self.assertIn(value, script)
         self.assertIn('lock_gems', script)
         self.assertIn('lock_enchants', script)
-        self.assertIn('els.explanation.textContent = `未生成方案：${error.message}`;', script)
+        self.assertIn('els.explanation.textContent = description;', script)
         self.assertIn('owned_equipment', builder)
         self.assertIn('wowdaily:gear-assistant:draft:v1', builder)

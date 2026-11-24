@@ -30,6 +30,8 @@
   };
   const STAT_LABELS = {crit: "暴击", haste: "急速", mastery: "精通", versatility: "全能"};
   const DRAFT_KEY = "wowdaily:gear-assistant:draft:v1";
+  const JOB_KEY = `wowdaily:gear-assistant:job:v2:${page.dataset.jobOwner}`;
+  const JOB_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
   let builderBootstrap = null;
   let assistantData = null;
   let currentState = null;
@@ -37,8 +39,14 @@
   let lockedSlots = new Set();
   let workbenchMode = "config";
   let lastPlans = [];
+  let resultContext = null;
   let ownedClearing = false;
   let ownedRevision = 0;
+  let pendingJob = null;
+  let polling = false;
+  let initialized = false;
+  let assistantGeneration = 0;
+  let assistantReady = false;
   let hideResultTooltip = () => {};
 
   function escapeHtml(value) {
@@ -49,10 +57,12 @@
     return token ? {"X-CSRFToken": token} : {};
   }
   async function requestJson(url, options = {}) {
-    const response = await fetch(url, {headers: {Accept: "application/json", ...(options.headers || {})}, ...options});
+    const response = await fetch(url, {...options, headers: {Accept: "application/json", ...(options.headers || {})}});
     let payload = {};
     try { payload = await response.json(); } catch (_error) { /* 统一错误 */ }
-    if (!response.ok || payload.success === false) throw new Error(payload.error || `请求失败（${response.status}）`);
+    if (!response.ok || payload.success === false) {
+      throw Object.assign(new Error(payload.error || `请求失败（${response.status}）`), {status: response.status});
+    }
     return payload;
   }
   function toast(message, isError = false) {
@@ -99,7 +109,12 @@
     lockedSlots = new Set(currentEquipmentEntries().map(([slot]) => slot));
   }
   function lockedEquipmentPayload() {
-    return Object.fromEntries(currentEquipmentEntries().filter(([slot]) => lockedSlots.has(slot)));
+    const ref = entry => entry ? {variant: {id: entry.variant?.id}} : undefined;
+    return Object.fromEntries(currentEquipmentEntries().filter(([slot]) => lockedSlots.has(slot)).map(([slot, entry]) => [slot, {
+      ...ref(entry), variant_id: entry.variant_id, selectedStats: entry.selectedStats || entry.selected_stats,
+      gems: (entry.gems || []).map(ref).filter(Boolean), enchant: ref(entry.enchant),
+      embellishment: ref(entry.embellishment), addedSocket: entry.addedSocket || entry.added_socket,
+    }]));
   }
   function renderLibraryTabs() {
     document.querySelectorAll("[data-library-tab]").forEach((button) => {
@@ -199,15 +214,32 @@
     els.flask.value = "auto";
   }
   async function loadAssistantData() {
+    const generation = ++assistantGeneration;
+    const origin = currentState;
     const revision = ownedRevision;
-    currentState = await WowGearState.refresh(currentState, requestJson);
-    renderEquipment();
-    const payload = await requestJson(`${endpoints.bootstrap}?class=${encodeURIComponent(currentState.className)}&spec=${encodeURIComponent(currentState.specName)}`);
-    if (ownedClearing || revision !== ownedRevision) payload.owned_items = assistantData?.owned_items || [];
-    assistantData = payload;
-    renderOwned();
-    renderFlasks();
-    els.catalogStatus.textContent = assistantData.catalog?.available ? `${assistantData.catalog.season_name || "当前赛季"} · 装备目录已就绪` : "装备目录尚未同步";
+    const isCurrent = () => generation === assistantGeneration && currentState === origin && !polling;
+    assistantReady = false;
+    els.generate.disabled = els.rerun.disabled = true;
+    try {
+      const refreshed = await WowGearState.refresh(origin, requestJson);
+      if (!isCurrent()) return;
+      const payload = await requestJson(`${endpoints.bootstrap}?class=${encodeURIComponent(origin.className)}&spec=${encodeURIComponent(origin.specName)}`);
+      if (!isCurrent()) return;
+      currentState = refreshed;
+      renderEquipment();
+      if (ownedClearing || revision !== ownedRevision) payload.owned_items = assistantData?.owned_items || [];
+      assistantData = payload;
+      renderOwned();
+      renderFlasks();
+      els.catalogStatus.textContent = assistantData.catalog?.available ? `${assistantData.catalog.season_name || "当前赛季"} · 装备目录已就绪` : "装备目录尚未同步";
+      assistantReady = true;
+      if (initialized) els.generate.disabled = els.rerun.disabled = false;
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (!initialized) throw error;
+      els.catalogStatus.textContent = "装备资料加载失败，请重新选择职业或专精。";
+      toast(error.message, true);
+    }
   }
   function targetPayload() {
     return Object.fromEntries(Object.keys(STAT_LABELS).map((key) => [key, Number(byId(`target-${key}`).value || 0)]));
@@ -217,47 +249,150 @@
     hideResultTooltip();
     els.results.innerHTML = WowGearAssistantResults.render(plans, builderBootstrap?.slots || [], builderBootstrap || {});
   }
-  async function generate() {
+  function rememberJob(job) {
+    pendingJob = job;
+    try {
+      if (job) sessionStorage.setItem(JOB_KEY, JSON.stringify(job));
+      else sessionStorage.removeItem(JOB_KEY);
+    } catch (_error) { /* The current page can still poll. */ }
+  }
+  function restoreJob() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(JOB_KEY));
+      if (JOB_ID.test(saved?.id || "") && Number.isFinite(saved.createdAt)) pendingJob = saved;
+    } catch (_error) { /* No recoverable job. */ }
+  }
+  function acknowledgeJob(id) {
+    if (pendingJob?.id === id && pendingJob.body) rememberJob({id, createdAt: pendingJob.createdAt});
+  }
+  async function submitJob(job) {
+    const receipt = await requestJson(endpoints.optimize, {
+      method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
+      body: job.body, signal: AbortSignal.timeout(10000),
+    });
+    if (receipt.job?.id !== job.id) throw new Error("任务回执不匹配");
+    acknowledgeJob(job.id);
+  }
+  function jobStatus(message, description) {
+    els.results.innerHTML = `<div class="assistant-empty-state" role="status"><strong>${escapeHtml(message)}</strong><span>${escapeHtml(description)}</span></div>`;
+    els.explanation.textContent = description;
+  }
+  async function pollJob(id) {
+    let errors = 0;
+    let missing = 0;
+    const deadline = Date.now() + 12 * 60_000;
+    while (Date.now() < deadline) {
+      try {
+        const {job} = await requestJson(`${endpoints.optimize}${encodeURIComponent(id)}/`, {
+          cache: "no-store", signal: AbortSignal.timeout(10000),
+        });
+        if (job?.id !== id) throw new Error("任务回执不匹配");
+        acknowledgeJob(id);
+        if (["done", "failed"].includes(job.state)) return job;
+        if (!["queued", "running"].includes(job.state)) throw new Error("无法识别任务状态");
+        errors = 0;
+        missing = 0;
+        jobStatus(job.state === "queued" ? "排队中" : "正在搜索组合", "后台正在处理，刷新页面后可以继续查看进度。");
+      } catch (error) {
+        if ([401, 403].includes(error.status) || (error.status === 404 && ++missing >= 3)) throw error;
+        if (++errors >= 4) throw new Error("暂时无法查询任务，请点击继续查看。不会重复提交。");
+      }
+      await new Promise(resolve => window.setTimeout(resolve, errors ? Math.min(8000, 2000 * errors) : 2000));
+    }
+    throw new Error("已暂停轮询，点击继续查看可查询同一任务。");
+  }
+  async function generate({lookupOnly = false} = {}) {
+    if (!initialized || !assistantReady || polling || ownedClearing || els.simcSubmit.disabled) return;
+    polling = true;
     hideResultTooltip();
+    lastPlans = [];
+    resultContext = null;
     els.generate.disabled = true;
     els.rerun.disabled = true;
+    const controls = [els.classSelect, els.specSelect, els.importSimc, els.simcSubmit, els.editConfig,
+      els.flask, els.gems, els.lockGems, els.enchants, els.lockEnchants, els.ai, els.allowMythicLastTwo,
+      els.sourcePreference, ...Object.keys(STAT_LABELS).map(key => byId(`target-${key}`))];
+    const disabled = controls.map(control => control.disabled);
+    controls.forEach(control => { control.disabled = true; });
     els.generate.textContent = "正在模拟…";
     els.rerun.textContent = "正在模拟…";
     els.resultLockSummary.classList.remove("is-stale");
     setWorkbench("results", {focus: true});
-    els.results.innerHTML = '<div class="assistant-empty-state"><strong>正在搜索组合</strong><span>会依次计算备选优先、全装备池和不含团本装备方案。</span></div>';
+    jobStatus(pendingJob ? "正在查询任务" : "正在提交任务", "辅助配装在后台执行，不需要保持同一个网络请求。");
     try {
-      const payload = await requestJson(endpoints.optimize, {
-        method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
-        body: JSON.stringify({
-          class_name: currentState.className, spec_name: currentState.specName, equipment: lockedEquipmentPayload(),
-          target: targetPayload(), flask: els.flask.value, include_gems: els.gems.checked,
-          lock_gems: els.lockGems.checked, include_enchants: els.enchants.checked,
-          lock_enchants: els.lockEnchants.checked, use_ai: els.ai.checked,
-          allow_mythic_last_two: els.allowMythicLastTwo.checked,
+      const isNew = !pendingJob;
+      if (isNew) {
+        const requestId = crypto.randomUUID();
+        const body = JSON.stringify({
+          request_id: requestId, class_name: currentState.className, spec_name: currentState.specName,
+          equipment: lockedEquipmentPayload(), target: targetPayload(), flask: els.flask.value,
+          include_gems: els.gems.checked, lock_gems: els.lockGems.checked, include_enchants: els.enchants.checked,
+          lock_enchants: els.lockEnchants.checked, use_ai: els.ai.checked, allow_mythic_last_two: els.allowMythicLastTwo.checked,
           source_preference: els.sourcePreference.value,
-        }),
-      });
+        });
+        rememberJob({id: requestId, body, createdAt: Date.now()});
+        try {
+          await submitJob(pendingJob);
+        } catch (error) {
+          if ([400, 401, 403, 409, 413].includes(error.status)) {
+            rememberJob(null);
+            throw error;
+          }
+          // If the POST committed but the connection was lost, this ID still resolves.
+        }
+      }
+      let job;
+      try {
+        job = await pollJob(pendingJob.id);
+      } catch (error) {
+        // A late commit can follow a 404. Never create a replacement UUID.
+        if (lookupOnly || isNew || error.status !== 404 || !pendingJob.body || Date.now() - pendingJob.createdAt >= 12 * 3600_000) throw error;
+        try {
+          await submitJob(pendingJob);
+        } catch (submitError) {
+          // A definitive payload rejection permits editing and a new submission.
+          if ([400, 413].includes(submitError.status)) rememberJob(null);
+          throw submitError;
+        }
+        job = await pollJob(pendingJob.id);
+      }
+      rememberJob(null);
+      if (job.state === "failed") throw new Error(job.error || "无法生成辅助配装方案。");
+      const payload = job.result;
+      if (!Array.isArray(payload?.plans) || !payload.plans.length) throw new Error("任务没有返回配装方案。");
+      if (currentState.className !== job.class_name || currentState.specName !== job.spec_name) {
+        currentState = loadState(job.class_name, job.spec_name);
+        resetLockedSlots();
+        syncSelectors();
+        renderEquipment();
+      }
+      els.resultLockSummary.textContent = `本次任务锁定 ${payload.fixed_slots?.length || 0} 件`;
       lastPlans = payload.plans || [];
+      resultContext = {className: job.class_name, specName: job.spec_name, batchKey: payload.catalog?.batch_key};
       renderPlans(lastPlans);
       els.explanation.textContent = payload.explanation || "方案计算完成。";
       toast(`已生成 ${lastPlans.length} 套方案。`);
     } catch (error) {
-      lastPlans = [];
-      els.results.innerHTML = `<div class="assistant-empty-state"><strong>组合失败</strong><span>${escapeHtml(error.message)}</span></div>`;
-      els.explanation.textContent = `未生成方案：${error.message}`;
-      toast(error.message, true);
+      if (error.status === 404 && pendingJob && (!pendingJob.body || Date.now() - pendingJob.createdAt >= 12 * 3600_000)) rememberJob(null);
+      const message = error.status === 404 && pendingJob ? "尚未确认后台已收到任务。点击继续查看会沿用原任务编号。" : error.message;
+      jobStatus(pendingJob ? "暂时无法查询任务" : "未生成方案", message);
+      toast(message, true);
     } finally {
+      polling = false;
+      controls.forEach((control, index) => { control.disabled = disabled[index]; });
+      els.editConfig.disabled = Boolean(pendingJob);
       els.generate.disabled = false;
       els.rerun.disabled = false;
-      els.generate.textContent = "开始模拟";
-      els.rerun.textContent = "再次模拟";
+      els.generate.textContent = pendingJob ? "继续查看" : "开始模拟";
+      els.rerun.textContent = pendingJob ? "继续查看" : "再次模拟";
     }
   }
   function applyPlan(key) {
     const plan = lastPlans.find((row) => row.key === key);
-    if (!plan) return;
-    const next = {...currentState, equipment: plan.equipment || {}, batchKey: assistantData?.catalog?.batch_key || currentState.batchKey, mode: "equipment", viewMode: "editor"};
+    if (!plan || !resultContext) return;
+    const {className, specName, batchKey} = resultContext;
+    const draft = loadState(className, specName);
+    const next = {...draft, className, specName, equipment: plan.equipment || {}, batchKey: batchKey || draft.batchKey, mode: "equipment", viewMode: "editor"};
     localStorage.setItem(stateKey(next.className, next.specName), JSON.stringify(next));
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
     window.location.href = endpoints.builder;
@@ -291,6 +426,7 @@
   function bindEvents() {
     hideResultTooltip = WowGearAssistantResults.bindTooltips(els.results);
     els.classSelect.addEventListener("change", async () => {
+      if (pendingJob) { syncSelectors(); return; }
       const classRow = (builderBootstrap.classes || []).find((row) => row.key === els.classSelect.value);
       currentState = loadState(classRow.key, classRow.specs?.[0]?.key || "");
       lastPlans = [];
@@ -298,6 +434,7 @@
       syncSelectors(); renderEquipment(); setWorkbench("config"); await loadAssistantData();
     });
     els.specSelect.addEventListener("change", async () => {
+      if (pendingJob) { syncSelectors(); return; }
       currentState = loadState(els.classSelect.value, els.specSelect.value);
       lastPlans = [];
       resetLockedSlots();
@@ -308,6 +445,7 @@
       renderLibraryTabs();
     }));
     els.equipmentList.addEventListener("click", (event) => {
+      if (pendingJob) return;
       const button = event.target.closest("[data-toggle-slot-lock]");
       if (!button) return;
       const slot = button.dataset.toggleSlotLock;
@@ -317,6 +455,7 @@
       markResultsStale();
     });
     document.querySelectorAll("[data-lock-action]").forEach((button) => button.addEventListener("click", () => {
+      if (pendingJob) return;
       lockedSlots = button.dataset.lockAction === "all"
         ? new Set(currentEquipmentEntries().map(([slot]) => slot))
         : new Set();
@@ -325,7 +464,7 @@
     }));
     els.ownedClear.addEventListener("click", clearOwnedItems);
     els.ownedList.addEventListener("click", async (event) => {
-      if (ownedClearing) return;
+      if (ownedClearing || polling) return;
       const button = event.target.closest("[data-delete-owned]");
       if (!button) return;
       try {
@@ -338,23 +477,37 @@
     els.sourcePreference.addEventListener("change", markResultsStale);
     els.generate.addEventListener("click", generate);
     els.rerun.addEventListener("click", generate);
-    els.editConfig.addEventListener("click", () => setWorkbench("config", {focus: true}));
+    els.editConfig.addEventListener("click", () => { if (!polling && !pendingJob) setWorkbench("config", {focus: true}); });
     els.results.addEventListener("click", (event) => { const button = event.target.closest("[data-apply-plan]"); if (button) applyPlan(button.dataset.applyPlan); });
-    els.importSimc.addEventListener("click", () => els.simcDialog.showModal());
+    els.importSimc.addEventListener("click", () => { if (!pendingJob) els.simcDialog.showModal(); });
     els.simcSubmit.addEventListener("click", importSimc);
   }
   async function initialize() {
+    restoreJob();
     try {
       builderBootstrap = await requestJson(endpoints.builderBootstrap);
       currentState = readDraft();
       document.addEventListener("visibilitychange", async () => {
-        if (document.hidden) return;
-        try { currentState = await WowGearState.refresh(currentState, requestJson); renderEquipment(); }
+        if (document.hidden || polling || !assistantReady) return;
+        const origin = currentState;
+        const generation = assistantGeneration;
+        try {
+          const updated = await WowGearState.refresh(origin, requestJson);
+          if (currentState === origin && generation === assistantGeneration && !polling && assistantReady) {
+            currentState = updated;
+            renderEquipment();
+          }
+        }
         catch (error) { toast(`装备资料刷新失败，已保留当前配装：${error.message}`); }
       });
       resetLockedSlots();
-      syncSelectors(); renderEquipment(); renderLibraryTabs(); setWorkbench("config"); bindEvents();
+      syncSelectors(); renderEquipment(); renderLibraryTabs(); setWorkbench("config");
       await loadAssistantData();
+      bindEvents();
+      initialized = true;
+      els.classSelect.disabled = els.specSelect.disabled = false;
+      if (pendingJob) void generate({lookupOnly: true});
+      else { els.generate.disabled = false; els.rerun.disabled = false; }
     } catch (error) {
       els.catalogStatus.textContent = "初始化失败";
       els.resultLockSummary.textContent = "初始化失败";

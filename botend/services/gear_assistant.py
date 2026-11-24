@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from math import isfinite
 
 from collections import defaultdict
 from heapq import heappush, heapreplace
@@ -835,10 +836,16 @@ def assistant_bootstrap(user, class_name='Warrior', spec_name='Fury'):
     }
 
 
-def optimize_loadouts(user, payload):
+def optimization_inputs(payload):
     class_name, spec_name = canonical_spec(payload.get('class_name') or 'Warrior', payload.get('spec_name') or 'Fury')
     raw_target = payload.get('target') if isinstance(payload.get('target'), dict) else {}
-    target = {key: max(0, min(200, float(raw_target.get(key) or 0))) for key in SECONDARY}
+    try:
+        target = {key: float(raw_target.get(key) or 0) for key in SECONDARY}
+    except (ValueError, TypeError, OverflowError):
+        raise GearBuilderError('目标属性百分比必须为有效数字') from None
+    if not all(isfinite(value) for value in target.values()):
+        raise GearBuilderError('目标属性百分比必须为有效数字')
+    target = {key: max(0, min(200, value)) for key, value in target.items()}
     if not any(target.values()):
         raise GearBuilderError('请至少填写一个目标属性百分比')
     allow_mythic_last_two = payload.get('allow_mythic_last_two', True)
@@ -847,6 +854,11 @@ def optimize_loadouts(user, payload):
     source_preference = payload.get('source_preference', 'none')
     if not isinstance(source_preference, str) or source_preference not in SOURCE_PREFERENCE_LABELS:
         raise GearBuilderError('来源偏好必须是 none、raid 或 mythic_plus 中的一个，不能同时选择')
+    return class_name, spec_name, target, allow_mythic_last_two, source_preference
+
+
+def optimize_loadouts(user, payload):
+    class_name, spec_name, target, allow_mythic_last_two, source_preference = optimization_inputs(payload)
     current, season = _current_pool(class_name, spec_name, allow_mythic_last_two=allow_mythic_last_two)
     conversion = _conversion(class_name, spec_name)
     fixed = _fixed_entries(payload.get('equipment'), class_name, spec_name)

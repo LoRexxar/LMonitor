@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -92,7 +93,7 @@ class GearAssistantSourcesTests(GearBuilderTestDataMixin, TestCase):
         user = get_user_model().objects.create_user(username='source-option')
         self.client.force_login(user)
         response = self.client.post('/portal/api/gear-assistant/optimize/', data=json.dumps({
-            'target': {'crit': 25}, 'allow_mythic_last_two': 'false', 'use_ai': False,
+            'request_id': str(uuid4()), 'target': {'crit': 25}, 'allow_mythic_last_two': 'false', 'use_ai': False,
         }), content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertIn('布尔', response.json()['error'])
