@@ -8,7 +8,9 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import Client, SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from botend.models import GearAssistantJob
@@ -91,3 +93,41 @@ class GearAssistantJobTests(TestCase):
             work_once()
             self.assertEqual(spawn.call_args.args[0][-2:], ['run_gear_assistant_job', str(second.pk)])
             self.assertLess(spawn.call_args.kwargs['timeout'], 300)
+
+    def test_latest_result_is_account_scoped_and_replaced_on_acceptance(self):
+        first = self.submit()
+        self.assertEqual(first.status_code, 202)
+        first_id = first.json()['job']['id']
+        with patch('botend.services.gear_assistant_jobs.optimize_loadouts', return_value={'plans': ['original']}):
+            self.assertTrue(run_job(GearAssistantJob.objects.get(request_id=first_id).pk))
+
+        reopened = Client()
+        reopened.force_login(self.owner)
+        with CaptureQueriesContext(connection) as queries:
+            latest = reopened.get(self.url)
+        self.assertEqual(latest.status_code, 200)
+        self.assertIn('no-store', latest['Cache-Control'])
+        self.assertEqual(latest.json()['job'], {'id': first_id, 'state': 'done'})
+        self.assertFalse(any('"result"' in entry['sql'] or '"payload"' in entry['sql'] for entry in queries))
+        self.assertEqual(reopened.get(first['Location']).json()['job']['result']['plans'], ['original'])
+        self.assertIsNone(self.other.get(self.url).json()['job'])
+        self.assertEqual(Client().get(self.url).status_code, 401)
+
+        invalid = self.client.post(self.url, {'request_id': str(uuid4())}, content_type='application/json')
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(reopened.get(self.url).json()['job']['id'], first_id)
+
+        second = self.submit()
+        self.assertEqual(second.status_code, 202)
+        second_id = second.json()['job']['id']
+        self.assertNotEqual(second_id, first_id)
+        self.assertEqual(reopened.get(self.url).json()['job'], {'id': second_id, 'state': 'queued'})
+        self.assertEqual(reopened.get(first['Location']).status_code, 404)
+        self.assertEqual(self.submit(first_id).status_code, 202)  # Old retries remain idempotent.
+        self.assertEqual(reopened.get(self.url).json()['job']['id'], second_id)
+
+        GearAssistantJob.objects.filter(owner=self.owner, request_id=second_id).update(
+            state='done', active_slot=None, updated_at=timezone.now() - timedelta(days=2),
+        )
+        self.assertIsNone(reopened.get(self.url).json()['job'])
+        self.assertEqual(reopened.get(second['Location']).status_code, 404)

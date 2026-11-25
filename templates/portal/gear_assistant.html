@@ -35,6 +35,10 @@
                 <a class="assistant-btn" href="{% url 'portal_gear_builder' %}">返回职业配装器</a>
             </div>
         </header>
+        <p id="assistant-latest-job" hidden>
+            最近任务：<button type="button" id="assistant-view-job" class="assistant-link-btn" disabled></button>
+            <small>结果保留 24 小时；新任务提交成功后，旧结果不再可查。</small>
+        </p>
 
         <section class="gear-assistant-grid">
             <aside class="assistant-panel assistant-equipment-panel">
@@ -155,6 +159,6 @@
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
     <script src="{% static 'shared/js/wow-gear-sources.js' %}?v=20261010_sources"></script>
     <script src="{% static 'portal/js/gear_assistant_results.js' %}?v=20261010_skip_empty_enhancements"></script>
-    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261124_async_jobs"></script>
+    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261125_latest_job"></script>
 </body>
 </html>

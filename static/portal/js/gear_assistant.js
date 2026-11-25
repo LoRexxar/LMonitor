@@ -18,6 +18,7 @@
     flask: byId("assistant-flask"), gems: byId("assistant-gems"), lockGems: byId("assistant-lock-gems"),
     enchants: byId("assistant-enchants"), lockEnchants: byId("assistant-lock-enchants"), ai: byId("assistant-ai"),
     generate: byId("assistant-generate"), rerun: byId("assistant-rerun"), editConfig: byId("assistant-edit-config"),
+    latestJob: byId("assistant-latest-job"), viewJob: byId("assistant-view-job"),
     fixedCount: byId("assistant-fixed-count"), fixedSummary: byId("assistant-fixed-summary"), resultLockSummary: byId("assistant-result-lock-summary"),
     equipmentList: byId("assistant-equipment-list"), currentPane: byId("assistant-current-pane"), ownedPane: byId("assistant-owned-pane"),
     currentTabCount: byId("assistant-current-tab-count"), ownedTabCount: byId("assistant-owned-tab-count"),
@@ -43,6 +44,7 @@
   let ownedClearing = false;
   let ownedRevision = 0;
   let pendingJob = null;
+  let latestJob = null;
   let polling = false;
   let initialized = false;
   let assistantGeneration = 0;
@@ -220,6 +222,7 @@
     const isCurrent = () => generation === assistantGeneration && currentState === origin && !polling;
     assistantReady = false;
     els.generate.disabled = els.rerun.disabled = true;
+    renderLatestJob();
     try {
       const refreshed = await WowGearState.refresh(origin, requestJson);
       if (!isCurrent()) return;
@@ -234,6 +237,7 @@
       els.catalogStatus.textContent = assistantData.catalog?.available ? `${assistantData.catalog.season_name || "当前赛季"} · 装备目录已就绪` : "装备目录尚未同步";
       assistantReady = true;
       if (initialized) els.generate.disabled = els.rerun.disabled = false;
+      renderLatestJob();
     } catch (error) {
       if (!isCurrent()) return;
       if (!initialized) throw error;
@@ -249,12 +253,37 @@
     hideResultTooltip();
     els.results.innerHTML = WowGearAssistantResults.render(plans, builderBootstrap?.slots || [], builderBootstrap || {});
   }
+  function activeLatestJob() {
+    return ["queued", "running"].includes(latestJob?.state);
+  }
+  function renderLatestJob() {
+    const id = latestJob?.id;
+    els.latestJob.hidden = !id;
+    els.viewJob.textContent = id || "";
+    els.viewJob.disabled = !id || !initialized || !assistantReady || polling;
+  }
+  function syncJobButtons() {
+    const follow = Boolean(pendingJob) || activeLatestJob();
+    const followLabel = pendingJob?.body ? "确认上次提交" : "继续查看";
+    els.generate.textContent = follow ? followLabel : "开始模拟";
+    els.rerun.textContent = follow ? followLabel : "再次模拟";
+    els.editConfig.disabled = Boolean(pendingJob);
+    renderLatestJob();
+  }
+  async function refreshLatestJob() {
+    try {
+      const {job} = await requestJson(endpoints.optimize, {cache: "no-store", signal: AbortSignal.timeout(5000)});
+      latestJob = JOB_ID.test(job?.id || "") ? job : null;
+      if (pendingJob && (!pendingJob.body || pendingJob.id === latestJob?.id)) rememberJob(null);
+    } catch (_error) { /* An unavailable history lookup must not block generation. */ }
+  }
   function rememberJob(job) {
     pendingJob = job;
     try {
       if (job) sessionStorage.setItem(JOB_KEY, JSON.stringify(job));
       else sessionStorage.removeItem(JOB_KEY);
     } catch (_error) { /* The current page can still poll. */ }
+    renderLatestJob();
   }
   function restoreJob() {
     try {
@@ -271,6 +300,7 @@
       body: job.body, signal: AbortSignal.timeout(10000),
     });
     if (receipt.job?.id !== job.id) throw new Error("任务回执不匹配");
+    latestJob = receipt.job;
     acknowledgeJob(job.id);
   }
   function jobStatus(message, description) {
@@ -287,12 +317,13 @@
           cache: "no-store", signal: AbortSignal.timeout(10000),
         });
         if (job?.id !== id) throw new Error("任务回执不匹配");
+        latestJob = {id, state: job.state};
         acknowledgeJob(id);
         if (["done", "failed"].includes(job.state)) return job;
         if (!["queued", "running"].includes(job.state)) throw new Error("无法识别任务状态");
         errors = 0;
         missing = 0;
-        jobStatus(job.state === "queued" ? "排队中" : "正在搜索组合", "后台正在处理，刷新页面后可以继续查看进度。");
+        jobStatus(job.state === "queued" ? "排队中" : "正在搜索组合", "后台正在处理，回来后可点击任务编号继续查看。");
       } catch (error) {
         if ([401, 403].includes(error.status) || (error.status === 404 && ++missing >= 3)) throw error;
         if (++errors >= 4) throw new Error("暂时无法查询任务，请点击继续查看。不会重复提交。");
@@ -303,7 +334,11 @@
   }
   async function generate({lookupOnly = false} = {}) {
     if (!initialized || !assistantReady || polling || ownedClearing || els.simcSubmit.disabled) return;
+    let requestId = lookupOnly ? latestJob?.id : pendingJob?.id || (activeLatestJob() ? latestJob.id : null);
+    if (lookupOnly && !requestId) return;
+    const isNew = !requestId;
     polling = true;
+    renderLatestJob();
     hideResultTooltip();
     lastPlans = [];
     resultContext = null;
@@ -318,11 +353,10 @@
     els.rerun.textContent = "正在模拟…";
     els.resultLockSummary.classList.remove("is-stale");
     setWorkbench("results", {focus: true});
-    jobStatus(pendingJob ? "正在查询任务" : "正在提交任务", "辅助配装在后台执行，不需要保持同一个网络请求。");
+    jobStatus(isNew ? "正在提交任务" : "正在查询任务", "辅助配装在后台执行，不需要保持同一个网络请求。");
     try {
-      const isNew = !pendingJob;
       if (isNew) {
-        const requestId = crypto.randomUUID();
+        requestId = crypto.randomUUID();
         const body = JSON.stringify({
           request_id: requestId, class_name: currentState.className, spec_name: currentState.specName,
           equipment: lockedEquipmentPayload(), target: targetPayload(), flask: els.flask.value,
@@ -343,10 +377,10 @@
       }
       let job;
       try {
-        job = await pollJob(pendingJob.id);
+        job = await pollJob(requestId);
       } catch (error) {
         // A late commit can follow a 404. Never create a replacement UUID.
-        if (lookupOnly || isNew || error.status !== 404 || !pendingJob.body || Date.now() - pendingJob.createdAt >= 12 * 3600_000) throw error;
+        if (lookupOnly || isNew || error.status !== 404 || pendingJob?.id !== requestId || !pendingJob.body || Date.now() - pendingJob.createdAt >= 12 * 3600_000) throw error;
         try {
           await submitJob(pendingJob);
         } catch (submitError) {
@@ -354,37 +388,39 @@
           if ([400, 413].includes(submitError.status)) rememberJob(null);
           throw submitError;
         }
-        job = await pollJob(pendingJob.id);
+        job = await pollJob(requestId);
       }
-      rememberJob(null);
+      if (pendingJob?.id === requestId) rememberJob(null);
       if (job.state === "failed") throw new Error(job.error || "无法生成辅助配装方案。");
       const payload = job.result;
       if (!Array.isArray(payload?.plans) || !payload.plans.length) throw new Error("任务没有返回配装方案。");
-      if (currentState.className !== job.class_name || currentState.specName !== job.spec_name) {
-        currentState = loadState(job.class_name, job.spec_name);
-        resetLockedSlots();
-        syncSelectors();
-        renderEquipment();
-      }
-      els.resultLockSummary.textContent = `本次任务锁定 ${payload.fixed_slots?.length || 0} 件`;
+      const classRow = builderBootstrap?.classes?.find(row => row.key === job.class_name);
+      const specName = classRow?.specs?.find(row => row.key === job.spec_name)?.name || job.spec_name;
+      els.resultLockSummary.textContent = `${classRow?.name || job.class_name} · ${specName} · 锁定 ${payload.fixed_slots?.length || 0} 件`;
       lastPlans = payload.plans || [];
       resultContext = {className: job.class_name, specName: job.spec_name, batchKey: payload.catalog?.batch_key};
       renderPlans(lastPlans);
       els.explanation.textContent = payload.explanation || "方案计算完成。";
-      toast(`已生成 ${lastPlans.length} 套方案。`);
+      toast(`${isNew ? "已生成" : "已读取"} ${lastPlans.length} 套方案。`);
     } catch (error) {
-      if (error.status === 404 && pendingJob && (!pendingJob.body || Date.now() - pendingJob.createdAt >= 12 * 3600_000)) rememberJob(null);
-      const message = error.status === 404 && pendingJob ? "尚未确认后台已收到任务。点击继续查看会沿用原任务编号。" : error.message;
-      jobStatus(pendingJob ? "暂时无法查询任务" : "未生成方案", message);
+      const uncertain = pendingJob?.id === requestId && pendingJob?.body && Date.now() - pendingJob.createdAt < 12 * 3600_000;
+      if (error.status === 404 && !uncertain) {
+        if (latestJob?.id === requestId) latestJob = null;
+        if (pendingJob?.id === requestId) rememberJob(null);
+        await refreshLatestJob();
+      } else if (error.status === 409) {
+        if (pendingJob?.id === requestId) rememberJob(null);
+        await refreshLatestJob();
+      }
+      const message = error.status === 404 && uncertain ? "尚未确认后台已收到任务。点击确认上次提交会沿用原任务编号。" : error.message;
+      jobStatus(lookupOnly || pendingJob?.id === requestId ? "暂时无法查询任务" : "未生成方案", message);
       toast(message, true);
     } finally {
       polling = false;
       controls.forEach((control, index) => { control.disabled = disabled[index]; });
-      els.editConfig.disabled = Boolean(pendingJob);
       els.generate.disabled = false;
       els.rerun.disabled = false;
-      els.generate.textContent = pendingJob ? "继续查看" : "开始模拟";
-      els.rerun.textContent = pendingJob ? "继续查看" : "再次模拟";
+      syncJobButtons();
     }
   }
   function applyPlan(key) {
@@ -477,6 +513,7 @@
     els.sourcePreference.addEventListener("change", markResultsStale);
     els.generate.addEventListener("click", generate);
     els.rerun.addEventListener("click", generate);
+    els.viewJob.addEventListener("click", () => generate({lookupOnly: true}));
     els.editConfig.addEventListener("click", () => { if (!polling && !pendingJob) setWorkbench("config", {focus: true}); });
     els.results.addEventListener("click", (event) => { const button = event.target.closest("[data-apply-plan]"); if (button) applyPlan(button.dataset.applyPlan); });
     els.importSimc.addEventListener("click", () => { if (!pendingJob) els.simcDialog.showModal(); });
@@ -502,12 +539,12 @@
       });
       resetLockedSlots();
       syncSelectors(); renderEquipment(); renderLibraryTabs(); setWorkbench("config");
-      await loadAssistantData();
+      await Promise.all([loadAssistantData(), refreshLatestJob()]);
       bindEvents();
       initialized = true;
       els.classSelect.disabled = els.specSelect.disabled = false;
-      if (pendingJob) void generate({lookupOnly: true});
-      else { els.generate.disabled = false; els.rerun.disabled = false; }
+      els.generate.disabled = els.rerun.disabled = false;
+      syncJobButtons();
     } catch (error) {
       els.catalogStatus.textContent = "初始化失败";
       els.resultLockSummary.textContent = "初始化失败";

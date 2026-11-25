@@ -8,6 +8,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.db import IntegrityError, close_old_connections, connections, transaction
+from django.db.models import Subquery
 from django.utils import timezone
 
 from botend.backend_lifecycle import worker_cycles
@@ -25,6 +26,18 @@ STATUS_FIELDS = ('request_id', 'state', 'class_name', 'spec_name', 'error')
 
 class ActiveGearJob(GearBuilderError):
     pass
+
+
+def latest_job(owner, *, request_id=None):
+    owned = GearAssistantJob.objects.filter(owner=owner)
+    if request_id is None:
+        job = owned.only('request_id', 'state', 'updated_at').order_by('-pk').first()
+        return job if job and job.updated_at >= timezone.now() - RETENTION else None
+    # Match only the newest row, not the newest row that matches the supplied UUID.
+    newest_pk = owned.order_by('-pk').values('pk')[:1]
+    rows = owned.filter(pk=Subquery(newest_pk), request_id=request_id,
+                        updated_at__gte=timezone.now() - RETENTION).only(*STATUS_FIELDS, 'result').order_by()
+    return next(iter(rows[:1]), None)
 
 
 def enqueue(owner, request_id, payload):

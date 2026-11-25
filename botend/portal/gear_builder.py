@@ -40,9 +40,8 @@ from botend.services.gear_builder_owned import (
     save_owned_item,
     save_owned_items,
 )
-from botend.models import GearAssistantJob
 from botend.services.gear_assistant import assistant_bootstrap
-from botend.services.gear_assistant_jobs import ActiveGearJob, STATUS_FIELDS, enqueue
+from botend.services.gear_assistant_jobs import ActiveGearJob, enqueue, latest_job
 from botend.services.gear_catalog_projection import compact_equipment_payload
 
 
@@ -299,6 +298,14 @@ def _gear_job_response(job, *, status=200, include_result=False):
 
 @method_decorator(never_cache, name='dispatch')
 class PortalGearAssistantOptimizeAPIView(View):
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return _error_response('请登录后使用辅助配装', status=401)
+        job = latest_job(request.user)
+        response = JsonResponse({'success': True, 'job': {'id': str(job.request_id), 'state': job.state} if job else None})
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
     def post(self, request):
         if not request.user.is_authenticated:
             return _error_response('请登录后使用辅助配装', status=401)
@@ -328,10 +335,9 @@ class PortalGearAssistantJobAPIView(View):
     def get(self, request, request_id):
         if not request.user.is_authenticated:
             return _error_response('请登录后使用辅助配装', status=401)
-        jobs = GearAssistantJob.objects.filter(owner=request.user, request_id=request_id)
-        job = jobs.only(*STATUS_FIELDS).first()
+        job = latest_job(request.user, request_id=request_id)
         if not job:
-            response = _error_response('配装任务不存在或已过期', status=404)
+            response = _error_response('配装任务不存在、已被替换或已过期', status=404)
             response['Cache-Control'] = 'private, no-store'
             return response
         return _gear_job_response(job, include_result=True)

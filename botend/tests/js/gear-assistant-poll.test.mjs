@@ -53,7 +53,7 @@ context.ready();
 await Promise.all([context.run(), context.run()]);
 assert.equal(calls.filter(([,opts]) => opts.method === 'POST').length, 1);
 assert.deepEqual(JSON.parse(calls[0][1].body).equipment, {head:{variant:{id:23},gems:[{variant:{id:59}}]}});
-assert.equal(element('assistant-rerun').textContent, '继续查看');
+assert.equal(element('assistant-rerun').textContent, '确认上次提交');
 assert.equal(JSON.parse([...storage.values()][0]).id, id, 'Late commit may still resolve the same preserved nonce');
 assert.equal(element('assistant-edit-config').disabled, true);
 mode = 'resume';
@@ -100,7 +100,7 @@ const template = fs.readFileSync(new URL('../../../templates/portal/gear_assista
 const initElements = new Map();
 const initElement = key => {
   if (!initElements.has(key)) {
-    const element = {owner: key, events: new Map(), options: [{value: 'Fury'}],
+    const element = {owner: key, events: new Map(), options: [{value: 'Fury'}], classList: {remove() {}},
       disabled: new RegExp(`<[^>]+id="${key}"[^>]*\\bdisabled\\b`).test(template),
       addEventListener(name, fn) {this.events.set(name, fn);}};
     initElements.set(key, element);
@@ -109,14 +109,33 @@ const initElement = key => {
 };
 let unblock;
 const bootstrap = new Promise(resolve => {unblock = resolve;});
+const reopenedCalls = [];
+const unconfirmedId = '36fa992b-195e-4ea6-afd1-8c8047163fff';
+const unconfirmed = JSON.stringify({id: unconfirmedId, createdAt: Date.now(), body: JSON.stringify({request_id: unconfirmedId})});
+const reopenedStorage = new Map([['wowdaily:gear-assistant:job:v2:245', unconfirmed]]);
+let serverLatest = {id, state:'done'};
 const startContext = {
-  document: {querySelector: () => ({dataset: {builderBootstrapUrl:'/builder/', assistantBootstrapUrl:'/bootstrap/'}, setAttribute() {}}),
+  document: {querySelector: () => ({dataset: {builderBootstrapUrl:'/builder/', assistantBootstrapUrl:'/bootstrap/', optimizeUrl:'/optimize/', jobOwner:'245'}, setAttribute() {}}),
     querySelectorAll: () => [], addEventListener() {}, getElementById: initElement},
-  sessionStorage: {getItem: () => null}, localStorage: {getItem: () => null},
+  sessionStorage: {getItem: k => reopenedStorage.get(k), setItem: (k,v) => reopenedStorage.set(k,v), removeItem: k => reopenedStorage.delete(k)},
+  localStorage: {getItem: () => null}, AbortSignal,
+  window: {matchMedia: () => ({matches: false})},
   WowGearState: {refresh: async state => state}, WowGearAssistantResults: {bindTooltips: () => () => {}},
-  send: (url) => url === '/builder/' ? {classes:[{key:'Warrior', specs:[{key:'Fury'}]}]} : bootstrap,
+  send: (url, opts) => {
+    reopenedCalls.push([url, opts?.method || 'GET']);
+    if (url === '/builder/') return {classes: [{key:'Warrior', specs:[{key:'Fury'}]}]};
+    if (url === '/optimize/') return {job: serverLatest};
+    if (url === `/optimize/${id}/`) return {job: {id, state:'done', class_name:'Mage', spec_name:'Fire', result:{plans:[{key:'all'}]}}};
+    return bootstrap;
+  },
 };
-vm.runInNewContext(source.replace('  initialize();', '  requestJson = (...args) => send(...args); globalThis.started = initialize();'), startContext);
+const initializer = source.replace('  initialize();', `
+  requestJson = (...args) => send(...args);
+  toast = () => {};
+  renderPlans = plans => {globalThis.reopenedPlans = plans;};
+  globalThis.started = initialize();
+`);
+vm.runInNewContext(initializer, startContext);
 await new Promise(resolve => setImmediate(resolve));
 assert.equal(initElement('assistant-class').disabled, true);
 assert.equal(initElement('assistant-spec').disabled, true);
@@ -127,3 +146,20 @@ await startContext.started;
 assert.equal(initElement('assistant-spec').disabled, false);
 assert.equal(initElement('assistant-spec').events.has('change'), true);
 assert.equal(initElement('assistant-generate').disabled, false);
+assert.equal(initElement('assistant-view-job').textContent, id);
+assert.equal(initElement('assistant-view-job').disabled, false);
+assert.deepEqual(reopenedCalls.filter(([url]) => url.startsWith('/optimize/')), [['/optimize/', 'GET']]);
+await initElement('assistant-view-job').events.get('click')();
+assert.deepEqual(reopenedCalls.filter(([url]) => url.startsWith('/optimize/')), [['/optimize/', 'GET'], [`/optimize/${id}/`, 'GET']]);
+assert.equal(startContext.reopenedPlans[0].key, 'all');
+assert.equal(initElement('assistant-view-job').textContent, id);
+assert.equal(initElement('assistant-spec').value, 'Fury', 'Looking at a Fire result must not change the draft spec');
+assert.equal(reopenedStorage.get('wowdaily:gear-assistant:job:v2:245'), unconfirmed, 'Viewing B must not discard the separate same-nonce recovery for A');
+
+serverLatest = null;
+initElements.clear();
+vm.runInNewContext(initializer, startContext);
+await startContext.started;
+assert.equal(initElement('assistant-latest-job').hidden, true, 'An uncertain submit must not be advertised as saved');
+assert.equal(initElement('assistant-view-job').disabled, true);
+assert.equal(reopenedCalls.filter(([, method]) => method === 'POST').length, 0);
