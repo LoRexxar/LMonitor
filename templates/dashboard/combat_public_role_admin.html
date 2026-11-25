@@ -1,0 +1,52 @@
+<section id="combat-public-roles" class="content-section bb-page cb-page cb-dashboard policy-admin" {% if dashboard_default_section == 'combat-public-roles' %}data-loaded="1" data-page-url="{{ request.get_full_path }}"{% else %}style="display:none"{% endif %}>
+{% if dashboard_default_section == 'combat-public-roles' %}
+<header><h1>公开角色关联管理</h1></header>
+<section class="bb-card">
+    <div class="policy-toolbar"><h2>账号角色名额</h2>
+    <form class="bb-row" method="get"><input type="hidden" name="section" value="combat-public-roles">
+        <input type="search" name="q" value="{{ role_query }}" placeholder="搜索用户名" aria-label="搜索用户名"><button class="bb-secondary">搜索</button>
+    </form></div>
+    <div class="bb-table-wrap"><table class="bb-table">
+        <thead><tr><th>网站账号</th><th>设置来源</th><th>已关联角色</th><th>角色上限</th><th>操作</th></tr></thead>
+        <tbody>{% for row in role_rows %}<tr id="role-account-{{ row.scope }}">
+            <th scope="row">{{ row.label }}</th><td data-label="设置来源">{% if row.scope == 'default' %}全站{% elif row.custom %}账号自定义{% else %}继承默认{% endif %}</td>
+            <td data-label="已关联角色">{% if row.scope == 'default' %}—{% elif row.sources %}<details><summary>{{ row.sources|length }} 个角色</summary>
+                <ul>{% for source in row.sources %}<li>{{ source.name }} · {{ source.realm }} · {{ source.region|upper }}</li>{% endfor %}</ul></details>{% else %}0 个角色{% endif %}</td>
+            <td data-label="角色上限">{{ row.limit }}</td><td class="policy-action"><span class="policy-row-actions">
+                {% if role_saved == row.scope %}<span role="status" class="bb-muted">已保存</span>{% endif %}
+                <button class="policy-edit" type="button" data-role-edit="{{ row.scope }}" data-label="{{ row.label }}" data-limit="{{ row.limit }}" data-custom="{{ row.custom|yesno:'1,0' }}" aria-haspopup="dialog" aria-controls="public-role-editor">编辑</button>
+            </span></td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    {% if role_page.has_other_pages %}<nav class="cb-pagination" aria-label="账号分页">{% if role_page.has_previous %}<a href="?{{ role_filters }}&amp;page={{ role_page.previous_page_number }}">上一页</a>{% endif %}<span>{{ role_page.number }} / {{ role_page.paginator.num_pages }}</span>{% if role_page.has_next %}<a href="?{{ role_filters }}&amp;page={{ role_page.next_page_number }}">下一页</a>{% endif %}</nav>{% endif %}
+    <dialog id="public-role-editor" class="bb-dialog policy-editor" aria-labelledby="public-role-editor-title">
+        <form method="post" action="?{{ role_filters }}&amp;page={{ role_page.number }}">{% csrf_token %}
+            <h2 id="public-role-editor-title"></h2><input type="hidden" name="scope">
+            <label class="role-limit-field">公开角色上限<input type="number" name="limit" min="0" max="1000" required></label>
+            <p class="bb-muted policy-note">调低上限会保留已有角色，腾出名额后可继续关联。</p>
+            <label class="policy-inherit" hidden><input type="checkbox" name="inherit" value="1"> 恢复全站默认</label>
+            <div class="policy-dialog-actions"><button type="button" class="bb-secondary" data-close>取消</button><button type="submit">保存</button></div>
+        </form>
+    </dialog>
+</section>
+<script>
+(() => {
+    const dialog = document.getElementById('public-role-editor');
+    const form = dialog.querySelector('form');
+    document.getElementById('combat-public-roles').addEventListener('click', event => {
+        const edit = event.target.closest('[data-role-edit]');
+        if (!edit) return;
+        form.reset();
+        form.elements.scope.value = edit.dataset.roleEdit;
+        form.elements.limit.value = edit.dataset.limit;
+        form.elements.limit.disabled = false;
+        form.elements.inherit.parentElement.hidden = edit.dataset.custom !== '1';
+        dialog.querySelector('h2').textContent = '编辑名额 · ' + edit.dataset.label;
+        dialog.showModal();
+        form.elements.limit.focus();
+    });
+    form.elements.inherit.onchange = () => { form.elements.limit.disabled = form.elements.inherit.checked; };
+    dialog.querySelector('[data-close]').onclick = () => dialog.close();
+})();
+</script>
+{% endif %}</section>

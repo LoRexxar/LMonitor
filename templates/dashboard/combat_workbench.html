@@ -1,0 +1,102 @@
+{% extends 'dashboard/combat_base.html' %}{% load static %}
+{% block title %}{% firstof actor.name book.title selected.name report.filename "多日志分析" %} · 战斗分析{% endblock %}
+{% block assets %}
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=workspace1">
+{% endblock %}
+{% block content %}
+<header class="page-head"><div class="wrap"><nav class="crumb" aria-label="当前位置"><a href="{% url 'combat_logs' %}">日志库</a>{% if book %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% url 'combat_collections' %}">团队分析册</a>{% endif %}
+{% if report %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% url 'combat_report' report.pk %}">{{ report.filename }}</a>{% endif %}</nav>
+<h1>{% if boss_discovery %}首领对比复盘{% elif view == 'event' %}原始事件 · 第 {{ event.line }} 行{% elif view == 'review' %}{{ packet.topic }}复盘{% elif view == 'actor' %}{{ actor.name }} · 角色复盘{% else %}{% firstof selected.name book.title "选择副本或首领" %}{% endif %}</h1>
+{% if selected %}<p>{{ selected.kind }} · {{ selected.result }} · {{ report.filename }}</p>{% endif %}</div></header><main class="wrap wb">
+{% if view == 'books' %}
+<form method="post">{% csrf_token %}<label>新建分析册 <input name="title" maxlength="100" required></label> <button>创建</button></form>
+<section><h2>可访问的分析册</h2>{% for item in books %}<a class="entry" href="{% url 'combat_collection' item.pk %}">{{ item.title }} <span>{{ item.owner.username }}</span></a>{% empty %}<p>创建分析册后，可加入多份日志并邀请队员。</p>{% endfor %}</section>
+{% elif view == 'book' or multi_scope %}
+{% if boss_discovery %}<p>{% if scope_logs %}范围：所选 {{ scope_logs|length }} 份日志。{% else %}范围：自己的日志及获准共享的日志。{% endif %}{% if not cohorts %}当前没有已索引的首领战。{% endif %}</p>{% elif multi_scope and not cohorts %}<p>所选日志中没有已索引的战斗。</p>{% endif %}{% if overview %}<section><h2>{% if boss_discovery %}选择要复盘的首领{% else %}按副本与首领归集的战斗{% endif %}</h2><div class="table-wrap"><table><thead><tr><th>活动 / 难度</th><th>来源日志</th><th>场次</th><th>击杀或完成</th><th>终点缺失</th><th>死亡</th><th>成功打断</th><th>时间表现</th></tr></thead><tbody>
+{% for row in overview %}<tr><td>{% if row.boss_url %}<a href="{{ row.boss_url }}">{{ row.label|default:row.name }} · 对比复盘</a>{% else %}<a href="{{ row.url }}">{{ row.label|default:row.name }}</a>{% endif %}</td><td>{{ row.files|length }} 份</td><td>{{ row.count }}</td><td>{{ row.success }}</td><td>{{ row.partial }}</td><td>{{ row.deaths }}</td><td>{{ row.kicks }}</td><td>{{ row.unit }}（秒） {{ row.best|default_if_none:"—" }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% if bookmarks %}<nav aria-label="已保存分析">{% for bm in bookmarks %}<a class="death-link" href="{{ bm.url }}">{{ bm.name }}</a>{% endfor %}</nav>{% endif %}
+{% if book %}<details {% if not reports %}open{% endif %}><summary>来源与访问权限 · {{ reports|length }} 份报告</summary>
+<p>本册成员可查看贡献报告的整场明细、事件原文节选和已生成的复盘。上传者保留整文件下载及调用模型的权限。</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="attach"><label>贡献我的报告
+<select name="report" required>{% for r in available %}<option value="{{ r.pk }}">{{ r.filename }}</option>{% endfor %}</select></label> <button {% if not available %}disabled{% endif %}>加入本册</button></form>
+{% for r in reports %}<div class="wb-member"><a href="{% url 'combat_report' r.pk %}">{{ r.filename }}</a> · {{ r.owner.username }}
+{% if user.pk == r.owner_id or user.pk == book.owner_id %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="detach"><input type="hidden" name="report" value="{{ r.pk }}"><button>移出本册</button></form>{% endif %}</div>{% endfor %}
+{% if book.owner_id == user.pk %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="invite"><label>成员账号 <input name="username" required></label> <button>授权阅读与贡献</button></form>{% endif %}
+{% for reader in readers %}<div class="wb-member">{{ reader.username }} {% if book.owner_id == user.pk %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="revoke"><input type="hidden" name="username" value="{{ reader.username }}"><button>撤销成员及其贡献</button></form>{% endif %}</div>{% endfor %}</details>{% endif %}
+{% if boss_url %}<a class="death-link" href="{{ boss_url }}">首领对比复盘</a>{% endif %}{% if not overview %}<form method="get">{% for k,v in scope_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<label>比较对象 <select name="cohort" required>{% for k,v in cohorts.items %}<option value="{{ k }}" {% if k == cohort %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label> <button {% if not cohorts %}disabled{% endif %}>比较各次表现</button></form>{% endif %}
+{% elif view == 'actor' %}
+<section><a href="{% url 'combat_analysis' report.pk %}?fight={{ fight_id }}"><i class="nav-arrow back" aria-hidden="true"></i>返回本场分析</a>　<a href="{% url 'combat_workspace' %}?log={{ report.pk }}&amp;mode=players&amp;pairing=same&amp;run={{ report.pk }}.{{ fight_id }}&amp;left={{ actor.guid|urlencode }}">用此角色对比<i class="nav-arrow" aria-hidden="true"></i></a><h2>{{ actor.name }} · 施法轨道</h2>
+<div class="table-wrap"><table><thead><tr><th>秒</th><th>动作</th><th>技能</th><th>目标</th><th>原文</th></tr></thead><tbody>{% for c in casts %}<tr><td>{{ c.sec }}</td><td>{{ c.kind_label }}</td><td>{{ c.spell }}</td><td>{{ c.target }}</td><td><a href="{% url 'combat_evidence' report.pk c.line %}">#{{ c.line }}</a></td></tr>{% endfor %}</tbody></table></div>
+{% if cursor %}<a href="?after={{ cursor }}">后续施法<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}</section>
+<section><h2>光环已观测时长</h2><div class="table-wrap"><table><thead><tr><th>光环</th><th>时长（秒）</th><th>缺失边界次数</th><th>首条依据</th></tr></thead><tbody>{% for a in auras %}<tr><td>{{ a.name }}</td><td>{{ a.seconds }}</td><td>{{ a.gaps }}</td><td><a href="{% url 'combat_evidence' report.pk a.first %}">#{{ a.first }}</a></td></tr>{% endfor %}</tbody></table></div></section>
+<section><h2>位置、血量与资源采样</h2>{% for map,pts in maps.items %}<h3>地图 {{ map }}</h3><svg viewBox="0 0 380 165" width="380" style="max-width:100%" role="img" aria-label="按实际坐标等比绘制的玩家采样点">{% for p in pts %}<a href="{% url 'combat_evidence' report.pk p.line %}"><circle cx="{{ p.cx|stringformat:'f' }}" cy="{{ p.cy|stringformat:'f' }}" r="2.6" fill="var(--plot)"><title>{{ p.sec }} 秒 · 血量 {{ p.hp }}/{{ p.maximum }}</title></circle></a>{% endfor %}</svg>
+<details><summary>查看 {{ pts|length }} 个实际采样点</summary><div class="table-wrap"><table><thead><tr><th>秒</th><th>坐标</th><th>血量</th><th>资源类型／当前／上限</th><th>依据</th></tr></thead><tbody>{% for p in pts %}<tr><td>{{ p.sec }}</td><td>{{ p.x }}, {{ p.y }}</td><td>{{ p.hp }}/{{ p.maximum }}</td><td>{{ p.power_type }} · {{ p.power }}/{{ p.power_max }}</td><td><a href="{% url 'combat_evidence' report.pk p.line %}">#{{ p.line }}</a></td></tr>{% endfor %}</tbody></table></div></details>{% empty %}<p>本场没有可确认归属的高级位置采样。</p>{% endfor %}</section>
+{% elif view == 'event' %}
+<section><a href="{% url 'combat_analysis' report.pk %}?fight={{ fight_id }}"><i class="nav-arrow back" aria-hidden="true"></i>返回本场分析</a>
+<h2>{{ event.ability }} · {{ event.kind_label }}</h2><p>{{ event.source }} → {{ event.target }}</p><p>有效量 {{ event.amount|default_if_none:"未知或不适用" }} · 过量 {{ event.excess|default_if_none:"未知或不适用" }}</p>
+<pre>{{ raw }}</pre>{% if clipped %}<p>已显示前 64 KiB。</p>{% endif %}</section>
+{% elif view == 'review' %}
+<section><a href="{% url 'combat_analysis' report.pk %}?fight={{ fight_id }}"><i class="nav-arrow back" aria-hidden="true"></i>返回本场分析</a>
+{% if packet.counts %}<h2>读条机会</h2><p>{% for k,v in packet.counts.items %}{{ k }} {{ v }} 次　{% endfor %}</p><p>按同一敌方实例和技能配对；施法完成只表示观察到了完成事件。</p>
+{% else %}<h2>死亡前十秒</h2><p>数值为已识别布局中的有效量，血量仅列出属于死亡玩家的采样。</p>{% endif %}
+<div class="table-wrap"><table><thead><tr><th>相对时间（毫秒）</th><th>事件或结果</th><th>技能编号</th><th>{% if packet.counts %}响应耗时（毫秒）{% else %}有效量 · 血量／上限{% endif %}</th><th>依据</th></tr></thead><tbody>
+{% for r in packet.items %}<tr><td>{{ r.relative_ms }}</td><td>{% firstof r.outcome r.kind %}</td><td>{{ r.spell }}</td><td>{% if packet.counts %}{{ r.response_ms|default_if_none:"—" }}{% else %}{{ r.amount|default_if_none:"—" }} · {{ r.hp|default_if_none:"—" }} / {{ r.max_hp|default_if_none:"—" }}{% endif %}</td><td><a href="{% url 'combat_evidence' report.pk r.line %}">#{{ r.line }}</a> {% if r.response_line %}<a href="{% url 'combat_evidence' report.pk r.response_line %}">响应 #{{ r.response_line }}</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% if packet.truncated %}<p>表格显示有限窗口，机制计数包含全部机会。</p>{% endif %}</section>
+<section><h2>AI 复盘意见</h2>{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% for f in findings %}<article><p>{{ f.hypothesis }}</p><p>复核建议　{{ f.check }}</p>{% for n in f.lines %}<a href="{% url 'combat_evidence' report.pk n %}">依据 #{{ n }}</a>　{% endfor %}</article>{% empty %}
+{% if user.pk == report.owner_id %}<form method="post">{% csrf_token %}<p>将本页的匿名事件、技能编号、数值与行号发送给已配置模型，结果保存到当前报告版本。</p><button>生成带证据的复盘</button></form>{% else %}<p>上传者尚未生成复盘。</p>{% endif %}{% endfor %}</section>
+{% endif %}
+{% if skipped or excluded %}<details><summary>排除的来源或场次</summary>{% for entry in skipped %}<p>{{ entry }}</p>{% endfor %}{% for entry in excluded %}<p>{{ entry }}</p>{% endfor %}</details>{% endif %}
+{% if metrics %}<a class="wb-open" href="{{ panel_tabs.0.1 }}">返回数据浏览器<i class="nav-arrow" aria-hidden="true"></i></a>
+<nav class="wb-nav" aria-label="分析视图"><a href="#breakdown">贡献明细</a>{% if trend %}<a href="#trend">时间分布</a>{% endif %}{% if book or multi_scope %}<a href="#cohort">跨场比较</a>{% endif %}{% if waves %}<a href="#waves">交战波次</a>{% endif %}<a href="#mechanics">机制机会</a>{% if selected %}<a href="#events">事件流</a>{% endif %}</nav>
+{% include 'dashboard/combat_wave_picker.html' %}
+{% if players %}<nav aria-label="角色时间线"><strong>角色时间线</strong>　{% for p in players %}<a href="{% url 'combat_actor' report.pk selected.id p.guid %}">{{ p.name }}</a>　{% endfor %}</nav>{% endif %}
+<form class="wb-filters" method="get">{% for k,v in scope_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}{% if request.GET.sample %}<input type="hidden" name="sample" value="{{ request.GET.sample }}">{% endif %}{% if selected %}<input type="hidden" name="fight" value="{{ selected.id }}">{% else %}<input type="hidden" name="cohort" value="{{ cohort }}">{% endif %}
+{% if book or multi_scope %}<label>日志视角<select name="file"><option value="">全部来源</option>{% for r in reports %}<option value="{{ r.pk }}" {% if request.GET.file == r.pk|stringformat:'s' %}selected{% endif %}>{{ r.filename }}</option>{% endfor %}</select></label>{% endif %}
+{% if attempt_choices %}<details><summary>指定比较场次</summary><p>勾选参与对照的尝试或钥匙。留空时纳入全部可比较场次。</p>{% for choice in attempt_choices %}<label><input type="checkbox" name="attempt" value="{{ choice.key }}" {% if choice.checked %}checked{% endif %}>{{ choice.sample.report.filename }} · #{{ choice.sample.id }} · {{ choice.sample.result }}</label>{% endfor %}</details>{% endif %}
+{% if request.GET.wave %}<input type="hidden" name="wave" value="{{ request.GET.wave }}">{% endif %}
+<label>指标<select name="metric">{% for k,v in metrics.items %}<option value="{{ k }}" {% if k == metric %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+<label>分组<select name="group">{% for k,v in dimensions.items %}<option value="{{ k }}" {% if k == group %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+<label>召唤物<select name="pets"><option value="players">仅玩家直接来源</option><option value="separate" {% if request.GET.pets == 'separate' %}selected{% endif %}>单列宠物与已确认召唤物</option><option value="owner" {% if request.GET.pets == 'owner' %}selected{% endif %}>合并有证据的归属</option></select></label>
+<label>起始秒<input name="start" type="number" min="0" value="{{ request.GET.start }}" placeholder="开战"></label>
+<label>结束秒<input name="end" type="number" min="1" value="{{ request.GET.end }}" placeholder="全场"></label>
+<details><summary>按第 N 次敌方读条对齐</summary><label>技能编号<input name="anchor" type="number" min="1" value="{{ request.GET.anchor }}"></label>
+<label>出现轮次<input name="occurrence" type="number" min="1" value="{{ request.GET.occurrence|default:'1' }}"></label>
+<label>前置秒数<input name="before" type="number" min="0" value="{{ request.GET.before|default:'3' }}"></label>
+<label>后续秒数<input name="beyond" type="number" min="0" value="{{ request.GET.beyond|default:'8' }}"></label>
+<p>提供技能编号时，以读条开始为零点，使用前置与后续秒数，排除未观测到该轮的场次。</p></details>
+{% if request.GET.rule %}<input type="hidden" name="rule" value="{{ request.GET.rule }}">{% endif %}
+{% if request.GET.source %}<label>来源 GUID<input name="source" value="{{ request.GET.source }}"></label>{% endif %}
+{% if request.GET.target %}<label>目标 GUID<input name="target" value="{{ request.GET.target }}"></label>{% endif %}
+{% if request.GET.ability %}<label>技能编号<input name="ability" value="{{ request.GET.ability }}"></label>{% endif %}
+{% if request.GET.spec %}<label>专精编号<input name="spec" value="{{ request.GET.spec }}"></label>{% endif %}
+{% if request.GET.role %}<label>职责<input name="role" value="{{ request.GET.role }}"></label>{% endif %}
+<button>应用筛选</button><a href="{{ reset_url }}">清除区间与单位筛选</a></form>
+<section><div class="wb-numbers"><div>已知总量<strong>{{ total }}</strong></div><div>每秒均值<strong>{{ rate|default_if_none:"—" }}</strong></div><div>纳入场次<strong>{{ comparisons|length }}</strong></div><div>数值未知事件<strong>{{ unknown }}</strong></div></div>
+<p>每秒值使用各场所选时间之和；缺少分母或有未知数值时显示「—」。承伤和死亡按目标玩家的专精与职责统计。</p>
+<h2 id="breakdown">贡献明细 · {{ groups_count }} 组</h2><div class="table-wrap"><table><thead><tr><th>分组</th><th>总量</th><th>占已知总量</th><th>事件数</th><th>数值未知</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><a href="{{ row.url }}">{{ row.name }}</a></td><td>{{ row.value }}</td><td>{{ row.share }}%</td><td>{{ row.hits }}</td><td>{{ row.unknown }}</td></tr>{% empty %}<tr><td colspan="5">筛选范围内没有对应事件。</td></tr>{% endfor %}</tbody></table></div></section>
+{% if previous_groups or next_groups %}<nav>{% if previous_groups %}<a href="{{ previous_groups }}"><i class="nav-arrow back" aria-hidden="true"></i>上一组</a>{% endif %}　{% if next_groups %}<a href="{{ next_groups }}">后续分组<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}</nav>{% endif %}
+{% if trend %}<section id="trend"><h2>时间分布</h2><p>每 {{ step }} 秒一格，按{% if request.GET.anchor %}选定读条{% else %}开怪{% endif %}时间对齐。悬停可查数值。</p><div class="wb-trend">{% for b in trend %}<span aria-label="{{ b.seconds }} 秒：{{ b.value }}" title="{{ b.seconds }} 秒：{{ b.value }}" style="height:{{ b.percent|stringformat:'f' }}%"></span>{% endfor %}</div>
+<details><summary>查看时间桶数值</summary>{% for b in trend %}<span>{{ b.seconds }} 秒 · {{ b.value }}　</span>{% endfor %}</details></section>{% endif %}
+{% if book or multi_scope %}<section id="cohort"><h2>跨日志样本</h2><div class="table-wrap"><table><thead><tr><th>报告／尝试</th><th>结果</th><th>时长（秒）</th><th>总量</th><th>每秒</th></tr></thead><tbody>
+{% for r in comparisons %}<tr><td><a href="{{ r.url }}">{{ r.report.filename }} · #{{ r.id }} {{ r.name }}</a></td><td>{{ r.result }}</td><td>{{ r.seconds|default_if_none:"未知" }}</td><td>{{ r.value }}</td><td>{{ r.rate|default_if_none:"—" }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% if book %}<section><h2>团队机制规则</h2>
+{% for r in custom_rules %}<a class="death-link" href="{{ r.url }}">{{ r.rule.name }} · {{ r.rule.window }} 秒</a>{% endfor %}
+{% if user.pk == book.owner_id %}<details><summary>定义本组机制或保存查询</summary>
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="rule">
+<label>规则名<input name="name" maxlength="100" required></label>
+<label>观察方式<select name="kind"><option value="impact">敌方施法后同一敌人造成的玩家受击</option><option value="dispel">玩家获得光环后被驱散</option></select></label>
+<label>施法或光环编号<input name="trigger" type="number" min="1" required></label>
+<label>伤害技能编号（驱散可留空）<input name="response" type="number" min="1"></label>
+<label>观察秒数<input name="window" type="number" value="8" min="1" max="120" required></label><button>保存规则并计算轮次</button></form>
+<form method="post">{% csrf_token %}<input type="hidden" name="action" value="bookmark"><label>查询名称<input name="name" maxlength="100" required></label> <button>保存当前筛选</button></form></details>{% endif %}
+{% if matrix %}<h3>{{ matrix.rule.name }} · {{ matrix.rounds|length }} 轮</h3><p>{% for k,v in matrix.totals.items %}{{ k }} {{ v }}　{% endfor %}全场未观测到触发的场次 {{ matrix.absent|length }}</p>
+{% for n in rule_notes %}<article><p>{{ n.hypothesis }}</p><p>复核建议　{{ n.check }}</p>{% for url in n.urls %}<a href="{{ url }}">查证样本 {{ forloop.counter }}</a>　{% endfor %}</article>{% empty %}{% if may_generate %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="generate-rule"><p>将本次样本的匿名机制计数与对照轮次发送给已配置模型。</p><button>生成跨场机制复盘</button></form>{% endif %}{% endfor %}
+{% if ai_error %}<p role="alert">{{ ai_error }}</p>{% endif %}
+<div class="table-wrap"><table><thead><tr><th>场次 / 轮次</th><th>开怪后（秒）</th><th>观测结果</th><th>关联事件</th></tr></thead><tbody>{% for op in matrix.rounds %}<tr><td>{{ op.sample.report.filename }} #{{ op.sample.id }} · 第 {{ op.number }} 轮</td>
+<td><a href="{{ op.url }}">{{ op.seconds }}</a></td><td>{{ op.outcome }}</td><td>{% for hit in op.responses %}<a href="{{ hit.url }}">{{ hit.target }} #{{ hit.line }}</a>　{% empty %}—{% endfor %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}</section>{% endif %}
+<section id="mechanics"><h2>机制机会 · 敌方读条</h2><p>按当前场次和时间窗统计。相同敌人、技能在 30 秒内配对。仅有开始标记的轮次保留为未知。</p><div class="table-wrap"><table><thead><tr><th>技能</th><th>观察机会</th><th>结果与证据</th></tr></thead><tbody>{% for rule in rules %}<tr><td>{% if selected %}<a href="{% url 'combat_review' report.pk selected.id 'mechanic' rule.spell %}">{{ rule.name }}</a>{% else %}{{ rule.name }}{% endif %}</td><td>{{ rule.n }}</td><td>{% for k,v in rule.outcomes.items %}<a href="{{ v.url }}">{{ k }} {{ v.n }}</a>　{% endfor %}</td></tr>{% empty %}<tr><td colspan="3">没有符合条件的敌方读条。</td></tr>{% endfor %}</tbody></table></div></section>
+{% if selected %}<section id="events"><h2>组成当前统计的事件</h2><div class="table-wrap"><table><thead><tr><th>秒</th><th>来源 → 目标</th><th>技能</th><th>数值</th><th>原文</th></tr></thead><tbody>{% for e in events %}<tr><td>{{ e.seconds }}</td><td>{{ e.source }} → {{ e.target }}</td><td>{{ e.spell }}</td><td>{{ e.value|default_if_none:"未知" }}</td><td><a href="{{ e.url }}">#{{ e.line }}</a></td></tr>{% empty %}<tr><td colspan="5">没有匹配的事件。</td></tr>{% endfor %}</tbody></table></div>{% if next_url %}<a href="{{ next_url }}">后续 50 条<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}</section>{% endif %}
+{% endif %}</main>
+{% endblock %}

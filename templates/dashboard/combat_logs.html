@@ -1,0 +1,60 @@
+{% extends 'dashboard/combat_base.html' %}{% load static %}
+{% block title %}{% if report %}{{ report.filename }} · {% endif %}日志分析{% endblock %}
+{% block assets %}
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=workspace1">
+<script src="{% static 'dashboard/js/combat_logs.js' %}?v=workspace1" defer></script>
+{% endblock %}
+{% block content %}
+<header class="page-head"><div class="wrap"><nav class="crumb" aria-label="当前位置"><a href="{% url 'portal_home' %}"><i class="nav-arrow back" aria-hidden="true"></i>WowDaily 首页</a>
+{% if report %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% url 'combat_logs' %}">日志库</a>{% endif %}</nav>
+<h1>{% if report %}{{ report.filename }}{% else %}日志分析{% endif %}</h1>
+{% if report %}<p>{{ label }} · {{ report.size|filesizeformat }} · {{ report.created_at|date:"Y-m-d H:i" }}</p>{% endif %}
+</div></header><main class="wrap" data-base="{% url 'combat_logs' %}" data-state="{{ report.state }}">
+{% csrf_token %}
+{% if report.owner_id == user.pk %}
+<p>保留至 {{ report.expires_at|date:"Y-m-d H:i" }}{% if report.retire_after_id %} · 新日志解析成功后回收{% endif %}</p>
+{% if report.state == 'uploading' or report.state == 'paused' %}<a href="{% url 'combat_upload' %}?resume={{ report.pk }}">{% if report.upload_key %}继续上传{% else %}重新按场次上传{% endif %}</a>{% endif %}
+{% if report.state == 'uploading' %}<form method="post" action="{% url 'combat_pause' report.pk %}">{% csrf_token %}<button>暂停并释放未上传部分的配额</button></form>{% endif %}
+{% if report.state != 'queued' and report.state != 'running' %}<details><summary>移除日志</summary><form method="post" action="{% url 'combat_remove' report.pk %}">{% csrf_token %}<p>移除后将回收原文、索引和该日志的复盘记录。</p><button>确认移除此日志</button></form></details>{% endif %}
+{% endif %}
+<p id="notice" role="status" aria-live="polite"></p>
+{% if report.published or report.state == 'ready' %}
+<details><summary>归档与解析信息</summary><p>原文件 {{ report.summary.lines }} 行 · 玩家相关索引 {{ report.summary.events }} 条 · 异常行 {{ report.summary.bad }} 条 · 孤立钥匙结束标记 {{ report.summary.orphan_keys }} 条</p>
+{% for session in report.summary.sessions %}<div>{{ session.build }} · 格式 {{ session.format }} · {% if session.advanced %}高级日志已开启{% else %}高级日志关闭{% endif %}{% if not session.retail %} · 已跳过非正式服会话{% endif %}</div>{% endfor %}
+<p class="raw">SHA-256　{{ report.digest }}</p>原文存储：{% if report.storage_tier == 'cold' %}冷卷{% else %}热卷{% endif %}。索引版本 {{ report.summary.index_version }}。
+{% if report.owner_id == user.pk %}<a href="{% url 'combat_download' report.pk %}">下载归档原文</a>{% endif %}</details>
+{% if report.published and report.owner_id == user.pk %}{% if not report.summary.boundary_revision or report.state == 'failed' %}
+<form method="post" action="{% url 'combat_rebuild' report.pk %}">{% csrf_token %}<p>{{ report.message }}</p><button>从私有归档重建分析索引</button></form>{% endif %}{% endif %}
+{% if selected %}
+<section><a href="{% url 'combat_report' report.pk %}"><i class="nav-arrow back" aria-hidden="true"></i>活动目录</a>
+<h2>{{ selected.name }} · {{ selected.result }}</h2>
+{% if report.summary.index_version >= 3 %}<a class="wb-open" href="{% url 'combat_analysis' report.pk %}?fight={{ selected.id }}">进入多维分析工作台<i class="nav-arrow" aria-hidden="true"></i></a> · <a href="{% url 'combat_replay' report.pk selected.id %}">战斗回放</a>{% endif %}
+<p>{% if selected.kind == '钥匙' %}大秘境全程 · +{{ selected.level }}{% else %}首领尝试 #{{ selected.id }} · 难度 {{ selected.level }}{% endif %} · {{ selected.deaths }} 次玩家死亡</p>
+{% if selected.kind == '钥匙' and selected.official_ms %}<p>日志结算用时 {{ selected.official_seconds|floatformat:3 }} 秒</p>{% endif %}
+{% if comparisons|length > 1 %}<h3>{% if selected.kind == '钥匙' %}同会话、同副本、同层数对照{% else %}同活动、同难度的首领尝试{% endif %}</h3>
+<div class="table-wrap"><table><thead><tr><th>场次</th><th>结果</th><th>时长（秒）</th><th>首死（秒）</th><th>死亡次数</th><th>成功打断</th></tr></thead><tbody>
+{% for other in comparisons %}<tr><td><a href="?fight={{ other.id }}">第 {{ forloop.counter }} 次</a></td><td>{{ other.result }}</td><td>{{ other.seconds|default_if_none:"未知" }}</td><td>{{ other.first_death_seconds|default_if_none:"—" }}</td><td>{{ other.deaths }}</td><td>{{ other.kicks }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<h3>减员顺序</h3>{% for item in deaths %}<a class="death-link" href="?fight={{ selected.id }}&amp;death={{ item.line }}#evidence">{{ forloop.counter }}. {{ item.target }} · 开始后 {{ item.seconds|floatformat:3 }} 秒</a>{% empty %}<p>该区间未记录玩家死亡。</p>{% endfor %}
+{% if dead %}<article id="evidence"><h3>{{ dead }} · 死前十秒</h3>
+{% if report.summary.index_version >= 3 %}<a href="{% url 'combat_review' report.pk selected.id 'death' request.GET.death %}">死亡复盘 · 有效数值、血量采样与 AI 解释<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}
+<p>以下为以该玩家为目标的已索引事件。展开记录可查看原文。</p>
+{% if last_damage %}<p>窗口内最近一次受伤　<a href="#line-{{ last_damage.line }}">{{ last_damage.seconds|floatformat:3 }} 秒 · {{ last_damage.source }} {{ last_damage.skill }}（{{ last_damage.label }}）</a></p>{% endif %}
+{% if limited %}<p>窗口内事件较多，显示最近 100 条。</p>{% endif %}
+{% if report.owner_id == user.pk %}<button type="button" id="highlights" data-fight="{{ selected.id }}" data-death="{{ request.GET.death }}">让 AI 选出重点事件</button>
+<small>仅向已配置的模型发送事件类型、相对时间和行号。</small><p id="ai-status" role="status"></p>{% endif %}
+{% for row in evidence %}<details id="line-{{ row.line }}"><summary><time>{{ row.seconds|floatformat:3 }} 秒</time>　{{ row.label }}　{{ row.source }} {{ row.skill }}　<span>第 {{ row.line }} 行</span></summary>
+<pre>{{ row.raw }}{% if row.clipped %}…（原文节选）{% endif %}</pre></details>{% endfor %}</article>{% endif %}
+<h3>机制记录 · 已成功打断</h3>
+{% if interrupts %}<div class="table-wrap"><table><thead><tr><th>被打断技能</th><th>队员</th><th>敌方目标</th><th>次数</th><th>首次记录行</th></tr></thead><tbody>
+{% for row in interrupts %}<tr><td>{{ row.spell }} · {{ row.spell_id }}</td><td>{{ row.actor }}</td><td>{{ row.target }}</td><td>{{ row.total }}</td><td>{{ row.first_line }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p>该区间未记录玩家成功打断。</p>{% endif %}</section>
+{% else %}
+<section><h2>活动目录</h2>{% if report.summary.index_version >= 3 %}<a class="wb-open" href="{% url 'combat_analysis' report.pk %}">连续分析整份日志<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}<div class="table-wrap"><table><thead><tr><th>活动</th><th>类型</th><th>结果</th><th>记录时长</th><th>死亡次数</th></tr></thead><tbody>
+{% for fight in fights %}<tr><td><a href="{% if report.summary.index_version >= 3 %}{% url 'combat_analysis' report.pk %}{% endif %}?fight={{ fight.id }}">{{ fight.name }}</a></td><td>{% if fight.kind == '钥匙' %}钥匙 +{{ fight.level }}{% elif fight.parent %}钥匙 #{{ fight.parent }} 内首领{% else %}首领 · 难度 {{ fight.level }}{% endif %}</td><td>{{ fight.result }}{% if not fight.start_line %}（起点缺失）{% endif %}</td><td>{% if fight.seconds != None %}{{ fight.seconds }} 秒{% else %}未知{% endif %}</td><td>{{ fight.deaths }}</td></tr>
+{% empty %}<tr><td colspan="5">日志中未识别到首领尝试或大秘境钥匙。</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
+{% elif report.state != 'uploading' and report.state != 'paused' %}
+<section><h2>{{ label }}</h2><p>{{ report.message }}</p>
+{% if report.state == 'failed' or stalled %}<button type="button" id="retry">重新提交解析</button>{% else %}<p>解析在后台执行，可以关闭页面后从日志列表重新打开。</p>{% endif %}</section>
+{% endif %}</main>
+{% endblock %}

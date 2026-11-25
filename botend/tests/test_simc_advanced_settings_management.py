@@ -2,6 +2,7 @@ import json
 from django.contrib.auth.models import User
 from django.test import Client
 from django.test import TestCase
+from botend.models import DashboardUserGroup
 from botend.models import SimcContentTemplate
 from botend.models import SimcProfile
 from botend.models import SimcApl
@@ -14,6 +15,8 @@ class _GlobalTemplateFixture:
         super().setUp()
         self.owner = User.objects.create_user(username='template-owner', password='pwd')
         self.staff = User.objects.create_user(username='template-staff', password='pwd', is_staff=True)
+        group = DashboardUserGroup.objects.create(name='模拟工作流', permission_codes=['simc.workflow'])
+        group.users.add(self.owner, self.staff)
         self.system = SimcContentTemplate.objects.create(
             owner_user_id=None, name='System Base', spec='default',
             source=SimcContentTemplate.SOURCE_USER,
@@ -75,6 +78,7 @@ class SimcTemplateDashboardFixTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(username='dashboard_user', password='pwd', is_staff=True)
+        DashboardUserGroup.objects.create(name='模拟工作流', permission_codes=['simc.workflow']).users.add(self.user)
         self.client = Client()
         self.client.force_login(self.user)
 

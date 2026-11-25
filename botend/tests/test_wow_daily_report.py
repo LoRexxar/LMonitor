@@ -11,6 +11,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from botend.models import (
+    DashboardUserGroup,
     PortalMplusSeasonCutoff,
     PortalVideo,
     VideoMonitorTarget,
@@ -23,6 +24,7 @@ from botend.wow_daily_report.generator import generate_wow_daily_report
 class WowDailyReportDashboardListTest(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username='daily-report-dashboard', password='test-password')
+        DashboardUserGroup.objects.create(name='日报编辑', permission_codes=['reports.wow-daily']).users.add(self.user)
         self.client.force_login(self.user)
 
     def test_list_exposes_the_same_portal_report_url(self):

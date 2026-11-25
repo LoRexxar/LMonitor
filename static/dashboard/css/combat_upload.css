@@ -1,0 +1,16 @@
+.upload-page { max-width: 960px; }
+.upload-page section { margin-block: 16px; }
+.upload-page label { display: block; margin: 10px 0; }
+.upload-page h2 { margin: 0; }
+.upload-page fieldset { margin: 20px 0 6px; border: 0; padding: 0; }
+.upload-page fieldset label { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.upload-page fieldset label:has(:checked) { border-color: var(--link); background: var(--subtle); }
+.upload-page small, .upload-page p, #selection-total { color: var(--secondary); }
+.upload-page small { margin-inline-start: 8px; }
+.upload-heading { display: flex; align-items: baseline; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+#scene-list { max-height: 26rem; overflow: auto; margin: 12px 0; }
+#scene-list label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--line); padding: 8px 0; margin: 0; }
+#scene-list small { margin-inline-start: auto; }
+#upload-progress { width: 100%; accent-color: var(--link); }
+#uploaded a { display: block; margin-top: 8px; }
+.upload-page [hidden] { display: none; }

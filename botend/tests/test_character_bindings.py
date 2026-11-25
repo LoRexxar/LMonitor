@@ -193,7 +193,7 @@ class CharacterBindingTests(TestCase):
     def test_user_pages_details_csrf_and_admin_boundary(self):
         player = self.player()
         binding = self.bind()
-        url = reverse('dashboard') + '?section=my-characters'
+        url = reverse('my_character_bindings')
         admin_url = reverse('character_binding_admin')
         self.assertEqual(self.client.get(url).status_code, 302)
         self.client.force_login(self.other)
@@ -214,23 +214,21 @@ class CharacterBindingTests(TestCase):
         csrf.force_login(self.user)
         self.assertEqual(csrf.post(url, {'action': 'deactivate', 'binding_id': binding.pk}).status_code, 403)
 
-    def test_personal_page_uses_dashboard_for_all_actions_and_legacy_entry(self):
+    def test_personal_page_uses_portal_for_all_actions_and_legacy_entry(self):
         self.player(item_level=701, score=3200)
         self.client.force_login(self.user)
-        url = reverse('dashboard') + '?section=my-characters'
-        self.assertRedirects(self.client.get(reverse('my_character_bindings')), url)
+        url = reverse('my_character_bindings')
+        self.assertRedirects(self.client.get('/auth/characters/'), url, status_code=307)
+        self.assertRedirects(self.client.get('/dashboard/?section=my-characters'), url)
+        self.assertRedirects(self.client.post('/dashboard/?section=my-characters'), url,
+                             status_code=307, fetch_redirect_response=False)
         response = self.client.get(url)
-        self.assertTemplateUsed(response, 'dashboard/index.html')
-        self.assertTemplateUsed(response, 'dashboard/character_bindings.html')
-        self.assertTemplateNotUsed(response, 'dashboard/character_bindings_base.html')
-        self.assertContains(response, 'id="sidebar"')
-        self.assertContains(response, 'data-section="my-characters"')
-        self.assertNotContains(response, 'data-section="character-bindings"')
+        self.assertTemplateUsed(response, 'portal/my_characters.html')
+        self.assertNotContains(response, 'id="sidebar"')
+        self.assertNotContains(response, '进入后台')
         self.assertContains(response, 'action="' + url + '"')
-        self.assertEqual(response.context['dashboard_permissions'], [])
-        self.assertEqual(response.context['dashboard_default_section'], 'my-characters')
         self.assertIn('no-store', response['Cache-Control'])
-        self.assertEqual(self.client.get(reverse('dashboard')).context['dashboard_default_section'], 'dashboard-home')
+        self.assertEqual(self.client.get(reverse('dashboard')).status_code, 403)
         self.assertRedirects(self.client.post(url, {
             'action': 'bind', 'character_name': 'Example', 'realm': '52区'}), url)
         binding = self.user.character_bindings.get()
@@ -239,8 +237,8 @@ class CharacterBindingTests(TestCase):
         self.assertContains(roster, '3200.0')
         duplicate = self.client.post(url, {'action': 'bind', 'character_name': 'Example', 'realm': '52区'})
         self.assertContains(duplicate, '已经绑定', status_code=400)
-        self.assertContains(duplicate, 'id="sidebar"', status_code=400)
-        self.assertTemplateUsed(duplicate, 'dashboard/index.html')
+        self.assertNotContains(duplicate, 'id="sidebar"', status_code=400)
+        self.assertTemplateUsed(duplicate, 'portal/my_characters.html')
         for action in ('deactivate', 'activate', 'unbind'):
             self.assertRedirects(self.client.post(url, {'action': action, 'binding_id': binding.pk}), url)
         self.assertFalse(self.user.character_bindings.exists())

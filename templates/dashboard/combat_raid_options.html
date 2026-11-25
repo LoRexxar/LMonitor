@@ -1,0 +1,1 @@
+{% for name,attempts in groups %}<optgroup label="{{ name }}">{% for p in attempts %}<option value="{{ p.id }}"{% if p.id == current.id %} selected{% endif %}>第 {{ p.id }} 次 · {{ name }} · 首领 {{ p.boss }}% · 遭遇 {{ p.remaining }}%</option>{% endfor %}</optgroup>{% endfor %}

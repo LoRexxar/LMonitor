@@ -1,0 +1,1 @@
+<nav class="duel-tabs" aria-label="角色对照方式">{% for key,label,url in pairing_links %}<a href="{{ url }}"{% if pairing == key %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>

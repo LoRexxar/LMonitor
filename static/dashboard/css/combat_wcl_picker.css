@@ -1,0 +1,75 @@
+.fight-picker { margin-top: 1.4rem; }
+.fight-picker .picker-heading {
+    display: flex; justify-content: space-between; align-items: end; gap: 1.5rem;
+    margin: 0 0 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--line);
+}
+.picker-heading h1 { margin: 0; font-size: clamp(1.55rem, 3vw, 2.4rem); line-height: 1.2; }
+.picker-heading p, .picker-panel-head p { margin: .4rem 0 0; font-size: .86rem; }
+.picker-heading p span, .picker-panel-head p span { margin-inline: .45em; }
+.picker-count { display: flex; gap: 1.5rem; margin: 0; }
+.picker-count div { display: grid; justify-items: end; }
+.picker-count dt { font-size: .78rem; color: var(--secondary); }
+.picker-count dd { margin: 0; font: 600 1.6rem/1.15 var(--num); order: -1; }
+.picker-layout { display: grid; grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); gap: clamp(1rem, 3vw, 3rem); align-items: start; }
+.picker-index h2 { font-size: .9rem; margin: .5rem .75rem .85rem; }
+.picker-index nav { display: grid; gap: 3px; }
+.picker-index nav a {
+    display: flex; justify-content: space-between; align-items: center; gap: .65rem;
+    padding: .7rem .85rem; color: var(--ink); border-inline-start: 3px solid transparent;
+}
+.picker-index strong { font-size: .94rem; overflow-wrap: anywhere; }
+.picker-index small { margin-top: .15rem; }
+.picker-index b { font: 500 .9rem var(--num); color: var(--secondary); }
+.picker-index nav a:hover { background: var(--subtle); text-decoration: none; }
+.picker-index nav a[aria-current] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.picker-select { display: none; }
+.fight-picker section.picker-panel { padding: 0; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+.picker-panel[hidden] { display: none; }
+.picker-panel-head { display: flex; justify-content: space-between; align-items: center; gap: .9rem; padding: 1.25rem 1.4rem; border-bottom: 1px solid var(--grid); }
+.picker-panel-head h2 { font-size: 1.45rem; margin: .12rem 0 0; line-height: 1.28; overflow-wrap: anywhere; }
+.picker-panel-head > div > small { font-size: .79rem; color: var(--secondary); }
+.picker-review { text-align: end; max-width: 100%; }
+.picker-review a { margin-block: 2px; }
+.picker-table th small { max-width: 16rem; white-space: normal; overflow-wrap: anywhere; font-weight: 400; }
+.picker-review a { display: inline-flex; align-items: center; gap: .4rem; min-height: 40px; padding: .5rem .9rem; background: var(--ink); color: var(--surface); border-radius: 6px; font-weight: 650; }
+.picker-review a:hover { background: var(--secondary); text-decoration: none; }
+.picker-review small { margin-top: .3rem; font-size: .74rem; }
+.fight-picker table.picker-table { min-width: 0; }
+.picker-table caption { text-align: start; padding: 1.1rem 1.4rem .7rem; font-weight: 650; }
+.picker-table thead th { color: var(--secondary); font-size: .77rem; white-space: nowrap; }
+.picker-table tbody { font-size: .88rem; }
+.picker-table tbody tr { position: relative; }
+.picker-table tbody tr:is(:hover,:focus-within,.picked) { background: var(--subtle); }
+.fight-picker .picker-table :is(td,th) { padding: .62rem .55rem; vertical-align: middle; }
+.fight-picker .picker-table tr > :first-child { padding-left: 1.4rem; }
+.fight-picker .picker-table tr > :last-child { padding-right: 1.35rem; text-align: end; color: var(--secondary); }
+.fight-picker .picker-table tr:last-child > * { border-bottom: 0; }
+.picker-table a { font-family: var(--num); font-weight: 650; }
+.picker-table a::after { content: ""; position: absolute; inset: 0; }
+.picker-table time { white-space: nowrap; }
+.picker-table time small { display: inline; margin-right: .4rem; }
+.picker-outcome { color: var(--secondary); }
+.picker-outcome.success { color: var(--link); font-weight: 700; }
+.picker-sr { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+.picker-empty { padding-block: 1rem; }
+@media (max-width: 850px) {
+    .picker-layout { display: block; }
+    .picker-index { margin-bottom: .85rem; }
+    .fight-picker[data-interactive] .picker-select { display: flex; gap: .75rem; align-items: center; color: var(--secondary); font-size: .84rem; }
+    .picker-select select { flex: 1; min-width: 0; max-width: 30rem; }
+    .fight-picker[data-interactive] .picker-index :is(h2,nav) { display: none; }
+}
+@media (max-width: 620px) {
+    .fight-picker .picker-heading { align-items: center; gap: .75rem; }
+    .picker-count { gap: .65rem; flex-shrink: 0; }
+    .picker-count dd { font-size: 1.3rem; }
+    .picker-panel-head { flex-wrap: wrap; padding: 1rem .8rem; }
+    .picker-review { text-align: start; }
+    .picker-panel-head h2 { font-size: 1.2rem; }
+    .picker-table caption { padding: .9rem .8rem .55rem; font-size: .94rem; }
+    .picker-table tbody { font-size: .79rem; }
+    .fight-picker .picker-table :is(td,th) { padding: .6rem .18rem; }
+    .fight-picker .picker-table tr > :first-child { padding-left: .55rem; }
+    .fight-picker .picker-table tr > :last-child { padding-right: .55rem; }
+    .picker-table time small { display: block; font-size: .7rem; }
+}

@@ -56,9 +56,9 @@ def _render_dashboard(request, section, title, payload, status=200):
 @never_cache
 @require_http_methods(['GET', 'POST'])
 def my_characters(request):
-    dashboard_url = reverse('dashboard') + '?section=my-characters'
-    if request.method == 'GET' and request.path != reverse('dashboard'):
-        return redirect(dashboard_url)
+    account_url = reverse('my_character_bindings')
+    if request.path != account_url:
+        return redirect(account_url, preserve_request=True)
     error = ''
     if request.method == 'POST':
         try:
@@ -68,7 +68,7 @@ def my_characters(request):
                     request.POST.get('realm'), request.POST.get('region', ''))
             else:
                 service.update_binding(request.user, int(request.POST.get('binding_id', '')), action)
-            return redirect(dashboard_url)
+            return redirect(account_url)
         except UserCharacterBinding.DoesNotExist:
             raise Http404 from None
         except (ValueError, TypeError):
@@ -76,8 +76,8 @@ def my_characters(request):
         except ValidationError as exc:
             error = '；'.join(exc.messages)
     rows = _rows(request.user.character_bindings.all())
-    return _render_dashboard(request, 'my-characters', '我的角色', {
-        'my_characters_loaded': True, 'character_action_url': dashboard_url,
+    return render(request, 'portal/my_characters.html', {
+        'my_characters_loaded': True, 'character_action_url': account_url,
         'bindings': rows, 'limit': service.quota(request.user),
         'active_count': sum(row.is_active for row in rows), 'error': error,
         'form': request.POST if error else {},

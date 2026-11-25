@@ -22,6 +22,12 @@ def run_maintenance_once():
     except Exception as exc:
         results = [dict(kind='snapshot', apply=False, status='error',
                         deleted=0, deleted_bytes=0, error=str(exc))]
+    try:
+        from .combat_log_archive import maintain_archives
+        deleted = maintain_archives()
+        results.append(dict(kind='combat_logs', apply=True, status='ok', deleted=deleted, deleted_bytes=0))
+    except Exception as exc:
+        results.append(dict(kind='combat_logs', apply=True, status='error', deleted=0, deleted_bytes=0, error=str(exc)))
     if getattr(settings, 'SPEC_AGGREGATION_WORK_GC_ENABLED', True):
         try:
             result = maintain_work_cache(

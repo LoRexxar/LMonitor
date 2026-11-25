@@ -1,0 +1,4 @@
+<span class="comparison-gap" data-side="{{ d.side }}">
+{% if d.side %}<b>{% if a and a == b %}{{ d.side }} · {% endif %}{% if d.side == 'A' %}{{ a|default:"A" }}{% else %}{{ b|default:"B" }}{% endif %} {% if longer %}多用{% else %}高出{% endif %} {{ d.amount }}{% if unit %} {{ unit }}{% endif %}</b><small>{% if d.percent %}+{{ d.percent }}{% else %}另一方为 0{% endif %}</small>
+{% elif d.gap == 0 %}<b>持平</b><small>差值 0</small>{% else %}<b>无法计算差值</b>{% endif %}
+</span>

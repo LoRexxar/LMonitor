@@ -1,0 +1,27 @@
+<section class="match-summary" id="comparison-metrics">
+    <div class="match-head"><div><h2>{{ metric_label }}差距</h2>
+        {% include 'dashboard/combat_gap.html' with d=total_contrast a=results.0.name b=results.1.name only %}
+    </div><p>相对差以较低值为基准</p></div>
+    <div class="match-pair">{% for side in results %}<div class="match-side lane-{% cycle 'a' 'b' %}">
+        <div class="match-person"><span class="match-letter">{% cycle 'A' 'B' %}</span><strong>{{ side.name }}</strong></div>
+        <div class="match-number">{{ side.amount|floatformat:"0g"|default:"—" }}</div>
+        <div class="match-track" aria-hidden="true"><i style="width:{% if forloop.first %}{{ total_contrast.widths.0|stringformat:'f' }}{% else %}{{ total_contrast.widths.1|stringformat:'f' }}{% endif %}%"></i></div>
+        <small>{{ rate_label }}　{{ side.rate|floatformat:"2g"|default:"—" }}</small>
+    </div>{% endfor %}</div>
+    <div class="match-foot">{% if results.0.seconds %}<span>{{ rate_label }} 差距</span>{% include 'dashboard/combat_gap.html' with d=rate_contrast only %}<span>整场 {{ results.0.seconds|floatformat:"-2" }} 秒</span>{% else %}场次边界不完整，仅比较已记录的总量和次数。{% endif %}</div>
+</section>
+<section class="metric-section"><h2>各项指标</h2>
+    <div class="metric-matrix">{% for key,label,d,url in metric_links %}
+        <a class="metric-cell" href="{{ url }}"{% if key == metric %} aria-current="true"{% endif %}>
+            <strong>{{ label }}</strong>{% include 'dashboard/combat_gap.html' with d=d only %}
+            <span class="metric-values"><span>A　{{ d.left }}</span><span>B　{{ d.right }}</span></span>
+        </a>{% endfor %}</div>
+</section>
+<section id="comparison-detail" class="match-details"><div class="match-head"><h2>{{ metric_label }}明细</h2><nav class="duel-tabs" aria-label="对照明细维度">{% for key,label,url in dimension_links %}<a href="{{ url }}"{% if key == breakdown %} aria-current="page"{% endif %}>按{{ label }}</a>{% endfor %}</nav></div>
+    {% if measure_links %}<nav class="duel-tabs compare-measure" aria-label="明细统计口径"><span>统计量</span>{% for key,label,url in measure_links %}<a href="{{ url }}"{% if key == measure %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>{% endif %}
+    <p>{% if breakdown == 'time' %}每 30 秒汇总，按开战时间列出有记录的时段。{% else %}按双方差值从大到小排列。{% endif %}</p>
+    <div class="table-wrap"><table><thead><tr><th>{{ dimension_label }}</th><th>A · {{ results.0.name }}</th><th>B · {{ results.1.name }}</th><th>差距</th></tr></thead><tbody>
+    {% for row in skills %}<tr><th scope="row">{{ row.name }}{% if row.identifier %}<small class="unit-id">{{ row.identifier }}</small>{% endif %}</th><td class="lane-a">{{ row.delta.left }}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.0|stringformat:'f' }}%"></i></div></td>
+    <td class="lane-b">{{ row.delta.right }}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.1|stringformat:'f' }}%"></i></div></td><td>{% include 'dashboard/combat_gap.html' with d=row.delta only %}</td></tr>
+    {% empty %}<tr><td colspan="4">两名角色均无该指标的记录。</td></tr>{% endfor %}</tbody></table></div>
+</section>

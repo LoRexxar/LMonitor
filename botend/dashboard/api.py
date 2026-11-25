@@ -428,7 +428,9 @@ class SystemAlertAPIView(DashboardPermissionRequiredMixin, View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
-class PortalPeakSpecRankRefreshAPIView(View):
+class PortalPeakSpecRankRefreshAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'database.tables'
+
     def post(self, request):
         from botend.services.monitor_task_execution import monitor_task_execution, MonitorTaskAdmissionBusy
 
@@ -813,8 +815,9 @@ def _catalog_item(item):
     }
 
 
-class SimcAplEditorAPIView(View):
+class SimcAplEditorAPIView(DashboardPermissionRequiredMixin, View):
     """Authenticated, bounded JSON protocol shared by editor endpoints."""
+    dashboard_permission = 'simc.workflow'
 
     def dispatch(self, request, *args, **kwargs):
         if not getattr(request, 'user', None) or not request.user.is_authenticated:
@@ -1394,7 +1397,9 @@ class ConvertTextAPIView(View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
-class WowDailyReportListAPIView(View):
+class WowDailyReportListAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'reports.wow-daily'
+
     def get(self, request):
         try:
             limit = request.GET.get("limit", "30")
@@ -1423,7 +1428,9 @@ class WowDailyReportListAPIView(View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
-class WowDailyReportContentAPIView(View):
+class WowDailyReportContentAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'reports.wow-daily'
+
     def get(self, request):
         try:
             rid = (request.GET.get("id") or "").strip()
@@ -1467,7 +1474,9 @@ class WowDailyReportContentAPIView(View):
 
 
 @method_decorator([csrf_exempt, login_required], name='dispatch')
-class WowDailyReportDownloadAPIView(View):
+class WowDailyReportDownloadAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'reports.wow-daily'
+
     def get(self, request):
         try:
             date_s = (request.GET.get("date") or "").strip()
@@ -1497,8 +1506,10 @@ class WowDailyReportDownloadAPIView(View):
             return JsonResponse({"success": False, "error": f"下载WoW日报失败: {str(e)}"})
 
 
-@method_decorator([csrf_exempt, login_required], name='dispatch')
-class WowDailyReportGenerateAPIView(View):
+@method_decorator(login_required, name='dispatch')
+class WowDailyReportGenerateAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'reports.wow-daily'
+
     def post(self, request):
         try:
             meta = generate_wow_daily_report(report_date=timezone.localdate(), use_llm=True)
@@ -1528,10 +1539,19 @@ class WowDailyReportGenerateAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcTaskAPIView(View):
+class SimcTaskAPIView(DashboardPermissionRequiredMixin, View):
     """
     SimC任务管理API
     """
+    dashboard_permission = 'simc.workflow'
+
+    def get_dashboard_permissions(self, request):
+        if request.method == 'GET':
+            return ('simc.workflow', 'simc.history')
+        if request.method in ('PUT', 'DELETE', 'PATCH'):
+            return ('simc.history',)
+        return super().get_dashboard_permissions(request)
+
     
     def get(self, request):
         """获取当前用户的SimC任务列表"""
@@ -2423,8 +2443,10 @@ class SimcTaskAPIView(View):
         return json.dumps(payload, ensure_ascii=False)
 
 
-class SimcComparisonTaskAPIView(View):
+class SimcComparisonTaskAPIView(DashboardPermissionRequiredMixin, View):
     """Create one self-describing comparison Task with multiple candidate Runs."""
+    dashboard_permission = 'simc.workflow'
+
     MAX_TASKS = 8
     MAX_ATTRIBUTE_TASKS = 13
     ATTRIBUTE_STATS = SIMC_ATTRIBUTE_STATS
@@ -2932,8 +2954,9 @@ class SimcComparisonTaskAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcPlayerConfigDetailAPIView(View):
+class SimcPlayerConfigDetailAPIView(DashboardPermissionRequiredMixin, View):
     """只解析工作台当前玩家输入，返回结构化配置详情；不渲染完整 SimC 执行文本。"""
+    dashboard_permission = 'simc.workflow'
 
     def get(self, request):
         """Return structured detail for an owner or read-only upstream Profile."""
@@ -3283,19 +3306,21 @@ def inspect_raw_simc_code(raw_simc_code):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcRawInspectAPIView(View):
+class SimcRawInspectAPIView(DashboardPermissionRequiredMixin, View):
     """Inspect pasted raw SimulationCraft code and return safe task plans."""
+    dashboard_permission = 'simc.workflow'
 
     def post(self, request):
         return JsonResponse({'success': False, 'error': '该接口已停用，请使用引用型 Profile、模板和 APL'}, status=410)
 
 
 @method_decorator(login_required, name='dispatch')
-class AplStorageAPIView(View):
+class AplStorageAPIView(DashboardPermissionRequiredMixin, View):
     """
     APL存储API
     """
-    
+    dashboard_permission = 'simc.workflow'
+
     def get(self, request):
         """获取用户的APL列表"""
         try:
@@ -3545,11 +3570,12 @@ class AplStorageAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class AplDetailAPIView(View):
+class AplDetailAPIView(DashboardPermissionRequiredMixin, View):
     """
     APL详情API
     """
-    
+    dashboard_permission = 'simc.workflow'
+
     def get(self, request, apl_id):
         """获取APL详情"""
         try:
@@ -3582,14 +3608,19 @@ class AplDetailAPIView(View):
             })
 
 
+class SimcCatalogPermissionMixin(DashboardPermissionRequiredMixin):
+    def get_dashboard_permissions(self, request):
+        return ('simc.workflow', 'simc.advanced', 'simc.benchmarks', 'frontend.simulations')
+
+
 @method_decorator(login_required, name='dispatch')
-class SimcSpecOptionsAPIView(View):
+class SimcSpecOptionsAPIView(SimcCatalogPermissionMixin, View):
     def get(self, request):
         return JsonResponse({'success': True, 'data': SIMC_SPEC_OPTIONS})
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcConsumableOptionsAPIView(View):
+class SimcConsumableOptionsAPIView(SimcCatalogPermissionMixin, View):
     """Expose consumable tokens present in active upstream SimC Profiles."""
 
     OPTION_KEYS = ('flask', 'potion', 'food', 'augmentation')
@@ -3626,8 +3657,9 @@ class SimcConsumableOptionsAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcBattlenetPreflightAPIView(View):
+class SimcBattlenetPreflightAPIView(DashboardPermissionRequiredMixin, View):
     """Fetch and validate Battle.net character data before it is saved or simulated."""
+    dashboard_permission = 'simc.workflow'
 
     def post(self, request):
         try:
@@ -3658,8 +3690,9 @@ class SimcBattlenetPreflightAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcBattlenetTopPlayersAPIView(View):
+class SimcBattlenetTopPlayersAPIView(DashboardPermissionRequiredMixin, View):
     """Return current-season specialization leaders as reusable Battle.net identities."""
+    dashboard_permission = 'simc.workflow'
 
     def get(self, request):
         spec = _canonical_simc_spec(request.GET.get('spec'))
@@ -3717,11 +3750,12 @@ class SimcBattlenetTopPlayersAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcProfileAPIView(View):
+class SimcProfileAPIView(DashboardPermissionRequiredMixin, View):
     """
     SimC配置管理API
     """
-    
+    dashboard_permission = 'simc.workflow'
+
     @staticmethod
     def _profile_mode(profile, *, has_equipment=None):
         """Infer the legal legacy attribute-only form without rewriting stored data."""
@@ -4599,10 +4633,11 @@ class SimcProfileAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcAplCandidatesAPIView(View):
+class SimcAplCandidatesAPIView(DashboardPermissionRequiredMixin, View):
     """
     APL候选方案：GET获取指定专精的APL列表，POST基于GLM生成对比任务
     """
+    dashboard_permission = 'simc.workflow'
 
     def get(self, request):
         """获取指定专精的APL候选列表"""
@@ -4958,8 +4993,9 @@ class SimcAplCandidatesAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcTalentStringAPIView(View):
+class SimcTalentStringAPIView(DashboardPermissionRequiredMixin, View):
     """SimC 独立天赋字符串资源管理。"""
+    dashboard_permission = 'simc.workflow'
 
     @staticmethod
     def _row(row, request):
@@ -5104,7 +5140,9 @@ class SimcTalentStringAPIView(View):
             return JsonResponse({'success': False, 'error': '请求数据无效'}, status=400)
 
 
-class SimcTalentStringCandidatesAPIView(View):
+class SimcTalentStringCandidatesAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.workflow'
+
     def get(self, request):
         spec = str(request.GET.get('spec') or '').strip()
         queryset = SimcTalentString.objects.filter(
@@ -5149,8 +5187,9 @@ class OssConfigAPIView(View):
 
 
 @method_decorator(csrf_exempt, name='dispatch')
-class SimcTaskPreviewAPIView(View):
+class SimcTaskPreviewAPIView(DashboardPermissionRequiredMixin, View):
     """Return a structured, display-safe snapshot of a task manifest only."""
+    dashboard_permission = 'simc.workflow'
 
     def get(self, request):
         task_id = request.GET.get('task_id')
@@ -6355,8 +6394,9 @@ class SimcRegularCompareAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcTemplateAPIView(View):
+class SimcTemplateAPIView(DashboardPermissionRequiredMixin, View):
     """Legacy compatibility API for the single global base template."""
+    dashboard_permission = 'simc.workflow'
 
     @staticmethod
     def _get_writable_template(request, template_id):
@@ -6502,15 +6542,18 @@ class SimcWorkbenchAPIView(View):
     """安全的 SimC 工作台资源总览、详情与白名单生命周期操作。"""
 
     def dispatch(self, request, resource=None, object_id=None, *args, **kwargs):
-        is_public_result = (
-            request.method == 'GET'
-            and object_id is not None
-            and resource in {'tasks', 'artifacts'}
-        )
-        if not is_public_result and not request.user.is_authenticated:
+        if not request.user.is_authenticated:
             return login_required(super().dispatch)(
                 request, resource, object_id, *args, **kwargs,
             )
+        if resource in {'tasks', 'history', 'task-favorites', 'artifacts', 'benchmark-executions'}:
+            code = 'simc.history'
+        elif resource in {'backends', 'secondary-rules', 'mastery-rules'}:
+            code = 'simc.advanced'
+        else:
+            code = 'simc.workflow'
+        if not has_dashboard_permission(request.user, code):
+            return JsonResponse({'success': False, 'error': '缺少对应的 SimC 后台权限'}, status=403)
         return super().dispatch(request, resource, object_id, *args, **kwargs)
 
     SUMMARY_KEYS = {
@@ -7831,6 +7874,12 @@ class SimcWorkbenchAPIView(View):
                 })
             return JsonResponse({'success': True, 'data': rows})
 
+        if resource == 'backend-options':
+            backends = [{'id': row.pk, 'identifier': row.identifier, 'name': row.name,
+                         'game_version': SimcBackendBinaryAPIView()._get_game_version(row),
+                         'is_default': row.identifier == 'production'}
+                        for row in SimcBackendBinary.objects.filter(is_active=True).order_by('id')]
+            return JsonResponse({'success': True, 'data': {'backends': backends}})
         if resource == 'backends':
             return SimcBackendBinaryAPIView().get(request)
 
@@ -8241,8 +8290,9 @@ class SimcWorkbenchAPIView(View):
         return JsonResponse({'success': False, 'error': '不支持的资源操作'}, status=400)
 
 
-class SimcRunInputPreviewAPIView(View):
+class SimcRunInputPreviewAPIView(DashboardPermissionRequiredMixin, View):
     """Compose readable SimC input for one Run from its task configuration."""
+    dashboard_permission = 'simc.history'
 
     def get(self, request, task_id, run_id):
         run = SimulationRun.objects.filter(
@@ -8264,8 +8314,9 @@ class SimcRunInputPreviewAPIView(View):
         }})
 
 
-class SimcTaskReportPreviewAPIView(View):
+class SimcTaskReportPreviewAPIView(DashboardPermissionRequiredMixin, View):
     """兼容没有 Artifact 记录的旧任务，并隐藏报告文件名与存储路径。"""
+    dashboard_permission = 'simc.history'
 
     def get(self, request, object_id):
         task = SimcTask.objects.filter(id=object_id).first()
@@ -8300,7 +8351,10 @@ class SimcTaskReportPreviewAPIView(View):
         return response
 
 
-class SimcArtifactPreviewAPIView(View):
+class SimcArtifactPreviewAPIView(DashboardPermissionRequiredMixin, View):
+    def get_dashboard_permissions(self, request):
+        return ('simc.history', 'simc.benchmarks')
+
     def get(self, request, object_id):
         artifact = SimcTaskArtifact.objects.filter(
             id=object_id,
@@ -8370,8 +8424,9 @@ class _SkillDamageSnapshotSpool:
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcSkillDamageAplAPIView(View):
+class SimcSkillDamageAplAPIView(DashboardPermissionRequiredMixin, View):
     """用页面选定的专精和快照生成个人 APL 草稿。"""
+    dashboard_permission = 'simc.skill-damage'
 
     def post(self, request):
         from botend.services.simc_apl.from_skill_damage import SkillAplGenerationError, build_apl
@@ -8444,8 +8499,9 @@ class SimcSkillDamageAplAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcSkillDamageSnapshotAPIView(View):
+class SimcSkillDamageSnapshotAPIView(DashboardPermissionRequiredMixin, View):
     """Read the latest successful DBC snapshot and explicitly trigger generation."""
+    dashboard_permission = 'simc.skill-damage'
 
     _RESPONSE_SPOOL_SLOTS = threading.BoundedSemaphore(value=1)
     _RESPONSE_SPOOL_MAX_BYTES = 512 * 1024 * 1024
@@ -8967,8 +9023,9 @@ class SimcSkillDamageSnapshotAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcBackendBinaryAPIView(View):
+class SimcBackendBinaryAPIView(DashboardPermissionRequiredMixin, View):
     """SimC后端更新状态API"""
+    dashboard_permission = 'simc.advanced'
 
     def _get_runtime_platform(self):
         sys_name = str(py_platform.system() or '').lower()
@@ -10523,11 +10580,11 @@ class _BenchmarkAdminAPIView(View):
 
 
 class _SimcOptionsAPIView(View):
-    """Resource catalogs use the SimC product-admin identity, not page grants."""
+    """资源目录同时要求基准测试页面授权和 SimC 管理身份。"""
 
     @method_decorator(login_required)
     def dispatch(self, request, *args, **kwargs):
-        if not _is_simc_admin(request.user):
+        if not _is_simc_admin(request.user) or not has_dashboard_permission(request.user, 'simc.benchmarks'):
             return _benchmark_error('forbidden', 403)
         return super().dispatch(request, *args, **kwargs)
 
@@ -11343,7 +11400,7 @@ class SimcBenchmarkOptionsAPIView(_SimcOptionsAPIView):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcFightStyleOptionsAPIView(View):
+class SimcFightStyleOptionsAPIView(SimcCatalogPermissionMixin, View):
     """Authoritative localized SimC fight-style catalog for every task surface."""
 
     def get(self, request):
@@ -11353,7 +11410,7 @@ class SimcFightStyleOptionsAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcRaidBuffOptionsAPIView(View):
+class SimcRaidBuffOptionsAPIView(SimcCatalogPermissionMixin, View):
     """Small shared catalog for regular simulations and benchmark configuration."""
 
     def get(self, request):
@@ -11373,7 +11430,7 @@ class SimcRaidBuffOptionsAPIView(View):
 
 
 @method_decorator(login_required, name='dispatch')
-class SimcExtraOptionsAPIView(View):
+class SimcExtraOptionsAPIView(SimcCatalogPermissionMixin, View):
     """Authoritative catalog for structured, extensible SimC options."""
 
     def get(self, request):

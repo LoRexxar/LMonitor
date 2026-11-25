@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
+from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
@@ -247,7 +248,9 @@ class SimcAgentJobCompleteAPIView(View):
         return _no_store(JsonResponse(result))
 
 
-class SimcAgentManagementListAPIView(View):
+class SimcAgentManagementListAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.advanced'
+
     http_method_names = ['get']
 
     def get(self, request):
@@ -295,7 +298,9 @@ class SimcAgentManagementListAPIView(View):
         return _no_store(JsonResponse({'success': True, 'data': rows}))
 
 
-class SimcAgentManagementActiveAPIView(View):
+class SimcAgentManagementActiveAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.advanced'
+
     http_method_names = ['post']
 
     def post(self, request, agent_id):
@@ -316,7 +321,9 @@ class SimcAgentManagementActiveAPIView(View):
                                        'is_active': agent.is_active}))
 
 
-class SimcAgentManagementTaskScopeAPIView(View):
+class SimcAgentManagementTaskScopeAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.advanced'
+
     http_method_names = ['post']
 
     def post(self, request, agent_id):
@@ -358,7 +365,9 @@ def _serialize_enrollment_code(row):
     }
 
 
-class SimcAgentEnrollmentCodeListAPIView(View):
+class SimcAgentEnrollmentCodeListAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.advanced'
+
     http_method_names = ['get', 'post']
 
     def get(self, request):
@@ -405,7 +414,9 @@ class SimcAgentEnrollmentCodeListAPIView(View):
         return _no_store(JsonResponse({'success': True, 'data': data}, status=201))
 
 
-class SimcAgentEnrollmentCodeRevokeAPIView(View):
+class SimcAgentEnrollmentCodeRevokeAPIView(DashboardPermissionRequiredMixin, View):
+    dashboard_permission = 'simc.advanced'
+
     http_method_names = ['post']
 
     def post(self, request, code_id):

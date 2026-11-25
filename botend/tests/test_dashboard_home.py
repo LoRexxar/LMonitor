@@ -17,6 +17,8 @@ from botend.models import (DashboardUserGroup, DashboardUserGroupMembership, Mon
 class DashboardHomeTests(TestCase):
     @classmethod
     def setUpTestData(cls):
+        # 本组用例自行构造调度任务，避免数据迁移预置的任务改变数量和排序。
+        MonitorTask.objects.all().delete()
         cls.user = get_user_model().objects.create_user('HomePlayer')
         cls.other = get_user_model().objects.create_user('OtherPlayer')
         cls.admin = get_user_model().objects.create_superuser('HomeAdmin', password='test-password')
@@ -30,6 +32,7 @@ class DashboardHomeTests(TestCase):
             realm_slug='area-52', identity_digest=name, player=player, is_active=active)
 
     def test_players_receive_only_own_roster_and_no_operations(self):
+        DashboardUserGroup.objects.create(name='首页组', permission_codes=['dashboard.home']).users.add(self.user)
         self.binding(self.user, 'MyHomeCharacter')
         self.binding(self.user, 'ClosedCharacter', active=False, with_player=False)
         self.binding(self.other, 'PrivateOtherCharacter')
@@ -50,7 +53,7 @@ class DashboardHomeTests(TestCase):
         self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
 
     def test_player_empty_and_group_member_still_default_to_player_home(self):
-        group = DashboardUserGroup.objects.create(name='News editors', permission_codes=['news.index'])
+        group = DashboardUserGroup.objects.create(name='News editors', permission_codes=['news.index', 'dashboard.home'])
         DashboardUserGroupMembership.objects.create(user=self.user, group=group)
         self.client.force_login(self.user)
         response = self.client.get('/dashboard/')

@@ -634,7 +634,7 @@
             aplModalState.loading = true;
             renderAplModalLanguage();
             try {
-                const response = await fetch('/api/convert-text/', {
+                const response = await fetch("{% url 'portal_convert_text' %}", {
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },

@@ -1,0 +1,35 @@
+<div id="public-data">
+{% if public_links %}
+<section class="metric-section" id="comparison-metrics">
+    <div class="match-head"><h2>公开战斗 · 角色对照</h2><p>A · {{ local.name }}　 B · {{ reference.name }}</p></div>
+    <p>{% if not local.seconds %}本地日志只覆盖部分战斗。卡片列出本地已记录量与标杆整场总量，技能占比可查看两段记录各自的构成。{% else %}卡片展示双方整场总量。点击指标可查看各技能的贡献与差距。{% endif %}</p>
+    <div class="metric-matrix">{% for k,label,d,url in public_links %}
+        <a class="metric-cell" href="{{ url }}"{% if detail == k %} aria-current="true"{% endif %}>
+            <strong>{{ label }}</strong>{% include 'dashboard/combat_gap.html' with d=d only %}
+            <span class="metric-values"><span>A　{{ d.left }}</span><span>B　{{ d.right }}</span></span>
+        </a>{% endfor %}</div>
+</section>
+<section id="comparison-detail" class="match-details">
+    <div class="match-head"><h2>{{ detail_label }} · 技能明细</h2>
+        <nav class="duel-tabs" aria-label="技能统计口径">{% for key,label,url in scale_links %}<a href="{{ url }}"{% if key == scale %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>
+    </div>
+    <p>{% if scale == 'share' %}每个技能除以该角色此项指标的记录总量，按占比差的绝对值排序。{% elif scale == 'rate' %}按各自的战斗时长计算。{% else %}按记录数值的绝对差降序排列。{% endif %} 已确认归属的召唤物计入主人，承伤和死亡只统计角色本人。</p>
+    {% if detail == 'damage' %}<p>技能伤害包含整场记录的有效伤害。下方的榜单 DPS 直接取自 WCL 排名，两者的统计范围可能不同。</p>{% elif detail == 'heal' %}<p>有效治疗统计直接与周期治疗，护盾吸收单独结算，此处不计入。</p>{% endif %}
+    {% if scale == 'rate' %}<div class="match-foot">{{ rate_label }}　A {{ detail_rate.left }}　 B {{ detail_rate.right }}　{% if not local.seconds %}本地场次缺少结束时间。{% endif %}标杆事件覆盖 {{ event_seconds|floatformat:"-2" }} 秒。</div>{% endif %}
+    <div class="table-wrap"><table><thead><tr><th>技能</th><th>A · {{ local.name }}</th><th>B · {{ reference.name }}</th><th>差距</th></tr></thead>
+    <tbody>{% for row in public_rows %}<tr><th scope="row">{{ row.name }}{% if row.spell.isdecimal %}<small class="unit-id">{{ row.spell }}</small>{% endif %}</th>
+        <td class="lane-a">{{ row.delta.left }}{% if scale == 'share' and row.delta.left != '—' %}%{% endif %}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.0|stringformat:'f' }}%"></i></div></td>
+        <td class="lane-b">{{ row.delta.right }}{% if scale == 'share' and row.delta.right != '—' %}%{% endif %}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.1|stringformat:'f' }}%"></i></div></td>
+        <td>{% if scale == 'share' and row.delta.side %}<span class="comparison-gap" data-side="{{ row.delta.side }}"><b>{{ row.delta.side }} 高出 {{ row.delta.amount }} 个百分点</b></span>{% else %}{% include 'dashboard/combat_gap.html' with d=row.delta only %}{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4">双方均未记录到此类事件。</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% if mechanisms %}<section class="match-details"><h2>{% if detail == 'interrupts' %}打断了哪些读条{% else %}驱散了哪些效果{% endif %}</h2>
+    <div class="table-wrap"><table><thead><tr><th>机制</th><th>A · {{ local.name }}</th><th>B · {{ reference.name }}</th><th>次数差距</th></tr></thead>
+    <tbody>{% for row in mechanisms %}<tr><th scope="row">{{ row.name }}{% if row.spell.isdecimal %}<small class="unit-id">{{ row.spell }}</small>{% endif %}</th>
+    <td>{{ row.delta.left }}</td><td>{{ row.delta.right }}</td><td>{% include 'dashboard/combat_gap.html' with d=row.delta only %}</td></tr>{% endfor %}</tbody></table></div>
+</section>{% endif %}
+{% else %}
+<section><h2>公开战斗明细</h2><p role="status">{{ public_warning|default:"正在读取标杆的技能、治疗、承伤与团队操作记录…" }}</p>
+    <a href="{{ read_url }}"{% if not public_warning %} data-load-public{% endif %}>{% if public_warning %}重新读取明细{% else %}读取战斗明细{% endif %}</a></section>
+{% endif %}
+</div>

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="upload" viewBox="0 0 24 24"><path d="M12 15V3m-5 5 5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="link" viewBox="0 0 24 24"><path d="m10 14 4-4m-5 6-2 2a3.5 3.5 0 0 1-5-5l5-5a3.5 3.5 0 0 1 5 0m0 8a3.5 3.5 0 0 0 5 0l5-5a3.5 3.5 0 0 0-5-5l-2 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="brand" viewBox="0 0 24 24"><path d="M2 15h4l3-10 4 15 3-10 2 5h4" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="damage" viewBox="0 0 24 24"><path d="M4 20l5-5m-3-3 6 6m-4-5L18 3l3-1-1 5-9 9" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="taken" viewBox="0 0 24 24"><path d="M12 3l8 3v5c0 5-4 8-8 10-4-2-8-5-8-10V6z M12 8v7" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="heal" viewBox="0 0 24 24"><path d="M20 5c-3-3-7-1-8 2-2-3-6-5-9-1-4 5 4 11 9 15 5-4 13-10 8-16z M9 12h6m-3-3v6" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="overheal" viewBox="0 0 24 24"><path d="M3 13h4l3-8 4 14 2-7h5" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="casts" viewBox="0 0 24 24"><path d="M14 2L5 14h6l-1 8 10-13h-7z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="interrupts" viewBox="0 0 24 24"><path d="M4 6h5v12H4z M15 6h5v12h-5z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="deaths" viewBox="0 0 24 24"><path d="M5 13a8 8 0 1 1 14 0l-2 2v4H7v-4z M8 11h1m6 0h1m-5 5v3m3-3v3" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="dispels" viewBox="0 0 24 24"><path d="M4 20l10-10m-3-2 5 5m2-10v4m-2-2h4M5 6v4m-2-2h4" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="auras" viewBox="0 0 24 24"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="enemycasts" viewBox="0 0 24 24"><path d="M5 3h14M5 21h14M7 4v3l5 5 5-5V4M7 20v-3l5-5 5 5v3" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="events" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h1m-1 6h1m-1 6h1" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="filter" viewBox="0 0 24 24"><path d="M3 7h8m4 0h6M3 17h3m4 0h11 M11 4h4v6h-4z M6 14h4v6H6z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v12H3z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="layers" viewBox="0 0 24 24"><path d="M2 8l10-5 10 5-10 5z M3 12l9 5 9-5M3 16l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="table" viewBox="0 0 24 24"><path d="M3 4h18v16H3z M3 9h18m-12 0v11" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="pivot" viewBox="0 0 24 24"><path d="M3 4h18v16H3z M3 12h18m-9-8v16" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="review" viewBox="0 0 24 24"><path d="M4 4h16v14H9l-5 4z M8 9h8m-8 4h5" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><path d="M16 16l5 5 M18 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="time" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="chart" viewBox="0 0 24 24"><path d="M3 18l6-7 4 3 7-10" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round"/></symbol>
+  <symbol id="compare" viewBox="0 0 24 24"><path d="M3 8h16l-4-4m6 12H5l4 4" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>

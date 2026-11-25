@@ -108,13 +108,16 @@ class AggregationStorageTests(SimpleTestCase):
         from botend.services import snapshot_cache_maintenance as maintenance
         work = dict(kind='aggregation_work', status='ok', apply=False, deleted=0,
                     deleted_bytes=0, has_more=False, next_cursor='')
-        with patch.object(maintenance, 'maintain_snapshot_caches', side_effect=OSError('其他领域失败')), \
+        with self.settings(VARIANT_TEXT_MAINTENANCE_ENABLED=False), \
+                patch('botend.services.combat_log_archive.maintain_archives', return_value=0), \
+                patch.object(maintenance, 'maintain_snapshot_caches', side_effect=OSError('其他领域失败')), \
                 patch.object(maintenance, 'maintain_work_cache', return_value=work) as collect, \
                 patch('botend.services.storage_lifecycle_maintenance.run_extended_maintenance', return_value=[]) as extended:
             results = maintenance.run_maintenance_once()
         collect.assert_called_once()
         extended.assert_called_once()
-        self.assertEqual([row['status'] for row in results], ['error', 'ok'])
+        self.assertEqual([(row['kind'], row['status']) for row in results],
+                         [('snapshot', 'error'), ('combat_logs', 'ok'), ('aggregation_work', 'ok')])
 
     def test_oversized_publication_preserves_previous_index(self):
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import atomic_dump_json

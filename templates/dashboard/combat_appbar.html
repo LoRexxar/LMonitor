@@ -1,0 +1,13 @@
+{% if scope_logs or comparing or report %}
+<div class="analysis-scope" aria-label="分析范围">
+    <div class="scope-source">
+        {% if scope_logs|length == 1 %}<strong title="{{ scope_logs.0.filename }}">{{ scope_logs.0.filename }}</strong>{% elif scope_logs %}<details><summary>当前日志 · {{ scope_logs|length }} 份</summary><ul>{% for source in scope_logs %}<li>{{ source.filename }}</li>{% endfor %}</ul></details>
+        {% elif report %}<strong>{{ report.filename }}</strong>{% else %}<strong>全部可访问日志</strong>{% endif %}
+        <a href="{% if change_url %}{{ change_url }}{% elif report %}{% url 'combat_logs' %}?log={{ report.pk }}{% else %}{% url 'combat_logs' %}{% endif %}">选择日志</a>
+    </div>
+    {% if scope_logs or report or battle_url %}<nav aria-label="当前日志的分析视图">
+        <a {% if not comparing %}aria-current="page"{% endif %} href="{% if battle_url %}{{ battle_url }}{% else %}{% url 'combat_analysis' report.pk %}{% endif %}">战斗数据</a>
+        <a {% if comparing %}aria-current="page"{% endif %} href="{% if players_url %}{{ players_url }}{% else %}{% url 'combat_workspace' %}?log={{ report.pk }}&amp;mode=players{% endif %}">角色对照</a>
+    </nav>{% endif %}
+</div>
+{% endif %}

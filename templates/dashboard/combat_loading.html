@@ -1,0 +1,20 @@
+{% extends 'dashboard/combat_base.html' %}{% load static %}
+{% block title %}{{ loading_title }}{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}">{% endblock %}
+{% block content %}
+{% if loading_error %}
+<main class="combat-wait-page"><h1>{{ loading_title }}</h1><p role="alert">{{ loading_error }}</p>
+<div class="combat-wait-actions"><a href="{{ request.get_full_path }}">重新尝试</a><a href="{% url 'combat_logs' %}">返回日志库</a></div></main>
+{% else %}
+<main class="combat-wait-page" data-wait-page data-continue="{{ continue_url }}" data-progress="{{ progress_url }}">
+    <h1>{{ loading_title }}</h1>
+    <p data-stage role="status">正在连接分析服务…</p>
+    <p class="combat-wait-time"><span data-elapsed>已等待 0 秒</span><span data-slow hidden> · 当前请求耗时较长</span></p>
+    <div class="combat-wait-actions">
+        <button type="button" data-stop hidden>停止等待</button>
+        <a href="{{ request.get_full_path }}" data-retry hidden>重新尝试</a>
+        {% if directory_url %}<a href="{{ directory_url }}">返回战斗目录</a>{% else %}<a href="{% url 'combat_logs' %}">返回日志库</a>{% endif %}
+    </div>
+    <noscript><a href="{{ continue_url }}">继续打开分析</a></noscript>
+</main>{% endif %}
+{% endblock %}

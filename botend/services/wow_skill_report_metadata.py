@@ -108,7 +108,8 @@ def _tooltip_icon(branch, sid):
     if cached is not None:
         return cached
     try:
-        response = requests.get(f'https://nether.wowhead.com/{prefix}/tooltip/spell/{sid}', timeout=(4, 10))
+        path = '' if prefix == 'live' else prefix + '/'
+        response = requests.get(f'https://nether.wowhead.com/{path}tooltip/spell/{sid}', timeout=(4, 10))
         response.raise_for_status()
         icon = str(response.json().get('icon') or '')
         if not re.fullmatch(r'[a-zA-Z0-9_-]+', icon):

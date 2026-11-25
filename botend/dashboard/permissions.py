@@ -7,8 +7,8 @@ from django.http import JsonResponse
 
 DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'dashboard.home', 'label': '首页', 'section': 'dashboard-home', 'parent': '概览'},
-    {'code': 'dashboard.user-management', 'label': '用户管理', 'section': 'user-management', 'parent': '系统'},
-    {'code': 'dashboard.user-groups', 'label': '用户组管理', 'section': 'user-groups', 'parent': '系统'},
+    {'code': 'dashboard.user-management', 'label': '用户管理', 'section': 'user-management', 'parent': '系统', 'superuser_only': True},
+    {'code': 'dashboard.user-groups', 'label': '用户组管理', 'section': 'user-groups', 'parent': '系统', 'superuser_only': True},
     {'code': 'news.index', 'label': '新闻资讯', 'section': 'news', 'parent': '内容'},
     {'code': 'content.class-guides', 'label': '攻略与免责声明', 'section': 'class-guides', 'sections': ['guide-disclaimers'], 'parent': '职业攻略'},
     {'code': 'reports.wow-daily', 'label': 'WoW 日报', 'section': 'wow-daily-reports', 'parent': '内容'},
@@ -19,6 +19,8 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'system.player-analyses', 'label': '角色分析管理', 'section': 'player-analyses', 'parent': '内容', 'superuser_only': True},
     {'code': 'system.alerts', 'label': '系统报警', 'section': 'error-logs', 'parent': '系统'},
     {'code': 'system.logs', 'label': '日志文件', 'section': 'log-files', 'parent': '系统'},
+    {'code': 'system.combat-upload-policy', 'label': '日志上传与回收', 'section': 'combat-upload-policy', 'parent': '系统', 'superuser_only': True},
+    {'code': 'system.combat-public-roles', 'label': '公开角色关联管理', 'section': 'combat-public-roles', 'parent': '系统', 'superuser_only': True},
     {'code': 'system.analytics', 'label': '站内统计', 'section': 'site-analytics', 'parent': '系统'},
     {'code': 'tools.mythic-composition', 'label': '五人阵容查询', 'section': 'mythic-composition', 'parent': '工具箱'},
     {'code': 'mythic.config', 'label': '规划器设置', 'section': 'mythic-planner-config', 'parent': '大秘境规划器'},
@@ -34,7 +36,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'tools.wow-localization', 'label': '游戏名称管理', 'section': 'wow-localization', 'parent': '职业攻略'},
     {'code': 'tools.wcl-analysis', 'label': 'WCL 分析', 'section': 'wcl-analysis-entry', 'parent': '工具箱'},
     {'code': 'tools.wago-rerun', 'label': 'Wago 指定版本重跑', 'section': 'wago-skill-diff-rerun', 'parent': '工具箱'},
-    {'code': 'database.tables', 'label': '数据库', 'section': 'database-tables', 'parent': '系统'},
+    {'code': 'database.tables', 'label': '数据库', 'section': 'database-tables', 'parent': '系统', 'superuser_only': True},
     {'code': 'database.central-data', 'label': '装备与天赋查询', 'section': 'central-data', 'parent': '系统'},
 ))
 
@@ -52,11 +54,15 @@ def validate_permission_codes(codes):
     unknown = sorted(set(codes) - set(DASHBOARD_PAGE_PERMISSIONS))
     if unknown:
         raise ValidationError({'permission_codes': [f'未知权限：{", ".join(unknown)}']})
+    restricted = [DASHBOARD_PAGE_PERMISSIONS[code]['label'] for code in codes
+                  if DASHBOARD_PAGE_PERMISSIONS[code].get('superuser_only')]
+    if restricted:
+        raise ValidationError({'permission_codes': [f'仅超级管理员可用：{"、".join(restricted)}']})
     return list(codes)
 
 
 def effective_dashboard_permissions(user):
-    if not user or not user.is_authenticated:
+    if not user or not user.is_authenticated or not user.is_active:
         return set()
     if user.is_superuser:
         return set(DASHBOARD_PAGE_PERMISSIONS)
@@ -91,10 +97,14 @@ def dashboard_permission_required(code):
 class DashboardPermissionRequiredMixin:
     dashboard_permission = None
 
+    def get_dashboard_permissions(self, request):
+        return (self.dashboard_permission,)
+
     def dispatch(self, request, *args, **kwargs):
-        if not self.dashboard_permission:
+        required = self.get_dashboard_permissions(request)
+        if not required or any(code not in DASHBOARD_PAGE_PERMISSIONS for code in required):
             raise ValueError('dashboard_permission is required')
-        if not has_dashboard_permission(request.user, self.dashboard_permission):
+        if effective_dashboard_permissions(request.user).isdisjoint(required):
             return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
         return super().dispatch(request, *args, **kwargs)
 

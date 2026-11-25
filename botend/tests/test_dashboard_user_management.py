@@ -30,14 +30,50 @@ class DashboardPageAccessTests(TestCase):
     def test_user_without_group_does_not_default_to_database_section(self):
         self.client.force_login(self.user)
         response = self.client.get('/dashboard/')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['dashboard_default_section'], 'dashboard-home')
-        self.assertContains(response, 'dashboard-permissions-data')
+        self.assertEqual(response.status_code, 403)
 
     def test_staff_without_group_has_no_implicit_dashboard_page_access(self):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
         self.assertEqual(self.client.get('/dashboard/?section=news').status_code, 403)
+
+    def test_log_account_only_receives_its_own_navigation_and_sections(self):
+        from botend.dashboard.permissions import SECTION_PERMISSION_CODES
+        group = DashboardUserGroup.objects.create(name='旧日志快捷入口', permission_codes=['tools.combat-logs'])
+        group.users.add(self.user)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get('/dashboard/').status_code, 403)
+        self.assertContains(self.client.get('/portal/combat-logs/'), '日志分析')
+        self.assertNotContains(self.client.get('/portal/combat-logs/'), '进入后台')
+        for section in SECTION_PERMISSION_CODES:
+            with self.subTest(section=section):
+                self.assertEqual(self.client.get('/dashboard/', {'section': section}).status_code, 403)
+        for query in ({'tool': 'wago-skill-diff-rerun'}, {'tool': 'wcl-analysis-entry'}, {'table': 'MonitorTask'}):
+            self.assertEqual(self.client.get('/dashboard/', query).status_code, 403)
+        group.permission_codes = ['tools.wago-rerun']
+        group.save()
+        response = self.client.get('/dashboard/', {'tool': 'wago-skill-diff-rerun'})
+        self.assertContains(response, 'id="wago-rerun-submit"')
+        self.assertNotContains(response, 'id="wcl-dashboard-submit-btn"')
+        self.assertNotContains(response, 'data-section="combat-logs"')
+
+    @patch('botend.dashboard.api.generate_wow_daily_report', return_value={})
+    def test_daily_management_requires_its_group_before_reading_or_generating(self, generate):
+        self.client.force_login(self.user)
+        base = '/api/wow-daily-report/'
+        for resource in ('list', 'content', 'download'):
+            self.assertEqual(self.client.get(f'{base}{resource}/').status_code, 403)
+        self.assertEqual(self.client.post(base + 'generate/').status_code, 403)
+        generate.assert_not_called()
+        group = DashboardUserGroup.objects.create(name='日报管理', permission_codes=['reports.wow-daily'])
+        group.users.add(self.user)
+        self.assertEqual(self.client.get(base + 'list/').status_code, 200)
+        self.assertEqual(self.client.post(base + 'generate/').status_code, 200)
+        generate.assert_called_once()
+        group.is_active = False
+        group.save()
+        self.assertEqual(self.client.post(base + 'generate/').status_code, 403)
+        generate.assert_called_once()
 
     def test_enabled_group_permission_controls_default_section_and_union(self):
         group = DashboardUserGroup.objects.create(
@@ -45,9 +81,9 @@ class DashboardPageAccessTests(TestCase):
         )
         DashboardUserGroupMembership.objects.create(user=self.user, group=group)
         self.client.force_login(self.user)
-        response = self.client.get('/dashboard/')
+        response = self.client.get('/dashboard/', follow=True)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['dashboard_default_section'], 'dashboard-home')
+        self.assertEqual(response.context['dashboard_default_section'], 'news')
         self.assertEqual(self.client.get('/dashboard/?section=news').status_code, 200)
         self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
 
@@ -74,6 +110,56 @@ class DashboardPageAccessTests(TestCase):
         DashboardUserGroupMembership.objects.create(user=self.user, group=group)
         self.assertEqual(self.client.get('/wcl-analysis/').status_code, 200)
         self.assertEqual(self.client.get('/api/wcl-analysis-task/').status_code, 200)
+
+    def test_portal_combat_bookmarks_keep_query_and_dashboard_has_no_player_entry(self):
+        from django.urls import reverse
+        self.client.force_login(self.user)
+        for old, name in [('/dashboard/combat-logs/', 'combat_logs'),
+                          ('/dashboard/combat-logs/upload/', 'combat_upload'),
+                          ('/dashboard/combat-logs/workspace/', 'combat_workspace')]:
+            self.assertTrue(reverse(name).startswith('/portal/combat-logs/'))
+            response = self.client.get(old + '?q=abc')
+            self.assertEqual(response.status_code, 307)
+            self.assertEqual(response.url, reverse(name) + '?q=abc')
+        self.assertEqual(self.client.get('/dashboard/combat-logs/upload/policy/').status_code, 403)
+        self.client.force_login(self.admin)
+        self.assertNotContains(self.client.get('/dashboard/'), 'data-section="combat-logs"')
+
+    def test_simc_group_limits_staff_and_revocation_takes_effect_immediately(self):
+        self.client.force_login(self.staff)
+        for path in ('/api/simc-workbench/history/', '/api/simc-workbench/agents/',
+                     '/api/simc-backend-binary/', '/api/simc-skill-damage/?summary=1',
+                     '/api/simc-profile/', '/api/simc-workbench/secondary-rules/'):
+            self.assertEqual(self.client.get(path).status_code, 403, path)
+        group = DashboardUserGroup.objects.create(name='模拟工作流', permission_codes=['simc.workflow'])
+        group.users.add(self.staff)
+        self.assertEqual(self.client.get('/api/simc-workbench/backend-options/').status_code, 200)
+        self.assertEqual(self.client.get('/api/simc-backend-binary/').status_code, 403)
+        group.is_active = False
+        group.save()
+        self.assertEqual(self.client.get('/api/simc-workbench/backend-options/').status_code, 403)
+
+    def test_mythic_grants_separate_routes_positions_and_settings(self):
+        self.client.force_login(self.user)
+        group = DashboardUserGroup.objects.create(name='路线', permission_codes=['mythic.routes'])
+        group.users.add(self.user)
+        url = '/api/mythic-planner/manage/'
+        self.assertEqual(self.client.get(url, {'resources': 'versions,dungeons,routes'}).status_code, 200)
+        self.assertEqual(self.client.get(url, {'resources': 'configs'}).status_code, 403)
+        self.assertEqual(self.client.post(url, {'resource': 'import'}, content_type='application/json').status_code, 403)
+        group.permission_codes = ['mythic.positions']
+        group.save()
+        self.assertEqual(self.client.get(url, {'resources': 'floors,enemies,spawns'}).status_code, 200)
+        self.assertEqual(self.client.get(url, {'resources': 'routes'}).status_code, 403)
+        self.assertEqual(self.client.post(url, {'resource': 'spawns', 'snapshot_resources': ['routes']},
+                                          content_type='application/json').status_code, 403)
+
+    def test_home_grant_cannot_request_monitor_runs(self):
+        DashboardUserGroup.objects.create(name='首页', permission_codes=['dashboard.home']).users.add(self.user)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.post('/dashboard/', {'action': 'force_run_task'},
+                                          content_type='application/json').status_code, 403)
+        self.assertEqual(self.client.post('/api/portal/peak/refresh/').status_code, 403)
 
     def test_dashboard_post_actions_require_their_page_permissions(self):
         self.client.force_login(self.staff)
@@ -442,7 +528,18 @@ class DashboardUserManagementApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
         self.assertFalse(User.objects.filter(username='unsafe-quick-member').exists())
+
+    def test_upload_management_cannot_be_delegated_to_a_group(self):
+        self.login()
+        url = '/api/dashboard/user-groups/'
+        codes = {item['code'] for item in self.client.get(url).json()['permission_catalog']}
+        self.assertNotIn('system.combat-upload-policy', codes)
+        response = self.client.post(url, {'name': '普通组', 'permission_codes': ['system.combat-upload-policy']},
+                                    content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(DashboardUserGroup.objects.filter(name='普通组').exists())
 
     def test_superuser_can_edit_profile_flags_and_optionally_reset_password(self):
         target = User.objects.create_user(
@@ -629,8 +726,7 @@ class DashboardUserManagementFrontendContractTests(TestCase):
 
         self.client.force_login(self.staff)
         response = self.client.get('/dashboard/')
-        self.assertContains(response, 'data-section="user-management"')
-        self.assertContains(response, 'id="user-management"')
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(self.client.get('/api/dashboard/users/').status_code, 403)
 
     def test_frontend_uses_dedicated_api_and_never_reads_or_prefills_password_hashes(self):

@@ -1,0 +1,79 @@
+<section id="combat-upload-policy" class="content-section bb-page cb-page cb-dashboard policy-admin" {% if dashboard_default_section == 'combat-upload-policy' %}data-loaded="1" data-page-url="{{ request.get_full_path }}"{% else %}style="display:none"{% endif %}>
+{% if dashboard_default_section == 'combat-upload-policy' %}
+<header>
+    <h1>日志上传与回收</h1>
+</header>
+<section class="bb-card">
+    <div class="policy-toolbar">
+        <h2>账号上传设置 <span class="bb-muted">（{{ policy_page.paginator.count }} 个账号）</span></h2>
+        <form method="get" action="{% url 'dashboard' %}" role="search" class="bb-row">
+            <input type="hidden" name="section" value="combat-upload-policy">
+            <input type="search" name="q" value="{{ policy_query }}" placeholder="搜索用户名" aria-label="搜索用户名">
+            <button type="submit" class="bb-secondary">搜索</button>
+            {% if policy_query %}<a href="{% url 'dashboard' %}?section=combat-upload-policy">清除筛选</a>{% endif %}
+        </form>
+    </div>
+    <div class="bb-table-wrap">
+        <table class="bb-table" aria-label="网站账号日志上传设置">
+            <thead><tr>
+                <th scope="col">网站账号</th><th scope="col">设置来源</th><th scope="col">日志上限</th>
+                <th scope="col">有效期</th><th scope="col">配额已满时</th><th scope="col">操作</th>
+            </tr></thead>
+            <tbody>
+            {% for row in policy_rows %}
+                <tr id="policy-row-{{ row.scope }}"{% if row.scope == 'default' %} class="policy-default"{% else %} class="policy-account"{% endif %}>
+                    <th scope="row">{% if row.scope == 'default' %}{{ row.label }}{% else %}
+                        <button type="button" class="policy-usage-toggle" aria-expanded="false"
+                                aria-label="查看{{ row.label }}的使用详情" aria-controls="policy-usage-{{ row.scope }}"
+                                data-url="{% url 'combat_upload_usage' row.scope %}">{{ row.label }}</button>
+                    {% endif %}</th>
+                    <td>{% if row.scope == 'default' %}默认模板{% elif row.custom %}<span class="cb-state cb-active">独立设置</span>{% else %}<span class="cb-state">跟随默认</span>{% endif %}</td>
+                    <td data-label="日志上限">{{ row.policy.max_reports }} 份</td>
+                    <td data-label="有效期">{{ row.policy.retention_days }} 天</td>
+                    <td data-label="配额已满时">{% if row.policy.recycle_oldest %}回收最旧日志{% else %}拒绝新上传{% endif %}</td>
+                    <td class="policy-action">
+                        <button type="button" class="policy-edit" aria-label="编辑{{ row.label }}的设置"
+                                aria-haspopup="dialog" aria-controls="policy-dialog" data-scope="{{ row.scope }}"
+                                data-account="{{ row.label }}" data-limit="{{ row.policy.max_reports }}"
+                                data-days="{{ row.policy.retention_days }}" data-action="{% if row.policy.recycle_oldest %}recycle{% else %}reject{% endif %}"
+                                data-custom="{{ row.custom|yesno:'true,false' }}">编辑</button>
+                        {% if policy_saved == row.scope %}<span role="status" class="bb-muted policy-saved">{% if row.scope != 'default' and not row.custom %}已恢复全站默认{% else %}已保存{% endif %}</span>{% endif %}
+                    </td>
+                </tr>
+                {% if row.scope != 'default' %}
+                <tr class="policy-detail-row" hidden><td colspan="6">
+                    <section id="policy-usage-{{ row.scope }}" aria-label="{{ row.label }}的使用详情"></section>
+                </td></tr>
+                {% endif %}
+            {% endfor %}
+            {% if not policy_page.paginator.count %}<tr><td colspan="6" class="cb-empty">没有匹配的账号。</td></tr>{% endif %}
+            </tbody>
+        </table>
+    </div>
+    {% if policy_page.has_other_pages %}
+    <nav class="cb-pagination" aria-label="账号分页">
+        {% if policy_page.has_previous %}<a href="?{{ policy_filters }}&amp;page={{ policy_page.previous_page_number }}">上一页</a>{% endif %}
+        <span>第 {{ policy_page.number }} / {{ policy_page.paginator.num_pages }} 页</span>
+        {% if policy_page.has_next %}<a href="?{{ policy_filters }}&amp;page={{ policy_page.next_page_number }}">下一页</a>{% endif %}
+    </nav>
+    {% endif %}
+    <dialog id="policy-dialog" class="bb-dialog policy-editor" aria-labelledby="policy-heading" aria-describedby="policy-impact">
+        <form method="post" action="{% url 'dashboard' %}?{{ policy_filters }}&amp;page={{ policy_page.number }}">
+            {% csrf_token %}<input type="hidden" name="scope">
+            <h2 id="policy-heading"></h2>
+            <p id="policy-impact" class="bb-muted"></p>
+            <label class="policy-inherit" hidden><input type="checkbox" name="inherit" value="1"> 恢复全站默认</label>
+            <fieldset class="policy-fields">
+                <label>日志上限（份）<input name="max_reports" type="number" min="1" max="1000" required autofocus></label>
+                <label>有效期（天）<input name="retention_days" type="number" min="1" max="3650" required></label>
+                <label class="policy-full">配额已满时<select name="full_action">
+                    <option value="reject">拒绝新上传</option><option value="recycle">回收最旧日志</option>
+                </select></label>
+            </fieldset>
+            <p class="bb-muted policy-note">有效期从新日志创建时算起。选择回收时，新日志解析成功后才会移除该账号最旧的日志。</p>
+            <div class="policy-dialog-actions"><button type="button" class="bb-secondary" data-dismiss>取消</button><button type="submit">保存</button></div>
+        </form>
+    </dialog>
+</section>
+{% endif %}
+</section>

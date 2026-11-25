@@ -69,8 +69,7 @@ class DashboardDatabaseTableContractTests(TestCase):
     def test_non_staff_does_not_receive_database_sidebar_or_database_api(self):
         self.client.force_login(self.user)
         response = self.client.get("/dashboard/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["tables_info"], [])
+        self.assertEqual(response.status_code, 403)
 
         response = self.post_action(
             {"action": "get_table_data", "table_name": "MonitorTask"},
@@ -344,8 +343,7 @@ class DashboardDatabaseTableContractTests(TestCase):
     def test_staff_without_database_admin_rights_cannot_read_registry_or_api(self):
         self.client.force_login(self.staff_without_database_access)
         page = self.client.get('/dashboard/')
-        self.assertEqual(page.status_code, 200)
-        self.assertEqual(page.context['tables_info'], [])
+        self.assertEqual(page.status_code, 403)
         response = self.post_action(
             {'action': 'get_table_data', 'table_name': 'MonitorTask'},
             user=self.staff_without_database_access,

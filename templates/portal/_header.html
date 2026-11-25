@@ -84,8 +84,14 @@
                 </details>
             </nav>
             <div class="portal-header-utilities">
+            {% if request.user.is_authenticated %}
+            <a href="{% url 'combat_logs' %}" class="portal-pill portal-action-btn portal-utility-link portal-log-link"{% if combat_section %} aria-current="location"{% endif %}>
+                <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
+                <span>日志分析</span>
+            </a>
+            {% endif %}
             <details id="portal-external-links" class="portal-external-menu">
-                <summary class="portal-pill portal-action-btn portal-external-menu-trigger" aria-label="外部链接菜单">
+                <summary class="portal-pill portal-action-btn portal-utility-link portal-external-menu-trigger" aria-label="外部链接菜单">
                     <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
                     <span class="portal-external-menu-label">外部链接</span>
                     <svg class="portal-external-menu-chevron w-3.5 h-3.5" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
@@ -106,12 +112,13 @@
                 </summary>
                 <div class="portal-user-menu-panel">
                     {% character_shortcuts %}
-                    <a href="{% url 'dashboard' %}?section=my-characters" class="portal-user-menu-item"><span>我的角色</span></a>
+                    <a href="{% url 'my_character_bindings' %}" class="portal-user-menu-item"><span>我的角色</span></a>
                     <a href="/auth/bilibili/" class="portal-user-menu-item"><span>绑定 B 站账号</span></a>
-                    <a href="/dashboard/" class="portal-user-menu-item">
+                    {% can_enter_dashboard as show_dashboard %}
+                    {% if show_dashboard %}<a href="/dashboard/" class="portal-user-menu-item">
                         <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                         <span>进入后台</span>
-                    </a>
+                    </a>{% endif %}
                     <form method="post" action="/auth/logout/" class="portal-user-menu-form">
                         {% csrf_token %}
                         <button type="submit" class="portal-user-menu-item portal-user-menu-submit">
@@ -122,7 +129,7 @@
                 </div>
             </details>
             {% else %}
-            <a href="/auth/login/?next=/dashboard/" class="portal-pill portal-action-btn portal-login-icon" aria-label="登录">
+            <a href="/auth/login/?next={{ request.get_full_path|urlencode }}" class="portal-pill portal-action-btn portal-login-icon" aria-label="登录">
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-user"></use></svg>
             </a>
             {% endif %}

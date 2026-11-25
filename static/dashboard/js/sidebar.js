@@ -30,8 +30,8 @@
         const permissionCodes = new Set(JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]'));
         const catalog = JSON.parse(document.getElementById('dashboard-permission-catalog-data')?.textContent || '[]');
         const bySection = new Map(catalog.flatMap(item => [item.section, ...(item.sections || [])].map(section => [section, item.code])));
-        document.querySelectorAll('[data-section], [data-dashboard-section]').forEach(item => {
-            const section = item.getAttribute('data-section') || item.getAttribute('data-dashboard-section');
+        document.querySelectorAll('[data-section], [data-dashboard-section], [data-tool]').forEach(item => {
+            const section = item.dataset.section || item.dataset.dashboardSection || item.dataset.tool;
             if (section === 'dashboard-home') return;
             const code = bySection.get(section);
             if (code && !permissionCodes.has(code)) item.remove();
@@ -39,7 +39,7 @@
         document.querySelectorAll('.nav-item.has-submenu').forEach(item => {
             if (!item.querySelector('.submenu-item')) item.remove();
         });
-        document.querySelectorAll('.content-section').forEach(section => {
+        document.querySelectorAll('.content-section, .tool-content').forEach(section => {
             const code = bySection.get(section.id);
             if (section.id !== 'dashboard-home' && code && !permissionCodes.has(code)) section.remove();
         });
@@ -121,6 +121,8 @@
             {key: 'operations', label: '运行维护', entries: [
                 root.querySelector('[data-dashboard-table="MonitorTask"]'),
                 folder('logs', '日志与告警', 'fa-bell', [section('error-logs'), section('log-files')]),
+                section('combat-upload-policy'),
+                section('combat-public-roles'),
                 section('ai-management'), section('central-data'), section('database-tables'),
             ]},
         ];

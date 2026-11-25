@@ -24,7 +24,7 @@ from botend.portal.adventure_journal import (
     PortalAdventureJournalView, PortalAdventureJournalDetailView, PortalAdventureJournalAPIView, PortalAdventureJournalArtView,
     PortalAdventureJournalTooltipView,
 )
-from django.urls import path
+from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from django.views.generic.base import RedirectView
@@ -133,6 +133,8 @@ from botend.mythic_planner.api import (
     MythicPlannerSharedRouteAPIView,
 )
 from botend.dashboard.mythic_composition import composition_search
+from botend.dashboard import combat_logs
+from botend.dashboard.permissions import dashboard_permission_required
 from botend.mythic_planner.views import (
     DashboardMythicPlannerPositionsView,
     DashboardMythicPlannerRoutesView,
@@ -170,7 +172,9 @@ urlpatterns = [
     path('api/dashboard/ai-providers/<str:provider_key>/', AIProviderManagementAPIView.as_view(), name='dashboard_ai_provider_detail'),
     path('api/site-analytics/collect/', CollectView.as_view(), name='site_analytics_collect'),
     path('api/dashboard/site-analytics/', AnalyticsAPIView.as_view(), name='dashboard_site_analytics'),
-    path('auth/characters/', my_characters, name='my_character_bindings'),
+    path('portal/combat-logs/', include('botend.portal.combat_urls')),
+    path('portal/characters/', my_characters, name='my_character_bindings'),
+    path('auth/characters/', my_characters),
     path('dashboard/character-bindings/', binding_admin, name='character_binding_admin'),
     path('auth/bilibili/', BilibiliBindingPage.as_view(), name='bilibili_binding'),
     path('auth/bilibili/api/', BilibiliBindingAPI.as_view(), name='bilibili_binding_api'),
@@ -250,6 +254,10 @@ urlpatterns = [
     path('api/dashboard/wow-today-sections/', DashboardWowTodaySectionAPIView.as_view(), name='dashboard_wow_today_sections'),
     path('api/dashboard/portal-navigation/', DashboardPortalNavigationAPIView.as_view(), name='dashboard_portal_navigation'),
     path('dashboard/mythic-composition/', composition_search, name='dashboard_mythic_composition'),
+    path('dashboard/combat-logs/', combat_logs.legacy_combat_url),
+    path('dashboard/combat-logs/upload/policy/', combat_logs.upload_policy, name='combat_upload_policy'),
+    path('dashboard/combat-logs/upload/usage/<int:account_id>/', combat_logs.upload_usage, name='combat_upload_usage'),
+    path('dashboard/combat-logs/<path:legacy_path>', combat_logs.legacy_combat_url),
     path('dashboard/mythic-planner/', DashboardMythicPlannerView.as_view(), name='dashboard_mythic_planner'),
     path('dashboard/mythic-planner/positions/', DashboardMythicPlannerPositionsView.as_view(), name='dashboard_mythic_planner_positions'),
     path('dashboard/mythic-planner/routes/', DashboardMythicPlannerRoutesView.as_view(), name='dashboard_mythic_planner_routes'),
@@ -337,7 +345,8 @@ urlpatterns = [
     path('api/simc-workbench/agents/<int:agent_id>/task-scope/', SimcAgentManagementTaskScopeAPIView.as_view(), name='simc_agent_management_task_scope'),
     path('api/simc-workbench/agent-enrollment-codes/', SimcAgentEnrollmentCodeListAPIView.as_view(), name='simc_agent_enrollment_codes'),
     path('api/simc-workbench/agent-enrollment-codes/<int:code_id>/revoke/', SimcAgentEnrollmentCodeRevokeAPIView.as_view(), name='simc_agent_enrollment_code_revoke'),
-    path('api/convert-text/', csrf_exempt(ConvertTextAPIView.as_view()), name="convert_text"),
+    path('portal/api/convert-text/', ConvertTextAPIView.as_view(), name='portal_convert_text'),
+    path('api/convert-text/', dashboard_permission_required('simc.workflow')(ConvertTextAPIView.as_view()), name="convert_text"),
     path('api/mythic-planner/manage/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_api'),
     path('api/mythic-planner/manage/<int:object_id>/', DashboardMythicPlannerAPIView.as_view(), name='dashboard_mythic_planner_detail_api'),
 
@@ -395,7 +404,7 @@ urlpatterns = [
     path('api/wow-daily-report/list/', csrf_exempt(WowDailyReportListAPIView.as_view()), name="wow_daily_report_list"),
     path('api/wow-daily-report/content/', csrf_exempt(WowDailyReportContentAPIView.as_view()), name="wow_daily_report_content"),
     path('api/wow-daily-report/download/', csrf_exempt(WowDailyReportDownloadAPIView.as_view()), name="wow_daily_report_download"),
-    path('api/wow-daily-report/generate/', csrf_exempt(WowDailyReportGenerateAPIView.as_view()), name="wow_daily_report_generate"),
+    path('api/wow-daily-report/generate/', WowDailyReportGenerateAPIView.as_view(), name="wow_daily_report_generate"),
     path('api/wago-skill-diff/rerun/', csrf_exempt(WagoSkillDiffRerunAPIView.as_view()), name="wago_skill_diff_rerun"),
     path('api/wago-hotfix-reports/', csrf_exempt(WagoHotfixReportListAPIView.as_view()), name="wago_hotfix_reports"),
 

@@ -420,11 +420,24 @@ class DashboardView(View):
         处理GET请求，渲染仪表盘页面
         """
         try:
-            permissions = effective_dashboard_permissions(request.user)
             section = request.GET.get('section', '').strip()
+            if section == 'combat-logs':
+                return redirect('combat_logs')
             if section == 'my-characters':
-                from botend.dashboard.character_bindings import my_characters
-                return my_characters(request)
+                return redirect('my_character_bindings')
+            permissions = effective_dashboard_permissions(request.user)
+            if not permissions:
+                return JsonResponse({'status': 'error', 'message': '当前账号尚未获得后台权限。'}, status=403)
+            tool = request.GET.get('tool', '').strip()
+            if tool:
+                if tool not in ('wcl-analysis-entry', 'wago-skill-diff-rerun'):
+                    return JsonResponse({'status': 'error', 'message': '未知后台工具'}, status=404)
+                if SECTION_PERMISSION_CODES[tool] not in permissions:
+                    return JsonResponse({'status': 'error', 'message': '无权使用该后台工具'}, status=403)
+            if request.GET.get('table') and not self._is_database_admin():
+                return JsonResponse({'status': 'error', 'message': '无权管理数据库'}, status=403)
+            if not section and not tool and not request.GET.get('table') and 'dashboard.home' not in permissions:
+                section = next(section for section, code in SECTION_PERMISSION_CODES.items() if code in permissions)
             if section == 'character-bindings':
                 from botend.dashboard.character_bindings import binding_admin
                 return binding_admin(request)
@@ -436,20 +449,29 @@ class DashboardView(View):
             permission_code = SECTION_PERMISSION_CODES.get(section)
             if section and not permission_code and not binding_admin_section:
                 return JsonResponse({'status': 'error', 'message': '未知 Dashboard 页面'}, status=404)
-            if permission_code and section != 'dashboard-home' and permission_code not in permissions:
+            if permission_code and permission_code not in permissions:
                 return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
+            if section == 'mythic-composition':
+                return redirect('dashboard_mythic_composition')
+            if section in ('wcl-analysis-entry', 'wago-skill-diff-rerun'):
+                return redirect(f'{request.path}?tool={section}')
             catalog = permission_catalog()
             context = self.get_context_data(include_stats=False)
-            if not section or section == 'dashboard-home':
+            if section == 'combat-upload-policy':
+                from botend.dashboard.combat_logs import upload_policy_context
+                context.update(upload_policy_context(request.GET))
+            if section == 'combat-public-roles':
+                from botend.dashboard import combat_role_admin
+                context.update(combat_role_admin.context(request.GET))
+            if 'dashboard.home' in permissions and (not section or section == 'dashboard-home'):
                 from botend.dashboard.home import home_context
                 context['home'] = home_context(request.user)
             context['dashboard_permissions'] = sorted(permissions)
             context['dashboard_permission_catalog'] = catalog
             context['dashboard_default_section'] = section or 'dashboard-home'
             response = render(request, 'dashboard/index.html', context)
-            if not section or section == 'dashboard-home' or binding_admin_section or permission_code in ('content.class-guides', 'tools.wow-localization', 'database.central-data', 'system.player-analyses'):
-                response['Cache-Control'] = 'private, no-store'
-                response['X-Robots-Tag'] = 'noindex, nofollow'
+            response['Cache-Control'] = 'private, no-store'
+            response['X-Robots-Tag'] = 'noindex, nofollow'
             return response
         except Exception as e:
             logger.error(f"Dashboard view error: {str(e)}\n{traceback.format_exc()}")
@@ -460,11 +482,18 @@ class DashboardView(View):
         处理POST请求，用于接收Dashboard的数据提交和AJAX请求
         """
         if request.GET.get('section') == 'my-characters':
-            from botend.dashboard.character_bindings import my_characters
-            return my_characters(request)
+            return redirect('my_character_bindings', preserve_request=True)
+        if not effective_dashboard_permissions(request.user):
+            return JsonResponse({'status': 'error', 'message': '当前账号尚未获得后台权限。'}, status=403)
         if request.GET.get('section') == 'character-bindings':
             from botend.dashboard.character_bindings import binding_admin
             return binding_admin(request)
+        if request.GET.get('section') == 'combat-upload-policy':
+            from botend.dashboard.combat_logs import upload_policy
+            return upload_policy(request)
+        if request.GET.get('section') == 'combat-public-roles':
+            from botend.dashboard import combat_role_admin
+            return combat_role_admin.save(request)
         try:
             # 存储 request 以便子方法访问
             self.request = request
@@ -483,8 +512,11 @@ class DashboardView(View):
             if not action:
                 return JsonResponse({"status": "error", "message": "缺少action参数"})
 
+            news_summary = (action == 'get_table_data' and data.get('table_name') == 'WowArticle'
+                            and data.get('view') == 'summary')
             if (
                 action in {'get_table_data', 'create_table_row', 'update_table_row', 'delete_table_row'}
+                and not news_summary
                 and not self._is_database_admin()
             ):
                 return JsonResponse(
@@ -493,10 +525,13 @@ class DashboardView(View):
                 )
 
             required_permission = {
+                'get_wow_article_detail': 'news.index',
                 'list_log_files': 'system.logs',
                 'read_log_file': 'system.logs',
-                'force_run_task': 'dashboard.home',
+                'force_run_task': 'database.tables',
             }.get(action)
+            if news_summary:
+                required_permission = 'news.index'
             if required_permission and required_permission not in effective_dashboard_permissions(request.user):
                 return JsonResponse(
                     {"status": "error", "message": "无权访问该 Dashboard 页面"},
@@ -566,6 +601,9 @@ class DashboardView(View):
             registry_entry = self._database_model_entry(table_name)
             if not registry_entry or not registry_entry['can_read']:
                 return JsonResponse({"status": "error", "message": f"未知表名: {table_name}"}, status=404)
+            if not self._is_database_admin():
+                registry_entry = {**registry_entry, 'can_create': False, 'can_update': False,
+                                  'can_delete': False, 'read_only_reason': '此页面仅提供只读查询'}
             model = registry_entry['model']
             
             # 获取字段名和字段类型信息

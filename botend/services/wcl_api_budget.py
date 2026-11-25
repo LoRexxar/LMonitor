@@ -314,7 +314,7 @@ def _error(payload):
     return 'graphql'
 
 
-def graphql_request(client_id, token, query, variables, *, proxies=None, post=None):
+def graphql_request(client_id, token, query, variables, *, proxies=None, post=None, user_authorized=False):
     """Return payload or a classified error; perform no sleeps or automatic retries.
 
     ``post`` is an optional HTTP-boundary adapter (defaults to requests.post).
@@ -338,7 +338,8 @@ def graphql_request(client_id, token, query, variables, *, proxies=None, post=No
             try:
                 if not reservation.discovery:
                     business_requests_sent.set(business_requests_sent.get() + 1)
-                response = post(URL, json={'query': q, 'variables': v},
+                endpoint = 'https://www.warcraftlogs.com/api/v2/user' if user_authorized else URL
+                response = post(endpoint, json={'query': q, 'variables': v},
                                 headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
                                 timeout=TIMEOUT, proxies=proxies)
             except requests.RequestException:

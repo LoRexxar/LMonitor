@@ -173,7 +173,7 @@
             const data = {
                 username: formData.get('username'),
                 password: formData.get('password'),
-                next: "{{ next_url|default:'/dashboard/'|escapejs }}"
+                next: "{{ next_url|default:'/'|escapejs }}"
             };
             
             try {
@@ -191,7 +191,7 @@
                 
                 if (result.status === 'success') {
                     // 登录成功，返回触发登录的页面；普通后台登录仍进入 dashboard。
-                    window.location.href = result.redirect_url || '/dashboard/';
+                    window.location.href = result.redirect_url || '/';
                 } else {
                     showError(result.message || '登录失败');
                 }

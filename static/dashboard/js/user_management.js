@@ -243,6 +243,7 @@
     }
 
     async function loadUserGroups() {
+        if (!byId('user-management-group-form')) return;
         const response = await fetch('/api/dashboard/user-groups/', { headers: { 'Accept': 'application/json' } });
         const payload = await response.json();
         if (!response.ok) throw new Error(formatError(payload));
@@ -570,7 +571,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        if (!byId('user-management')) return;
+        if (!byId('user-management-add')) return;
         byId('user-management-add').addEventListener('click', () => openModal());
         byId('user-management-group-new').addEventListener('click', () => editGroup());
         byId('user-management-group-form').addEventListener('submit', submitGroup);

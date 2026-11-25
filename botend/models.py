@@ -12,6 +12,40 @@ from django.db import connection, models, transaction
 from django.utils import timezone
 
 
+class WclUserBinding(models.Model):
+    """站内登录账号的 WCL 授权，凭据仅在服务端解密。"""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    wcl_id = models.PositiveBigIntegerField(null=True)
+    name = models.CharField(max_length=255, blank=True)
+    credentials = models.TextField(blank=True)
+    expires_at = models.DateTimeField(null=True)
+    refreshing_until = models.DateTimeField(null=True)
+    challenge = models.CharField(max_length=64, blank=True)
+
+
+class CombatPublicSource(models.Model):
+    """账号关注的公开日志来源，与游戏角色所有权及 WCL 授权分开。"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=12)
+    name = models.CharField(max_length=100)
+    realm = models.CharField(max_length=100)
+    region = models.CharField(max_length=4)
+    class_name = models.CharField(max_length=30, blank=True)
+    spec_name = models.CharField(max_length=30, blank=True)
+    profile_realm = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["user","kind","name","realm","region"],
+                                               name="combat_unique_public_source")]
+
+
+class CombatPublicRolePolicy(models.Model):
+    """公开角色名额，全站默认值及网站账号覆盖值。"""
+    scope = models.CharField(max_length=32, primary_key=True)
+    limit = models.PositiveSmallIntegerField(default=5)
+
+
 class BilibiliBindingConfig(models.Model):
     """全站唯一的 B 站评论验证配置，不保存第三方登录凭据。"""
 
@@ -4343,3 +4377,113 @@ class MythicCompositionJob(models.Model):
                                    (models.Q(owner__isnull=False) & models.Q(active_slot=1)),
                                    name='composition_active_owner'),
         ]
+
+
+def combat_log_expiry():
+    return timezone.now() + timedelta(days=30)
+
+
+class CombatLogPolicy(models.Model):
+    scope = models.CharField(max_length=64, primary_key=True)
+    max_reports = models.PositiveIntegerField(default=10)
+    recycle_oldest = models.BooleanField(default=False)
+    retention_days = models.PositiveIntegerField(default=30)
+
+
+class CombatLogPurge(models.Model):
+    report_id = models.UUIDField(primary_key=True)
+
+
+class CombatLogReport(models.Model):
+    """上传会话、私有归档及当前可读的事件索引。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    expires_at = models.DateTimeField(default=combat_log_expiry, db_index=True)
+    upload_key = models.UUIDField(null=True)
+    retire_after = models.ForeignKey("self", null=True, on_delete=models.SET_NULL, related_name="replacements")
+    filename = models.CharField(max_length=240)
+    size = models.PositiveBigIntegerField()
+    part_size = models.PositiveIntegerField()
+    published = models.UUIDField(null=True)
+    storage_tier = models.CharField(max_length=8, default="hot")
+    reserved_bytes = models.PositiveBigIntegerField(null=True)
+    recoveries = models.PositiveSmallIntegerField(default=0)
+    state = models.CharField(max_length=16, default='uploading')
+    attempt = models.UUIDField(null=True)
+    message = models.CharField(max_length=240, blank=True)
+    digest = models.CharField(max_length=64, blank=True)
+    summary = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "upload_key"], name="combat_owner_upload_key"),
+        ]
+
+
+class CombatLogPart(models.Model):
+    report = models.ForeignKey(CombatLogReport, related_name='parts', on_delete=models.CASCADE)
+    number = models.PositiveIntegerField()
+    digest = models.CharField(max_length=64)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['report', 'number'], name='combat_log_part_number')]
+
+
+class CombatLogCollection(models.Model):
+    """团队分析册，成员可贡献自己的报告及阅读共享报告。"""
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    title = models.CharField(max_length=100)
+    readers = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name="combat_log_collections", blank=True)
+    reports = models.ManyToManyField(CombatLogReport, related_name="collections", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class CombatLogReview(models.Model):
+    report = models.ForeignKey(CombatLogReport, on_delete=models.CASCADE)
+    version = models.UUIDField()
+    fight = models.PositiveIntegerField()
+    topic = models.CharField(max_length=12)
+    anchor = models.CharField(max_length=40)
+    findings = models.JSONField(default=list)
+    token = models.UUIDField(default=uuid.uuid4)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["report", "version", "fight", "topic", "anchor"],
+                                               name="combat_review_snapshot")]
+
+
+class CombatLogMechanic(models.Model):
+    collection = models.ForeignKey(CombatLogCollection, related_name="mechanics", on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    cohort = models.CharField(max_length=240)
+    kind = models.CharField(max_length=12)
+    trigger = models.CharField(max_length=24)
+    response = models.CharField(max_length=24)
+    window = models.PositiveSmallIntegerField()
+
+
+class CombatLogBookmark(models.Model):
+    collection = models.ForeignKey(CombatLogCollection, related_name="bookmarks", on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    filters = models.JSONField()
+
+
+class CombatLogMechanicReview(models.Model):
+    mechanic = models.ForeignKey(CombatLogMechanic, on_delete=models.CASCADE)
+    fingerprint = models.CharField(max_length=64)
+    findings = models.JSONField(default=list)
+    token = models.UUIDField(default=uuid.uuid4)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["mechanic","fingerprint"],name="combat_mechanic_review_key")]
+
+
+class CombatLogScheduler(models.Model):
+    """序列化解析任务的并发准入。"""
+    id = models.PositiveSmallIntegerField(primary_key=True)

@@ -1,0 +1,27 @@
+<div class="policy-usage-detail">
+    <h3 tabindex="-1">{{ account.username }}的使用详情</h3>
+    <dl class="policy-usage-totals">
+        <div><dt>已用日志名额</dt><dd>{{ slots }} / {{ policy.max_reports }} 份</dd></div>
+        <div><dt>剩余名额</dt><dd>{{ remaining }} 份</dd></div>
+        <div><dt>已占用存储配额</dt><dd>{{ reserved|filesizeformat }} / {{ byte_limit|filesizeformat }}</dd></div>
+    </dl>
+    {% if expired %}<p class="bb-muted">有 {{ expired }} 份日志已到期，日志名额已释放，存储配额将在定时清理后释放。</p>{% endif %}
+    <h4>上传记录 <span class="bb-muted">（{{ log_page.paginator.count }} 份）</span></h4>
+    {% if log_page %}
+    <ul class="policy-log-list">
+        {% for log in log_page %}
+        <li>
+            <div><strong>{{ log.filename }}</strong><small>{{ log.size|filesizeformat }} · {{ log.state_label }}{% if log.expires_at <= now %} · 已到期{% endif %}{% if log.retire_after_id %} · 待替换回收{% endif %}</small></div>
+            <div class="policy-log-dates"><span>上传 {{ log.created_at|date:"Y-m-d H:i" }}</span><span>到期 {{ log.expires_at|date:"Y-m-d H:i" }}</span></div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}<p class="bb-muted">该账号当前没有日志。</p>{% endif %}
+    {% if log_page.has_other_pages %}
+    <nav class="cb-pagination" aria-label="上传记录分页">
+        {% if log_page.has_previous %}<button type="button" class="bb-secondary" data-usage-page="{{ log_page.previous_page_number }}">上一页</button>{% endif %}
+        <span>第 {{ log_page.number }} / {{ log_page.paginator.num_pages }} 页</span>
+        {% if log_page.has_next %}<button type="button" class="bb-secondary" data-usage-page="{{ log_page.next_page_number }}">下一页</button>{% endif %}
+    </nav>
+    {% endif %}
+</div>

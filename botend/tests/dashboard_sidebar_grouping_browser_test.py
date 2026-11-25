@@ -35,7 +35,7 @@ class SidebarGroupingBrowserTests(unittest.TestCase):
                 {'key': 'content', 'label': '内容运营', 'entries': ['class-guide-module', 'player-analyses', 'frontend-simulations', 'news', 'site']},
                 {'key': 'tools', 'label': '游戏工具', 'entries': ['mythic-composition', 'simc', 'mythic-planner', 'gear-builder-management', 'tools']},
                 {'key': 'access', 'label': '账号权限', 'entries': ['my-characters', 'user-management', 'user-groups', 'character-bindings', 'bilibili-binding']},
-                {'key': 'operations', 'label': '运行维护', 'entries': ['MonitorTask', 'logs', 'ai-management', 'central-data', 'database-tables']},
+                {'key': 'operations', 'label': '运行维护', 'entries': ['MonitorTask', 'logs', 'combat-upload-policy', 'combat-public-roles', 'ai-management', 'central-data', 'database-tables']},
             ])
             entry = page.locator('[data-sidebar-group="tools"] [data-section="mythic-composition"] > a')
             self.assertTrue(entry.is_visible())

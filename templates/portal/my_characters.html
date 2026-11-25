@@ -1,0 +1,16 @@
+{% load static %}<!doctype html>
+<html lang="zh-CN" data-system-theme>
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>我的角色 · WowDaily</title>
+    <script src="{% static 'portal/js/portal-theme.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}">
+    <link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
+    <link rel="stylesheet" href="{% static 'dashboard/css/character_bindings.css' %}">
+    <script src="{% static 'dashboard/js/character_bindings.js' %}" defer></script>
+</head>
+<body class="portal-bg">
+    {% include 'portal/_header.html' %}
+    <main class="bb-container cb-container">{% include 'dashboard/character_bindings.html' %}</main>
+</body>
+</html>

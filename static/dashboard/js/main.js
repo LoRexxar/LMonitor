@@ -255,15 +255,19 @@ function initDashboardSectionLinks() {
 }
 
 function syncDashboardLocation({ section = '', tool = '', table = '', resource = '' } = {}) {
-    const bindingPageUrl = ['my-characters', 'character-bindings'].includes(section)
+    const sectionPageUrl = ['my-characters', 'character-bindings', 'combat-upload-policy', 'combat-public-roles'].includes(section)
         ? document.getElementById(section)?.dataset.pageUrl : '';
-    const url = new URL(bindingPageUrl || window.location.href, window.location.origin);
+    const url = new URL(sectionPageUrl || window.location.href, window.location.origin);
+    if (['combat-upload-policy', 'combat-public-roles'].includes(url.searchParams.get('section')) && section !== url.searchParams.get('section')) {
+        ['account', 'q', 'page', 'saved'].forEach(key => url.searchParams.delete(key));
+        url.hash = '';
+    }
     url.searchParams.delete('section');
     url.searchParams.delete('tool');
     url.searchParams.delete('table');
     url.searchParams.delete('resource');
     if (resource) url.searchParams.set('resource', resource);
-    if (section !== 'character-bindings') {
+    if (!['character-bindings', 'combat-upload-policy', 'combat-public-roles'].includes(section)) {
         ['q', 'status', 'page', 'users_page', 'saved'].forEach(key => url.searchParams.delete(key));
     }
 
@@ -442,7 +446,7 @@ function initNavigation() {
 
             // 获取对应的内容区域ID
             const sectionId = this.getAttribute('data-section');
-            if (['dashboard-home', 'my-characters', 'character-bindings'].includes(sectionId) && !document.getElementById(sectionId)?.dataset.loaded) {
+            if (['dashboard-home', 'my-characters', 'character-bindings', 'combat-upload-policy', 'combat-public-roles'].includes(sectionId) && !document.getElementById(sectionId)?.dataset.loaded) {
                 window.location.assign(`/dashboard/?section=${sectionId}`);
                 return;
             }
@@ -1004,7 +1008,9 @@ async function generateWowDailyReport() {
     if (genBtn) genBtn.disabled = true;
     if (hintEl) hintEl.textContent = '正在生成...';
     try {
-        const resp = await fetch('/api/wow-daily-report/generate/', { method: 'POST' });
+        const resp = await fetch('/api/wow-daily-report/generate/', {
+            method: 'POST', headers: { 'X-CSRFToken': getCSRFToken() },
+        });
         const data = await resp.json();
         if (!data || !data.success) {
             throw new Error((data && data.error) || '生成失败');
@@ -4343,7 +4349,7 @@ function bindSimcRaidBuffControls() {
 async function loadSimcBackendOptions() {
     const select = document.getElementById('simc-sim-backend');
     if (!select) return;
-    const response = await fetch('/api/simc-backend-binary/');
+    const response = await fetch('/api/simc-workbench/backend-options/');
     const payload = await response.json();
     if (!response.ok || !payload.success) throw new Error(payload.error || '加载 SimC 后端失败');
     const backends = payload.data?.backends || [];

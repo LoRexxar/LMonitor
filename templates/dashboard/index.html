@@ -551,7 +551,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261118_composition" defer></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261125_roles" defer></script>
     {% block dashboard_extra_head %}{% endblock %}
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
@@ -562,7 +562,7 @@
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261117_preview_hover" defer></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact" defer></script>
 <script src="{% static 'dashboard/js/simc_skill_query.js' %}?v=20261031_actor_page" defer></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261119_skill_damage_apl" defer></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261125_roles" defer></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -573,7 +573,7 @@
     <script src="{% static 'shared/js/class-guide-tooltip.js' %}?v=20260910_local" defer></script>
     <script src="{% static 'dashboard/js/class_guides.js' %}?v=20260910_local_tooltips" defer></script>
     {% endif %}
-    <script src="{% static 'dashboard/js/user_management.js' %}?v=20260928_bilibili" defer></script>
+    <script src="{% static 'dashboard/js/user_management.js' %}?v=20261125_access" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
     {% if 'database.central-data' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/central-data.css' %}?v=20261016">
@@ -589,6 +589,12 @@
     {% endif %}
     <link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
     <link rel="stylesheet" href="{% static 'dashboard/css/character_bindings.css' %}?v=20261022_my_characters">
+    {% if dashboard_default_section == 'combat-upload-policy' or dashboard_default_section == 'combat-public-roles' %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/combat_upload_policy.css' %}?v=20261125_alignment">
+    {% endif %}
+    {% if dashboard_default_section == 'combat-upload-policy' %}
+    <script src="{% static 'dashboard/js/combat_upload_policy.js' %}?v=20261125_usage" defer></script>
+    {% endif %}
     <link rel="stylesheet" href="{% static 'dashboard/css/home.css' %}?v=20261022_traffic_home">
     <script src="{% static 'dashboard/js/character_bindings.js' %}" defer></script>
     {% if user.is_superuser %}
@@ -683,10 +689,11 @@
                         <div id="user-menu" class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50 hidden">
                             <div class="px-4 py-2 border-b border-gray-100">
                                 <p class="text-sm font-medium text-gray-900">{{ user.username }}</p>
+                                <p class="text-xs text-gray-500">{% if user.is_superuser %}超级管理员{% elif user.is_staff %}工作人员{% else %}普通账号{% endif %}</p>
                                 <p class="text-xs text-gray-500">{{ user.email }}</p>
                             </div>
                             {% character_shortcuts %}
-                            <a href="{% url 'dashboard' %}?section=my-characters" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">我的角色</a>
+                            <a href="{% url 'my_character_bindings' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">我的角色</a>
                             {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">角色绑定管理</a>{% endif %}
                             <a href="/auth/bilibili/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">绑定 B 站账号</a>
                             <a href="/auth/change-password/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200">
@@ -713,51 +720,66 @@
 
             <nav aria-label="后台功能导航">
                 <ul id="dashboard-primary-nav" class="space-y-1">
+                    {% if 'dashboard.home' in dashboard_permissions %}
                     <li class="nav-item" data-section="dashboard-home">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-home mr-3"></i>
                             首页
                         </a>
                     </li>
+                    {% endif %}
                     {% if user.is_superuser %}
                     <li class="nav-item" data-section="bilibili-binding"><a href="?section=bilibili-binding" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fab fa-bilibili mr-3" aria-hidden="true"></i>B 站绑定设置</a></li>
                     <li class="nav-item" data-section="character-bindings"><a href="{% url 'dashboard' %}?section=character-bindings" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-user-tag mr-3" aria-hidden="true"></i>角色绑定管理</a></li>
                     {% endif %}
+                    {% if 'system.analytics' in dashboard_permissions %}
                     <li class="nav-item" data-section="site-analytics">
                         <a href="?section=site-analytics" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3"></i>站内统计</a>
                     </li>
-                    <li class="nav-item" data-section="my-characters"><a href="{% url 'dashboard' %}?section=my-characters" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-user-circle mr-3" aria-hidden="true"></i>我的角色</a></li>
+                    {% endif %}
+                    <li class="nav-item" data-section="my-characters" data-dashboard-url="{% url 'my_character_bindings' %}"><a href="{% url 'my_character_bindings' %}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-user-circle mr-3" aria-hidden="true"></i>我的角色</a></li>
+                    {% if 'dashboard.user-management' in dashboard_permissions %}
                     <li class="nav-item" data-section="user-management">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-users-cog mr-3"></i>
                             用户管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'dashboard.user-groups' in dashboard_permissions %}
                     <li class="nav-item" data-section="user-groups">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-user-group mr-3"></i>
                             用户组管理
                         </a>
                     </li>
+                    {% endif %}
                     <!-- 新增 News 顶级栏目 -->
+                    {% if 'news.index' in dashboard_permissions %}
                     <li class="nav-item" data-section="news">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-newspaper mr-3"></i>
                             新闻资讯
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'reports.wow-daily' in dashboard_permissions %}
                     <li class="nav-item" data-section="wow-daily-reports">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-book mr-3"></i>
                             WoW 日报
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'reports.wow-today-settings' in dashboard_permissions %}
                     <li class="nav-item" data-section="wow-today-settings">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-layer-group mr-3"></i>
                             今日魔兽编排
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
                     <li class="nav-item has-submenu open" data-section="class-guide-module">
                         <a href="#" aria-expanded="true" aria-controls="class-guide-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-book-open mr-3"></i>
@@ -765,26 +787,43 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul id="class-guide-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                            {% if 'content.class-guides' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="class-guides">
                                 <a href="?section=class-guides" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-pen-to-square mr-2 text-xs"></i>攻略管理
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'tools.wow-localization' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="wow-localization">
                                 <a href="?section=wow-localization" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-language mr-2 text-xs"></i>游戏名称管理
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'content.class-guides' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="guide-disclaimers">
                                 <a href="?section=guide-disclaimers" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-file-contract mr-2 text-xs"></i>免责声明
                                 </a>
                             </li>
+                            {% endif %}
                         </ul>
                     </li>
+                    {% endif %}
+                    {% if user.is_superuser %}
+                    <li class="nav-item" data-section="combat-upload-policy">
+                        <a href="{% url 'dashboard' %}?section=combat-upload-policy" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-archive mr-3" aria-hidden="true"></i>日志上传与回收</a>
+                    </li>
+                    <li class="nav-item" data-section="combat-public-roles">
+                        <a href="{% url 'dashboard' %}?section=combat-public-roles" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-user-friends mr-3" aria-hidden="true"></i>公开角色关联管理</a>
+                    </li>
+                    {% endif %}
+                    {% if 'tools.mythic-composition' in dashboard_permissions %}
                     <li class="nav-item" data-section="mythic-composition" data-dashboard-url="{% url 'dashboard_mythic_composition' %}">
                         <a href="{% url 'dashboard_mythic_composition' %}" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-users mr-3" aria-hidden="true"></i>五人阵容查询</a>
                     </li>
+                    {% endif %}
                     {% if user.is_superuser %}
                     <li class="nav-item" data-section="player-analyses">
                         <a href="?section=player-analyses" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600">
@@ -792,24 +831,30 @@
                         </a>
                     </li>
                     {% endif %}
+                    {% if 'portal.navigation' in dashboard_permissions %}
                     <li class="nav-item" data-section="portal-navigation">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-compass mr-3"></i>
                             首页导航管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'reports.hotfix' in dashboard_permissions %}
                     <li class="nav-item" data-section="wago-hotfix-reports">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-fire mr-3"></i>
                             Hotfix 报告
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'system.alerts' in dashboard_permissions %}
                     <li class="nav-item" data-section="error-logs">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-bell mr-3"></i>
                             系统报警
                         </a>
                     </li>
+                    {% endif %}
                     {% if request.user.is_superuser %}
                     <li class="nav-item" data-section="ai-management" data-ai-system-entry>
                         <a href="?section=ai-management" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600">
@@ -817,12 +862,14 @@
                         </a>
                     </li>
                     {% endif %}
+                    {% if 'system.logs' in dashboard_permissions %}
                     <li class="nav-item" data-section="log-files">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-file-lines mr-3"></i>
                             日志文件
                         </a>
                     </li>
+                    {% endif %}
                     {% if user.is_superuser %}
                     <li class="nav-item" data-dashboard-table="MonitorTask">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
@@ -839,6 +886,7 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul id="mythic-planner-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                            {% if 'mythic.config' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="mythic-planner-config" data-mythic-resource="route_targets">
                                 <a href="/dashboard/?section=mythic-planner-config&amp;resource=route_targets" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">每日 MDT 路线采集</a>
                             </li>
@@ -878,36 +926,54 @@
                             <li class="submenu-item" data-dashboard-section="mythic-planner-config" data-mythic-resource="pois">
                                 <a href="/dashboard/?section=mythic-planner-config&amp;resource=pois" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">地图兴趣点</a>
                             </li>
+                            {% endif %}
+                            {% if 'mythic.positions' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="mythic-planner-positions">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-map-location-dot mr-2 text-xs"></i>
                                     地图点位编辑
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'mythic.routes' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="mythic-planner-routes">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-share-nodes mr-2 text-xs"></i>
                                     账号路线 / MDT 字符串
                                 </a>
                             </li>
+                            {% endif %}
                         </ul>
                     </li>
                     {% endif %}
+                    {% if 'gear-builder.manage' in dashboard_permissions %}
                     <li class="nav-item" data-section="gear-builder-management">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-shield-alt mr-3"></i>
                             职业配装管理
                         </a>
                     </li>
+                    {% endif %}
+                    {% if 'frontend.simulations' in dashboard_permissions %}
                     <li class="nav-item has-submenu open" data-section="frontend-simulations">
                         <a href="#" aria-expanded="true" aria-controls="frontend-simulation-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3" aria-hidden="true"></i>前台数据模拟管理<i class="fas fa-chevron-down ml-auto text-xs" aria-hidden="true"></i></a>
                         <ul class="sidebar-submenu submenu" id="frontend-simulation-sidebar-submenu">
+                            {% if 'frontend.simulations' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="frontend-publication" data-dashboard-url="{% url 'simc_reference_publication' %}"><a href="{% url 'simc_reference_publication' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">公开配置管理</a></li>
+                            {% endif %}
+                            {% if 'frontend.simulations' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="frontend-settings" data-dashboard-url="{% url 'simc_reference_settings' %}"><a href="{% url 'simc_reference_settings' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟配置</a></li>
+                            {% endif %}
+                            {% if 'frontend.simulations' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="frontend-results" data-dashboard-url="{% url 'simc_reference_results' %}"><a href="{% url 'simc_reference_results' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟结果管理</a></li>
+                            {% endif %}
+                            {% if 'frontend.simulations' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="frontend-rankings" data-dashboard-url="{% url 'simc_reference_rankings_entry' %}"><a href="{% url 'simc_reference_rankings_entry' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟排行榜</a></li>
+                            {% endif %}
                         </ul>
                     </li>
+                    {% endif %}
+                    {% if 'simc.workflow' in dashboard_permissions or 'simc.history' in dashboard_permissions or 'simc.advanced' in dashboard_permissions or 'simc.skill-damage' in dashboard_permissions or 'simc.benchmarks' in dashboard_permissions %}
                     <li class="nav-item has-submenu open" data-section="simc">
                         <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-microchip mr-3"></i>
@@ -915,31 +981,39 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul id="simc-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 max-h-0 space-y-1 overflow-hidden transition-all duration-300">
+                            {% if 'simc.workflow' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="simc-workflow">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-project-diagram mr-2 text-xs"></i>
                                     模拟工作流
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'simc.history' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="simc-history">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-history mr-2 text-xs"></i>
                                     历史任务
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'simc.advanced' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="simc-advanced">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-cogs mr-2 text-xs"></i>
                                     高级配置
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'simc.skill-damage' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="simc-skill-damage">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-bolt mr-2 text-xs"></i>
                                     技能伤害快照
                                 </a>
                             </li>
-                            {% if user.is_staff or user.is_superuser %}
+                            {% endif %}
+                            {% if 'simc.benchmarks' in dashboard_permissions %}
                             <li class="submenu-item" data-dashboard-section="simc-benchmarks">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-gauge-high mr-2 text-xs"></i>
@@ -949,6 +1023,8 @@
                             {% endif %}
                         </ul>
                     </li>
+                    {% endif %}
+                    {% if 'tools.wcl-analysis' in dashboard_permissions or 'tools.wago-rerun' in dashboard_permissions %}
                     <li class="nav-item has-submenu open" data-section="tools">
                         <a href="#" aria-expanded="true" aria-controls="tools-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-tools mr-3"></i>
@@ -956,23 +1032,29 @@
                             <i class="fas fa-chevron-down ml-auto text-xs"></i>
                         </a>
                         <ul id="tools-sidebar-submenu" class="sidebar-submenu submenu mt-2 ml-6 space-y-1 max-h-0 overflow-hidden transition-all duration-300">
+                            {% if 'tools.wcl-analysis' in dashboard_permissions %}
                             <li class="submenu-item" data-tool="wcl-analysis-entry">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-chart-bar mr-2 text-xs"></i>
                                     WCL日志分析
                                 </a>
                             </li>
+                            {% endif %}
+                            {% if 'tools.wago-rerun' in dashboard_permissions %}
                             <li class="submenu-item" data-tool="wago-skill-diff-rerun">
                                 <a href="#" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100 hover:text-gray-800 transition-colors duration-200">
                                     <i class="fas fa-rotate-right mr-2 text-xs"></i>
                                     Wago指定版本重跑
                                 </a>
                             </li>
+                            {% endif %}
                         </ul>
                     </li>
+                    {% endif %}
                     {% if 'database.central-data' in dashboard_permissions %}
                     <li class="nav-item" data-section="central-data"><a href="?section=central-data" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200"><i class="fas fa-layer-group mr-3"></i>装备与天赋查询</a></li>
                     {% endif %}
+                    {% if 'database.tables' in dashboard_permissions %}
                     <li class="nav-item has-submenu open" data-section="database-tables">
                         <a href="#" aria-expanded="true" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-database mr-3"></i>
@@ -997,6 +1079,7 @@
                             {% endfor %}
                         </ul>
                     </li>
+                    {% endif %}
                 </ul>
             </nav>
         </div>
@@ -1017,16 +1100,23 @@
             {% include 'dashboard/_ai_management.html' %}
             {% endif %}
             {% if 'mythic.config' in dashboard_permissions or 'mythic.positions' in dashboard_permissions or 'mythic.routes' in dashboard_permissions %}
+            {% if 'mythic.config' in dashboard_permissions %}
             <div id="mythic-planner-config" class="content-section" style="display: none;">
                 {% include 'dashboard/_mythic_planner_config_content.html' %}
             </div>
+            {% endif %}
+            {% if 'mythic.positions' in dashboard_permissions %}
             <div id="mythic-planner-positions" class="content-section" style="display: none;">
                 {% include 'dashboard/_mythic_planner_positions_content.html' %}
             </div>
+            {% endif %}
+            {% if 'mythic.routes' in dashboard_permissions %}
             <div id="mythic-planner-routes" class="content-section" style="display: none;">
                 {% include 'dashboard/_mythic_planner_routes_content.html' %}
             </div>
             {% endif %}
+            {% endif %}
+            {% if 'gear-builder.manage' in dashboard_permissions %}
             <div
                 id="gear-builder-management"
                 class="content-section"
@@ -1092,9 +1182,11 @@
                     </div>
                 </div>
             </div>
-            {% include 'dashboard/home.html' %}
+            {% endif %}
+            {% if 'dashboard.home' in dashboard_permissions %}{% include 'dashboard/home.html' %}{% endif %}
 
             <!-- News 内容区域 -->
+            {% if 'news.index' in dashboard_permissions %}
             <div class="content-section" id="news" style="display: none;">
                 <div class="mb-6">
                     <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
@@ -1136,7 +1228,9 @@
                     <div id="news-wow-pagination" class="px-5 py-4 bg-gray-50 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"></div>
                 </div>
             </div>
+            {% endif %}
 
+            {% if 'reports.wow-daily' in dashboard_permissions %}
             <div class="content-section" id="wow-daily-reports" style="display: none;">
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2">WoW 日报</h2>
@@ -1166,7 +1260,9 @@
                     <div class="divide-y divide-gray-100" id="wow-daily-report-list"></div>
                 </div>
             </div>
+            {% endif %}
 
+            {% if 'reports.wow-today-settings' in dashboard_permissions %}
             <div
                 class="content-section"
                 id="wow-today-settings"
@@ -1213,6 +1309,7 @@
                     <div id="wow-today-settings-empty" class="hidden px-5 py-12 text-center text-sm text-gray-600">没有找到可配置内容。可清空搜索条件，或先运行今日魔兽抓取任务。</div>
                 </div>
             </div>
+            {% endif %}
 
             <div class="content-section" id="guide-disclaimers" style="display: none;">
                 {% if 'content.class-guides' in dashboard_permissions %}
@@ -1234,6 +1331,7 @@
                 {% include 'dashboard/class_guides.html' %}
                 {% endif %}
             </div>
+            {% if 'portal.navigation' in dashboard_permissions %}
             <div
                 class="content-section"
                 id="portal-navigation"
@@ -1267,7 +1365,9 @@
                     <div id="portal-navigation-empty" class="hidden px-5 py-12 text-center text-sm text-gray-600">暂无导航分组，可点击“新增分组”开始配置。</div>
                 </div>
             </div>
+            {% endif %}
 
+            {% if 'reports.hotfix' in dashboard_permissions %}
             <div class="content-section" id="wago-hotfix-reports" style="display: none;">
                 <div class="mb-6">
                     <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
@@ -1301,8 +1401,10 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
             
             <!-- 系统报警内容区域 -->
+            {% if 'system.alerts' in dashboard_permissions %}
             <div class="content-section" id="error-logs" style="display: none;">
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2">系统报警</h2>
@@ -1356,8 +1458,10 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
 
             <!-- 日志文件内容区域 -->
+            {% if 'system.logs' in dashboard_permissions %}
             <div class="content-section" id="log-files" style="display: none;">
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2">日志文件</h2>
@@ -1425,10 +1529,13 @@
                     </div>
                 </div>
             </div>
+            {% endif %}
 
             <!-- SimC pages share one behavior root, but each is an independent Dashboard section. -->
+            {% if 'simc.workflow' in dashboard_permissions or 'simc.history' in dashboard_permissions or 'simc.advanced' in dashboard_permissions or 'simc.skill-damage' in dashboard_permissions %}
             <div id="simc-workbench">
                         <!-- SimC Page: 模拟工作流 -->
+                        {% if 'simc.workflow' in dashboard_permissions %}
                         <div class="content-section simc-l1-panel" id="simc-workflow" data-simc-page="workflow" data-simc-l1-panel="workflow" style="display: none;">
                             <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">模拟工作流</h2>
                             <nav class="mb-4 flex flex-wrap gap-2" aria-label="模拟工作流资源">
@@ -1820,9 +1927,11 @@
                         </div>
 
                         </div>
+                        {% endif %}
                         <!-- End L1 Panel: 模拟工作流 -->
 
                         <!-- SimC Page: 历史任务 -->
+                        {% if 'simc.history' in dashboard_permissions %}
                         <div class="content-section simc-l1-panel hidden" id="simc-history" data-simc-page="history" data-simc-l1-panel="history" style="display: none;">
                         <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">历史任务</h2>
                         <div class="simc-workbench-panel" id="simc-workbench-tasks-panel" data-simc-panel="tasks">
@@ -1853,9 +1962,11 @@
                             </div>
                         </div>
                         </div>
+                        {% endif %}
                         <!-- End L1 Panel: 历史任务 -->
 
                         <!-- SimC Page: 高级配置 -->
+                        {% if 'simc.advanced' in dashboard_permissions %}
                         <div class="content-section simc-l1-panel hidden" id="simc-advanced" data-simc-page="advanced" data-simc-l1-panel="advanced" style="display: none;">
                             <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">高级配置</h2>
                             <nav class="mb-4 flex flex-wrap gap-2" aria-label="SimC 系统模型入口">
@@ -2012,9 +2123,11 @@
                             </div>
                         </div>
                         </div>
+                        {% endif %}
                         <!-- End L1 Panel: 高级设置 -->
 
                         <!-- SimC Page: 技能伤害快照 -->
+                        {% if 'simc.skill-damage' in dashboard_permissions %}
                         <div class="content-section simc-l1-panel hidden" id="simc-skill-damage" data-simc-page="skill-damage" data-simc-l1-panel="skill-damage" style="display: none;">
                             <h2 data-simc-page-heading class="mb-6 text-3xl font-bold text-gray-800">技能伤害快照</h2>
                             <section id="simc-skill-damage-panel" class="rounded-2xl border border-stone-200 bg-white p-6 shadow-lg">
@@ -2078,20 +2191,24 @@
                                 </div>
                             </section>
                         </div>
+                        {% endif %}
                         <!-- End SimC Page: 技能伤害快照 -->
             </div>
+            {% endif %}
 
-            {% if user.is_staff or user.is_superuser %}
+            {% if 'simc.benchmarks' in dashboard_permissions %}
             {% include "dashboard/_simc_benchmark.html" %}
             {% endif %}
 
             <!-- Tools内容区域 -->
+            {% if 'tools.wcl-analysis' in dashboard_permissions or 'tools.wago-rerun' in dashboard_permissions or 'simc.workflow' in dashboard_permissions or 'simc.advanced' in dashboard_permissions %}
             <div class="content-section" id="tools" style="display: none;">
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2" id="selected-tool-name">工具箱</h2>
                 </div>
                 
                 <!-- SimC APL互转工具 -->
+                {% if 'simc.workflow' in dashboard_permissions %}
                 <div class="tool-content" id="simc-apl-converter" style="display: none;">
                     <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                         <div class="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
@@ -2146,7 +2263,9 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
+                {% if 'simc.advanced' in dashboard_permissions %}
                 <div class="tool-content" id="simc-backend-upload" style="display: none;">
                     <div class="bg-white rounded-2xl shadow-lg p-6 mb-6 border border-gray-100">
                         <div class="flex flex-col gap-6">
@@ -2226,7 +2345,9 @@
                     </div>
 
                 </div>
+                {% endif %}
 
+                {% if 'tools.wago-rerun' in dashboard_permissions %}
                 <div class="tool-content" id="wago-skill-diff-rerun" style="display: none;">
                     <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                         <h3 class="text-xl font-semibold text-gray-800 mb-3">Wago 指定版本重跑</h3>
@@ -2258,7 +2379,9 @@
                         <div id="wago-rerun-result" class="mt-4 hidden rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm"></div>
                     </div>
                 </div>
+                {% endif %}
 
+                {% if 'tools.wcl-analysis' in dashboard_permissions %}
                 <div class="tool-content" id="wcl-analysis-entry" style="display: none;">
                     <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
                         <h3 class="text-xl font-semibold text-gray-800 mb-3">WCL日志分析</h3>
@@ -2298,18 +2421,26 @@
                         </div>
                     </div>
                 </div>
+                {% endif %}
 
             </div>
+            {% endif %}
             
             {% include 'dashboard/character_bindings.html' %}
+            {% if 'system.analytics' in dashboard_permissions %}
             {% include 'dashboard/site_analytics.html' %}
+            {% endif %}
             {% if user.is_superuser %}
             {% include 'dashboard/player_analysis_management.html' %}
             {% include 'dashboard/bilibili_binding_admin.html' %}
             {% include 'dashboard/character_bindings_admin.html' %}
+            {% include 'dashboard/combat_upload_policy.html' %}
+            {% include 'dashboard/combat_public_role_admin.html' %}
             {% endif %}
             <!-- 独立用户管理，不接入通用数据库 CRUD -->
+            {% if 'dashboard.user-management' in dashboard_permissions %}
             <div class="content-section" id="user-management" style="display: none;">
+                {% if user.is_superuser %}
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2">用户管理</h2>
                     <p class="text-gray-600">查看、创建和编辑登录用户。密码仅在新增或重置时提交。</p>
@@ -2404,9 +2535,13 @@
                         </form>
                     </div>
                 </div>
+                {% else %}<p>用户账号由超级管理员管理。</p>{% endif %}
             </div>
+            {% endif %}
 
+            {% if 'dashboard.user-groups' in dashboard_permissions %}
             <div class="content-section" id="user-groups" style="display: none;">
+                {% if user.is_superuser %}
                 <div class="mb-6 flex items-center justify-between gap-4">
                     <div><h2 class="text-3xl font-bold text-gray-800 mb-2">用户组管理</h2><p class="text-gray-600">配置业务用户组及可访问的 Dashboard 页面。</p></div>
                     <button id="user-management-group-new" type="button" class="px-4 py-2 bg-emerald-700 text-white rounded-lg"><i class="fas fa-plus mr-2"></i>新建用户组</button>
@@ -2424,9 +2559,12 @@
                         <div class="flex justify-end"><button type="submit" class="px-5 py-2 bg-emerald-700 text-white rounded-lg"><i class="fas fa-save mr-2"></i>保存用户组</button></div>
                     </form>
                 </div>
+                {% else %}<p>用户组及其权限由超级管理员管理。</p>{% endif %}
             </div>
+            {% endif %}
 
             <!-- 数据库表内容区域 -->
+            {% if 'database.tables' in dashboard_permissions %}
             <div class="content-section" id="database-tables" style="display: none;">
                 <div class="mb-6">
                     <h2 class="text-3xl font-bold text-gray-800 mb-2" id="selected-table-name">请选择一个表查看数据</h2>
@@ -2508,6 +2646,7 @@
 
      </div>
         </div>
+            {% endif %}
             {% endblock %}
         </div>
     </div>

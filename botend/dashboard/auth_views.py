@@ -35,9 +35,9 @@ class LoginView(View):
     
     def get(self, request):
         """显示登录页面"""
-        next_url = request.GET.get('next') or '/dashboard/'
+        next_url = request.GET.get('next') or '/'
         if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
-            next_url = '/dashboard/'
+            next_url = '/'
         if request.user.is_authenticated:
             return redirect(next_url)
         
@@ -54,9 +54,9 @@ class LoginView(View):
             data = json.loads(request.body)
             username = data.get('username')
             password = data.get('password')
-            next_url = data.get('next') or '/dashboard/'
+            next_url = data.get('next') or '/'
             if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
-                next_url = '/dashboard/'
+                next_url = '/'
             
             if not username or not password:
                 return JsonResponse({
@@ -99,7 +99,7 @@ class RegisterView(View):
     def get(self, request):
         """显示注册页面"""
         if request.user.is_authenticated:
-            return redirect('/dashboard/')
+            return redirect('/')
         
         # 检查是否允许注册
         if not getattr(settings, 'ALLOW_REGISTRATION', True):
@@ -195,7 +195,7 @@ class RegisterView(View):
             return JsonResponse({
                 'status': 'success',
                 'message': '注册成功',
-                'redirect_url': '/dashboard/'
+                'redirect_url': '/'
             })
             
         except BindingError as exc:

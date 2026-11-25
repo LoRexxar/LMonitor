@@ -1,0 +1,110 @@
+.raid-study {
+    --record: #08796c; --attempt: #828fab; --base-series: #245faa; --other-series: #7850a9;
+    color: var(--ink); font-variant-numeric: tabular-nums; padding-block: 20px 48px;
+}
+.portal-theme-dark .raid-study {
+    --record: #5ed6bb; --attempt: #8995af; --base-series: #9dc5ff; --other-series: #d3b3ff;
+}
+.study-heading,.panel-title,.scope-head,.raid-study form,.mode-tabs,.segment,.phase-summary,.plot-legend,.page-controls {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 12px;
+}
+.raid-study .study-heading,.raid-study .panel-title,.scope-head {justify-content: space-between}
+.raid-study .study-heading {margin: 18px 0}
+.study-heading h1 {font-size: clamp(24px, 3vw, 34px); line-height: 1.2; margin: 0}
+.study-heading h1 span {font-size: .53em; font-weight: 600; color: var(--secondary); vertical-align: middle}
+.raid-study p,.raid-study small,.raid-study .quiet {color: var(--secondary)}
+.raid-study header p,.panel-title p {font-size: .85rem; margin: 4px 0}
+.raid-study section {border-radius: 10px; padding: clamp(16px,2.2vw,28px); scroll-margin-top: 6rem}
+.raid-study h2 {font-size: 1.16rem; margin: 0; letter-spacing: -.015em}
+.segment {gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 7px}
+.segment a,.mode-tabs a {padding: 5px 12px; color: var(--secondary); font-weight: 600; font-size: .86rem}
+.segment a[aria-current] {background: var(--subtle); color: var(--ink); border-radius: 4px}
+.plot-heading {display: flex; align-items: center; gap: 12px; margin: 12px 0 2px; font-size: .86rem}
+.plot-heading strong {font: 650 clamp(26px,3vw,38px)/1 var(--num); color: var(--record)}
+.plot-heading strong small {font-size: .5em; color: inherit}
+.plot-heading div small,.event-skill small,.pull-summary small {display: block}
+.plot-legend {justify-content: end; gap: 16px; font-size: .78rem; color: var(--secondary)}
+.plot-readout {display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 2px 12px}
+.plot-readout p {margin: 8px 0; font-size: .82rem}
+.plot-legend span::before {content: ""; display: inline-block; width: 18px; margin-right: 5px; border-top: 2px solid var(--attempt); vertical-align: middle}
+.plot-legend span:last-child::before {border-color: var(--record); border-top-width: 3px}
+.plot-layout {display: grid; grid-template-columns: 2.75rem minmax(0,1fr); margin: 8px 0}
+.plot-axis,.plot-field {height: clamp(138px,17vw,190px)}
+.plot-axis {display: flex; flex-direction: column; justify-content: space-between; text-align: right; font: .72rem var(--num); color: var(--secondary)}
+.plot-axis span {position: relative; line-height: 0}
+.plot-inner {padding: 0 8px}
+.plot-field {position: relative; isolation: isolate}
+.plot-field svg {display: block; width: 100%; height: 100%; overflow: visible}
+.plot-field path,.plot-field polyline {fill: none; vector-effect: non-scaling-stroke}
+.gridline {stroke: var(--grid); stroke-width: 1}
+.attempt-line {stroke: var(--attempt); stroke-width: 1.7}
+.best-line {stroke: var(--record); stroke-width: 3; stroke-linejoin: round}
+.plot-point {position: absolute; width: 12px; height: 12px; transform: translate(-50%,-50%); border-radius: 50%}
+.plot-point::after {content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--attempt)}
+.plot-point.selected::after,.plot-point:hover::after,.plot-point:focus-visible::after {inset: 1px; background: var(--record); border-color: var(--surface); outline: 1px solid var(--record)}
+.plot-times {position: relative; height: 18px; margin-top: 11px; color: var(--secondary); font-size: .72rem}
+.plot-times span {position: absolute; transform: translateX(-50%); white-space: nowrap}
+.raid-study .plot-caption {margin: 6px 0 12px; font-size: .78rem}
+.phase-summary {gap: 6px 22px; padding-top: 10px; border-top: 1px solid var(--grid); color: var(--secondary); font-size: .83rem}
+.phase-summary b {color: var(--ink)}
+.scope-head {scroll-margin-top: 5rem; margin-top: 18px; padding-bottom: 9px; border-bottom: 1px solid var(--line)}
+.mode-tabs {gap: 5px}
+.mode-tabs a {padding: 8px 12px; border-bottom: 2px solid transparent}
+.mode-tabs a[aria-current] {border-color: var(--record); color: var(--ink)}
+.raid-study form {margin: 0; gap: 8px 14px; max-width: 100%}
+.raid-study form label {display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; color: var(--secondary); font-size: .84rem}
+.raid-study select,.raid-study button {font: inherit; min-width: 0; max-width: 100%; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; background-color: var(--surface); min-height: 34px}
+.raid-study select {padding: 5px 30px 5px 10px; appearance: none; background-image: var(--select-arrow); background-repeat: no-repeat; background-position: right 8px center; background-size: 14px}
+.raid-study :is(a,select,button):focus-visible {outline: 2px solid var(--focus); outline-offset: 2px}
+.pull-summary {display: flex; flex-wrap: wrap; gap: 16px clamp(18px,5vw,65px); padding: 16px 3px 4px}
+.pull-summary strong {font-size: 1.12rem}
+.raid-study table {width: 100%; border-collapse: collapse; font-size: .87rem; margin-top: 14px}
+.raid-study th,.raid-study td {text-align: left; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--grid)}
+.raid-study th {font-weight: 600}
+.raid-study thead th {font-size: .78rem; color: var(--secondary); background: var(--subtle); white-space: nowrap}
+.raid-study .base-text,.raid-study .other-text {font-weight: 700}
+.raid-study .other-text {text-decoration: underline dotted; text-underline-offset: 3px}
+.raid-study .compare-value.up,.raid-study .delta.up {color: var(--base-series)}
+.raid-study .compare-value.down,.raid-study .delta.down {color: var(--other-series)}
+.metric-scroll {overflow-x: auto}
+.raid-study .metric-table :is(th,td):not(:first-child) {text-align: right; white-space: nowrap}
+.metric-table .delta {font-weight: 650; color: var(--secondary)}
+.event-list td {vertical-align: top}
+.event-time {white-space: nowrap}
+.event-time a {display: block; font-family: var(--num); font-weight: 600}
+.event-time b {margin-left: 4px; font-size: .78rem}
+.event-kind {font-size: .74rem; color: var(--secondary)}
+.event-kind[data-kind="死亡"] {color: light-dark(#a73d37,#ffa49a)}
+.event-kind[data-kind="连续受击"],.event-kind[data-kind="机制"] {color: var(--accent)}
+.event-kind[data-kind="复活"],.event-kind[data-kind="护盾"] {color: var(--record)}
+.event-list td:nth-child(3) {min-width: 7rem}
+.event-list td:last-child {max-width: 21rem; line-height: 1.5}
+.stat-pair {display: flex; align-items: baseline; gap: 10px; justify-content: space-between; font-size: .81rem; white-space: nowrap}
+.stat-pair span {color: var(--secondary)}
+.stat-pair b {font-weight: 600}
+.event-list tbody tr:hover,.metric-table tbody tr:hover {background: var(--subtle)}
+.page-controls {justify-content: center; margin-top: 16px}
+.study-details summary {cursor: pointer; font-weight: 600}
+.more-metrics {display: grid; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); gap: 0 22px}
+.more-metrics div {display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--grid); padding: 8px 0}
+.more-metrics dd {margin: 0; font-weight: 600}
+@media(max-width:760px){
+    .raid-study {padding-top: 12px}
+    .raid-study section {padding: 14px}
+    .scope-head {align-items: start}
+    .raid-study form label {flex-wrap: wrap}
+    .scope-head form {width: 100%}
+    .scope-head select {flex: 1}
+    .plot-legend {margin: 8px 0; justify-content: start}
+    .plot-point {width: 10px;height: 10px}
+    .event-list,.event-list tbody {display: block}
+    .event-list thead {position: absolute; width: 1px;height: 1px;overflow: hidden;clip-path: inset(50%)}
+    .event-list tr {display: grid; grid-template-columns: 1fr auto; border-top: 1px solid var(--grid); padding: 12px 0; gap: 5px 10px}
+    .raid-study .event-list td {border: none; padding: 0; min-width: 0; max-width: none}
+    .event-time {grid-column: 2;grid-row: 1;text-align: right!important}
+    .event-skill {grid-column: 1;grid-row: 1}
+    .event-list td[data-label] {grid-column: 1/-1; display: grid;grid-template-columns: 4.5em minmax(0,1fr);gap: 3px 8px}
+    .event-list td[data-label]::before {content: attr(data-label); color: var(--secondary); font-size: .78rem}
+    .event-list .stat-pair {grid-column: 2; justify-content: start}
+    .plot-times span {font-size: .65rem}
+}

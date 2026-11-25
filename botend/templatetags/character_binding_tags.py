@@ -2,13 +2,18 @@
 from django import template
 from django.urls import reverse
 
-from botend.dashboard.permissions import has_dashboard_permission
+from botend.dashboard.permissions import effective_dashboard_permissions, has_dashboard_permission
 from botend.constants.wow import SPEC_ICON, canonical_class_spec
 from botend.models import UserCharacterBinding
 from botend.services.character_bindings import detail_url
 
 register = template.Library()
 MENU_LIMIT = 20
+
+
+@register.simple_tag(takes_context=True)
+def can_enter_dashboard(context):
+    return bool(effective_dashboard_permissions(getattr(context.get('request'), 'user', None)))
 
 
 @register.simple_tag(takes_context=True)

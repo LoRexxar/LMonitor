@@ -1,0 +1,63 @@
+{% extends 'dashboard/combat_base.html' %}{% load static %}
+{% block title %}{% if section == "account" %}{% if private %}WCL 账号授权{% else %}关联公开角色{% endif %}{% else %}{% firstof title "战斗目录" %}{% endif %}{% endblock %}
+{% block assets %}
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_boss.css' %}">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_raid_study.css' %}">
+{% if section == "account" and not private %}<script defer src="{% static 'dashboard/js/combat_public_roles.js' %}"></script>{% endif %}
+{% if show_directory %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_wcl_picker.css' %}">{% endif %}
+{% endblock %}
+{% block content %}<main class="wrap boss-review{% if section == 'account' %} source-settings{% endif %}">
+<nav class="crumb" aria-label="当前位置"><a href="{% url 'combat_logs' %}">日志库</a><i class="crumb-separator" aria-hidden="true"></i>{% if section == 'report' %}<a href="{{ listing_url }}">选择日志</a>{% if directory_url %}<i class="crumb-separator" aria-hidden="true"></i>{% if show_directory %}<span aria-current="page">战斗目录</span>{% else %}<a href="{{ directory_url }}">战斗目录</a>{% endif %}{% endif %}{% if group %}<i class="crumb-separator" aria-hidden="true"></i>{% if fight and request.GET.group %}<a href="{{ group_url }}">{% if group.dungeon %}副本复盘{% else %}首领开荒复盘{% endif %}</a><i class="crumb-separator" aria-hidden="true"></i>{% endif %}<span aria-current="page">{% if comparing %}开荒场次对比{% elif group.dungeon %}副本复盘{% else %}首领开荒复盘{% endif %}</span>{% endif %}{% else %}<span>{% if private %}WCL 账号授权{% else %}关联公开角色{% endif %}</span>{% endif %}</nav>
+{% if section == 'account' %}
+<header><h1>{% if private %}WCL 账号授权{% else %}关联公开角色{% endif %}</h1><nav aria-label="报告渠道"><a href="{% url 'combat_wcl' %}"{% if not private %} aria-current="page"{% endif %}>公开查询</a><a href="?channel=private&amp;settings=1"{% if private %} aria-current="page"{% endif %}>账号授权与私有报告</a></nav></header>
+{% if notice %}<p role="status">{{ notice }}</p>{% endif %}
+{% if private and binding %}<p><a href="{% url 'combat_logs' %}?source=private">在日志库选择授权报告<i class="nav-arrow" aria-hidden="true"></i></a></p>{% endif %}
+{% if not private %}
+<section class="public-roster" aria-labelledby="linked-title">
+    <div class="role-heading"><h2 id="linked-title">已关联角色</h2><span>已用 {{ role_count }} / {{ role_limit }} 个名额</span></div>
+    {% if at_limit %}<p>当前名额已满。取消关联后可以腾出名额。</p>{% endif %}
+    {% if not role_count %}<p>还没有关联公开角色。</p>{% endif %}
+    {% for source in sources %}
+        {% if source.kind == 'character' %}
+        <div class="public-role">
+            {% if source.spec_icon %}<img src="{{ source.spec_icon }}" width="36" height="36" alt="">{% endif %}
+            <div class="role-identity"><a href="{% url 'combat_logs' %}?source={{ source.pk }}">{{ source.name }}</a><small><span data-spec-label>{{ source.spec_label }}</span> · {{ source.realm }} · {{ source.region|upper }}</small></div>
+            <div class="role-actions"><a href="{% url 'combat_logs' %}?source={{ source.pk }}">查看日志</a>
+            <form method="post">{% csrf_token %}{% if not source.spec_icon %}<button name="refresh_spec" value="{{ source.pk }}">更新专精</button>{% endif %}<button name="detach" value="{{ source.pk }}" aria-label="取消关联 {{ source.name }}">取消关联</button></form></div>
+        </div>
+        {% else %}
+        <div class="public-role"><div class="role-identity"><a href="{% url 'combat_logs' %}?source={{ source.pk }}">{{ source.name }}</a><small>公会 · {{ source.realm }} · {{ source.region|upper }}</small></div><form method="post">{% csrf_token %}<button name="detach" value="{{ source.pk }}">取消关联</button></form></div>
+        {% endif %}
+    {% endfor %}
+</section>
+<section class="public-roster" aria-labelledby="account-roles"><h2 id="account-roles">从账号绑定的角色关联</h2>
+    {% for role in bound_roles %}
+    <div class="public-role">
+        {% if role.spec_icon %}<img src="{{ role.spec_icon }}" width="36" height="36" alt="">{% endif %}
+        <div class="role-identity"><strong>{{ role.character_name }}</strong><small>{{ role.spec_label }} · {{ role.realm_slug }} · {{ role.region|upper }}</small></div>
+        {% if role.linked %}<span>已关联</span>{% else %}<form method="post">{% csrf_token %}<button name="bind_role" value="{{ role.pk }}"{% if at_limit %} disabled{% endif %}>关联角色</button></form>{% endif %}
+    </div>
+    {% empty %}<p>账号尚未绑定游戏角色。<a href="{% url 'my_character_bindings' %}">管理我的角色</a></p>{% endfor %}
+</section>
+{% endif %}
+{% if private %}<section><h2>{% if binding %}已绑定 · {{ binding.name }}{% else %}绑定 Warcraft Logs{% endif %}</h2>
+<p>{% if binding %}WCL 账号编号 {{ binding.wcl_id }}{% else %}在 Warcraft Logs 官方页面授权后，可以选择自己上传的报告，也可以通过链接打开有权限查看的报告。{% endif %}</p>
+<div class="library-tools"><form method="post" action="{% url 'combat_wcl_connect' %}">{% csrf_token %}<button class="log-primary" {% if not configured %}disabled{% endif %}>{% if binding %}重新授权{% else %}前往 WCL 授权{% endif %}</button></form>
+{% if binding %}<form method="post" action="{% url 'combat_wcl_disconnect' %}">{% csrf_token %}<button>解除本站绑定</button></form>{% endif %}</div>
+{% if not configured %}<p>请管理员配置站点的 WCL 应用凭据。</p>{% endif %}
+{% if user.is_staff or user.is_superuser %}<details><summary>站点回调地址</summary><p>在 WCL 客户端的 Redirect URLs 中登记此完整地址。</p><code>{{ callback }}</code></details>{% endif %}</section>
+{% else %}<section><h2>按名称关联公开来源</h2>
+<form method="post">{% csrf_token %}<label>查询对象 <select name="kind"><option value="character">游戏角色</option><option value="guild" {% if lookup.kind == 'guild' %}selected{% endif %}>公会</option></select></label>
+<label>名字 <input name="name" value="{{ lookup.name }}" maxlength="100" required></label>
+<label>地区 <select name="region"><option value="">从我的角色匹配</option><option value="cn"{% if lookup.region == 'cn' %} selected{% endif %}>国服</option><option value="tw"{% if lookup.region == 'tw' %} selected{% endif %}>台服</option><option value="us"{% if lookup.region == 'us' %} selected{% endif %}>美服</option><option value="eu"{% if lookup.region == 'eu' %} selected{% endif %}>欧服</option><option value="kr"{% if lookup.region == 'kr' %} selected{% endif %}>韩服</option></select></label>
+<label>服务器 <input name="realm" value="{{ lookup.realm }}" maxlength="100" placeholder="服务器名或 WCL 标识"></label><button class="log-primary">关联并查看日志</button></form>
+<p>本站已关联的角色可直接输入名字。查其他角色或公会时填写地区和服务器。</p>
+{% if matches %}<p>请选择同名角色</p>{% for realm,region,url in matches %}<form method="post">{% csrf_token %}<input type="hidden" name="kind" value="{{ lookup.kind|default:'character' }}"><input type="hidden" name="name" value="{{ lookup.name }}"><input type="hidden" name="realm" value="{{ realm }}"><input type="hidden" name="region" value="{{ region }}"><button>关联 {{ region|upper }} · {{ realm }}</button></form> {% endfor %}{% endif %}</section>{% endif %}
+<section><h2>通过链接打开报告</h2><form method="get">{% if private %}<input type="hidden" name="channel" value="private">{% endif %}<label>WCL 报告链接或代码 <input name="link" size="34" required></label><button>打开报告</button></form></section>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% else %}
+{% if show_directory %}{% include 'dashboard/combat_wcl_picker.html' %}{% elif group %}{% include 'dashboard/combat_wcl_directory.html' %}{% endif %}
+{% if error %}<p role="alert">{{ error }} <a href="{{ request.get_full_path }}">重新读取</a> · {% if single_review_url %}<a href="{{ single_review_url }}">仅复盘当前报告</a> · {% endif %}<a href="{{ listing_url }}">返回报告列表</a></p>{% endif %}
+{% endif %}</main>{% endblock %}

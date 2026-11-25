@@ -1,0 +1,34 @@
+{% load static %}<!doctype html>
+<html lang="zh-CN" data-system-theme>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="/favicon.ico">
+    <title>{% block title %}日志分析{% endblock %} · WowDaily</title>
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=combat1"></script>
+    <script>
+        const combatPageURL = new URL(location.href);
+        if (combatPageURL.searchParams.has('_clwait')) {
+            combatPageURL.searchParams.delete('_clwait');
+            history.replaceState(history.state, '', combatPageURL);
+        }
+    </script>
+    <script defer src="{% static 'dashboard/js/combat_loading.js' %}"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20261124_log_navigation2">
+    {% block assets %}{% endblock %}
+</head>
+<body class="portal-bg combat-page">
+    {% include 'portal/_header.html' with combat_section=True %}
+    <div class="combat-shell">
+        {% include 'dashboard/combat_appbar.html' %}
+        {% block content %}{% endblock %}
+        <div id="combat-pending" data-root="{% url 'combat_logs' %}" hidden><strong role="status"></strong><small data-elapsed></small></div>
+    </div>
+    <script>
+        new ResizeObserver(([entry]) => {
+            const height = entry.borderBoxSize[0].blockSize;
+            document.documentElement.style.setProperty('--combat-header-height', height + 'px');
+        }).observe(document.querySelector('.portal-header'));
+    </script>
+</body>
+</html>

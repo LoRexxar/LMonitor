@@ -299,7 +299,7 @@
                 
                 if (result.status === 'success') {
                     // 注册成功，跳转到dashboard
-                    window.location.href = result.redirect_url || '/dashboard/';
+                    window.location.href = result.redirect_url || '/';
                 } else {
                     showError(result.message || '注册失败');
                 }

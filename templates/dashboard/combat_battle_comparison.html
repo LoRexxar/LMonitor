@@ -1,0 +1,46 @@
+{% extends 'dashboard/combat_base.html' %}{% load static %}
+{% block title %}角色对照 · 日志分析{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=targets2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_comparison.css' %}?v=delta1">{% endblock %}
+{% block content %}
+<header class="page-head"><div class="wrap"><nav class="crumb" aria-label="当前位置"><a href="{% url 'combat_logs' %}">日志库</a>{% if target_group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ change_target }}">更换副本或首领</a>{% endif %}</nav>
+<h1>{% if fight %}{{ fight.name }}{% if fight.kind == "钥匙" %} +{{ fight.level }}{% endif %}{% else %}选择副本或首领{% endif %}</h1>{% if fight %}<p>{{ target_label }}</p>{% endif %}</div></header>
+<main class="wrap duel">
+{% if not target_group %}<section><h2>可对照的战斗</h2>
+{% for name,count,url in targets %}<a class="entry" href="{{ url }}"><strong>{{ name }}</strong><span>{{ count }} 场 <i class="nav-arrow"></i></span></a>{% empty %}<p>当前日志范围内没有已索引的战斗。</p>{% endfor %}</section>
+{% else %}
+{% include 'dashboard/combat_pairing_nav.html' %}
+<section><form class="wb-filters" method="get">{% for k,v in run_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+{% if choices|length > 1 %}<label>战斗场次 <select name="run">{% for id,s in choices %}<option value="{{ id }}"{% if run == id %} selected{% endif %}>{{ s.report.filename }} · #{{ s.id }} · {{ s.result }}</option>{% endfor %}</select></label><button>切换场次</button>{% else %}<strong>当前场次</strong><span>{{ fight.report.filename }} · #{{ fight.id }} · {{ fight.result }}</span>{% endif %}</form>
+<form method="get" class="compare-players">{% if measure %}<input type="hidden" name="measure" value="{{ measure }}">{% endif %}{% if breakdown %}<input type="hidden" name="breakdown" value="{{ breakdown }}">{% endif %}{% for k,v in form_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+{% if pairing == 'public' and detail %}<input type="hidden" name="detail" value="{{ detail }}"><input type="hidden" name="scale" value="{{ scale }}">{% endif %}
+<label>{% if pairing == 'public' %}我的角色{% else %}角色 A{% endif %}<select name="left" required><option value="">选择参战角色</option>{% for a in actors %}<option value="{{ a.guid }}"{% if left == a.guid %} selected{% endif %}>{{ a.name }}</option>{% endfor %}</select></label>
+{% if pairing == 'same' %}<label>角色 B<select name="right" required><option value="">选择参战角色</option>{% for a in actors %}<option value="{{ a.guid }}"{% if right == a.guid %} selected{% endif %}>{{ a.name }}</option>{% endfor %}</select></label>
+<label>指标<select name="metric">{% for k,label in metrics.items %}<option value="{{ k }}"{% if metric == k %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>{% endif %}
+<button type="submit">{% if pairing == 'public' %}匹配公开标杆{% else %}比较角色{% endif %}</button></form>
+{% if pairing == 'public' %}<p>从站内已采集的 WCL 公开排行中，匹配同专精、同目标的记录。{% if fight.kind == '钥匙' %}按同层钥匙分择优，同分取 DPS 较高者。{% else %}按同难度的最高 DPS 择优。{% endif %}</p>{% endif %}</section>
+{% if reason %}<p role="status">{{ reason }}</p>{% endif %}
+{% if results %}{% include 'dashboard/combat_same_results.html' %}{% endif %}
+{% if reference %}{% include "dashboard/combat_public_detail.html" %}{% endif %}
+{% if local %}<section class="match-summary"><div class="match-head"><div><h2>排行榜 · DPS 与用时</h2>{% if reference %}{% include 'dashboard/combat_gap.html' with d=rate_contrast a=local.name b=reference.name only %}{% endif %}</div>{% if reference %}<p>相对差以较低值为基准</p>{% endif %}</div><p>本场已记录伤害 {{ local.amount|floatformat:"0g"|default:"—" }}{% if not local.seconds %} · 缺少完整战斗时长{% endif %}</p><div class="table-wrap"><table><thead><tr><th>角色</th><th>DPS</th><th>战斗秒数</th></tr></thead><tbody><tr><th>A · {{ local.name }} · 本场</th><td>{{ local.rate|floatformat:"2g"|default:"—" }}</td><td>{{ local.seconds|default_if_none:"—" }}</td></tr>
+{% if reference %}<tr><th>B · {{ reference.name }} · {{ reference.realm|default:"公开记录" }}</th><td>{{ reference.dps|floatformat:"2g" }}</td><td>{{ reference.seconds|default_if_none:"—" }}</td></tr>{% endif %}</tbody></table></div>
+{% if reference %}<div class="match-foot"><span>战斗时长差距</span>{% include 'dashboard/combat_gap.html' with d=duration_contrast a=local.name b=reference.name longer=True unit="秒" only %}</div><p>{{ reference.season }} · {{ reference.spec }}{% if reference.score != None %} · 钥匙分 {{ reference.score }}{% endif %}</p><a href="{{ reference.url }}" target="_blank" rel="noopener noreferrer">查看 WCL 原始战斗 ↗</a>{% if reference.updated %}<small>榜单更新于 {{ reference.updated|date:"Y-m-d H:i" }}</small>{% endif %}{% endif %}</section>{% endif %}
+{% endif %}</main>
+{% if reference and not public_links and not public_warning %}
+<script>
+(async () => {
+    const panel = document.getElementById('public-data');
+    const link = panel.querySelector('[data-load-public]');
+    try {
+        const response = await fetch(link.href);
+        if (!response.ok) throw new Error();
+        const page = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const detail = page.getElementById('public-data');
+        if (!detail || detail.querySelector('[data-load-public]')) throw new Error();
+        panel.replaceWith(detail);
+    } catch {
+        panel.querySelector('[role=status]').textContent = '暂时无法读取公开战斗明细。';
+        link.textContent = '重新读取明细';
+    }
+})();
+</script>
+{% endif %}{% endblock %}

@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
 from botend.dashboard.dashboard import DashboardView
-from botend.models import BlizzardForumCategory, BlizzardForumTopic, MonitorTask, WowArticle
+from botend.models import BlizzardForumCategory, BlizzardForumTopic, DashboardUserGroup, MonitorTask, WowArticle
 from botend.tests import test_dashboard_database_tables as database_contract
 
 
@@ -158,7 +158,13 @@ class BlizzardForumDashboardTests(TestCase):
         response = self.post_action(
             {'action': 'get_table_data', 'table_name': 'WowArticle'}, user=self.user)
         self.assertEqual(response.status_code, 403)
-        # Existing detail action permits authenticated readers; do not alter that policy here.
+        response = self.post_action({'action': 'get_wow_article_detail', 'id': row.pk}, user=self.user)
+        self.assertEqual(response.status_code, 403)
+        group = DashboardUserGroup.objects.create(name='新闻编辑', permission_codes=['news.index'])
+        group.users.add(self.user)
+        listing = self.post_action({'action': 'get_table_data', 'table_name': 'WowArticle', 'view': 'summary'}, user=self.user)
+        self.assertEqual(listing.json()['data'][0]['id'], row.pk)
+        self.assertEqual(self.post_action({'action': 'get_table_data', 'table_name': 'WowArticle'}, user=self.user).status_code, 403)
         response = self.post_action({'action': 'get_wow_article_detail', 'id': row.pk}, user=self.user)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data']['id'], row.pk)

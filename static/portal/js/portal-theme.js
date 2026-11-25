@@ -16,7 +16,12 @@
     };
 
     const savedTheme = window.localStorage.getItem(storageKey);
-    applyTheme(savedTheme === 'dark' ? 'dark' : 'light');
+    const systemScheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const followsSystem = root.hasAttribute('data-system-theme');
+    applyTheme(savedTheme || (followsSystem && systemScheme.matches ? 'dark' : 'light'));
+    if (followsSystem) systemScheme.addEventListener('change', (event) => {
+        if (!window.localStorage.getItem(storageKey)) applyTheme(event.matches ? 'dark' : 'light');
+    });
 
     const navigationDataPromise = fetch('/portal/api/navigation/', {
         headers: { Accept: 'application/json' },

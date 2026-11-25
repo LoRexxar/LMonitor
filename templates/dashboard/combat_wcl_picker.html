@@ -1,0 +1,55 @@
+{% load static %}
+<div class="fight-picker" data-fight-picker>
+    <header class="picker-heading">
+        <div>
+            <h1>{% if shared_directory %}战斗目录{% elif report_count == 1 %}{% firstof reports.0.title_label reports.0.zone_label "战斗目录" %}{% else %}所选日志的战斗目录{% endif %}</h1>
+            <p>{% if shared_directory %}已选 {{ report_count }} 份日志{% elif report_count == 1 %}{{ reports.0.date|date:"Y 年 n 月 j 日" }}<span>·</span>{{ reports.0.owner.name|default:"记录者未知" }}{% else %}共 {{ report_count }} 份 WCL 报告{% endif %}</p>
+        </div>
+        <dl class="picker-count"><div><dt>战斗</dt><dd>{{ pull_count }}</dd></div><div><dt>分组</dt><dd>{{ groups|length }}</dd></div></dl>
+    </header>
+    {% if groups %}
+    <div class="picker-layout">
+        <aside class="picker-index">
+            <h2>战斗分组</h2>
+            <nav aria-label="按首领或副本选择战斗">
+                {% for g in groups %}
+                <a href="{{ g.focus_url }}" data-focus="{{ g.key }}"{% if g.key == active.key %} aria-current="true"{% endif %}>
+                    <span><strong>{{ g.name }}</strong><small>{{ g.difficulty }}{% if g.source_label %} · {{ g.source_label }}{% endif %}</small></span><b>{{ g.pulls|length }}</b>
+                </a>
+                {% endfor %}
+            </nav>
+            <label class="picker-select">战斗分组<select>{% for g in groups %}<option value="{{ g.key }}"{% if g.key == active.key %} selected{% endif %}>{{ g.name }} · {{ g.difficulty }}（{{ g.pulls|length }} 场）</option>{% endfor %}</select></label>
+        </aside>
+        <div class="picker-content">
+            {% for g in groups %}
+            <section class="picker-panel" data-group="{{ g.key }}"{% if g.key != active.key %} hidden{% endif %} aria-labelledby="title-{{ g.key }}">
+                <div class="picker-panel-head">
+                    <div><small>{{ g.difficulty }}</small><h2 id="title-{{ g.key }}">{{ g.name }}</h2>
+                        <p>{{ g.pulls|length }} 场战斗<span>·</span>{{ g.kills }} {% if g.dungeon %}次完成{% else %}次击杀{% endif %}{% if g.wipes %}<span>·</span>{{ g.wipes }} {% if g.dungeon %}次未完成{% else %}次灭团{% endif %}{% endif %}</p>
+                    </div>
+                    <div class="picker-review">{% if g.combined_url and g.pulls|length > 1 %}<a href="{{ g.combined_url }}">多场分析</a>{% endif %}
+                    {% if g.players_url %}<a href="{{ g.players_url }}">角色对照</a>{% endif %}
+                    {% if g.review_url and not g.dungeon %}<a class="log-primary" href="{{ g.review_url }}">{% if g.dungeon_boss %}副本首领对比{% else %}首领开荒复盘{% endif %}<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}
+                    {% if g.discover %}<small>合并列表中同首领、同难度的报告</small>{% endif %}</div>
+                </div>
+                <table class="picker-table{% if g.dungeon %} keystone{% endif %}">
+                    <caption>选择单场分析</caption>
+                    <thead><tr><th scope="col">场次</th><th scope="col">开战时间</th><th scope="col">结果</th>{% if not g.dungeon and not g.dungeon_boss %}<th scope="col">阶段</th><th scope="col">结束血量</th>{% endif %}<th scope="col">用时</th><th scope="col"><span class="picker-sr">单场分析</span></th></tr></thead>
+                    <tbody>{% for p in g.pulls %}
+                        <tr{% if p.ref == picked %} class="picked"{% endif %}>
+                            <th scope="row"><a href="{{ p.url }}" aria-label="{{ g.name }} 第 {{ p.number }} 场单场分析">#{{ p.number|stringformat:"02d" }}</a>{% if shared_directory and report_count > 1 %}<small>{{ p.file }}</small>{% endif %}</th>
+                            <td><time datetime="{{ p.date|date:'c' }}" title="{{ p.date|date:'Y-m-d H:i:s' }}"><small>{{ p.date|date:"m-d" }}</small>{{ p.date|date:"H:i:s" }}</time></td>
+                            <td><span class="picker-outcome{% if p.kill %} success{% endif %}">{% if p.result %}{{ p.result }}{% elif p.kill %}{% if g.dungeon %}完成{% else %}击杀{% endif %}{% elif p.kill == False %}{% if g.dungeon %}未完成{% else %}灭团{% endif %}{% else %}未知{% endif %}</span></td>
+                            {% if not g.dungeon and not g.dungeon_boss %}<td>{% if p.lastPhase %}P{{ p.lastPhase }}{% else %}—{% endif %}</td>
+                            <td>{% if p.bossPercentage != None %}{{ p.bossPercentage|floatformat:"-2" }}%{% else %}—{% endif %}</td>{% endif %}
+                            <td>{{ p.elapsed }}</td><td aria-hidden="true"><i class="nav-arrow"></i></td>
+                        </tr>
+                    {% endfor %}</tbody>
+                </table>
+            </section>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}<p class="picker-empty">这份目录中没有可供分析的首领或大秘境战斗。<a href="{{ listing_url }}">返回报告列表</a></p>{% endif %}
+</div>
+{% if groups %}<script defer src="{% static 'dashboard/js/combat_wcl_picker.js' %}"></script>{% endif %}

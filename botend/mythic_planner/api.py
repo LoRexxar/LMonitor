@@ -15,7 +15,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from botend.constants.wow import specialization_catalog
-from botend.dashboard.permissions import has_dashboard_permission
+from botend.dashboard.permissions import effective_dashboard_permissions
 from botend.models import (
     MythicDungeon,
     MythicDungeonAbility,
@@ -543,7 +543,7 @@ def _preflight_default_route_code(route_code):
     }
 
 
-def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
+def management_snapshot(resources=None, dungeon_id=None, *, summary=False, allowed_resources=None):
     if resources is None:
         requested_resources = None
     elif isinstance(resources, str):
@@ -686,7 +686,7 @@ def management_snapshot(resources=None, dungeon_id=None, *, summary=False):
     def resource_count(resource):
         if wants(resource):
             return len(loaded_rows[resource])
-        if wants('counts'):
+        if wants('counts') and (allowed_resources is None or resource in allowed_resources):
             return count_models[resource].objects.count()
         return 0
 
@@ -1205,9 +1205,44 @@ class DashboardMythicPlannerAPIView(View):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return error('请先登录。', status=401)
-        if not has_dashboard_permission(request.user, 'mythic.config'):
+        grants = effective_dashboard_permissions(request.user)
+        self.read_resources = set()
+        self.write_resources = set()
+        if 'mythic.config' in grants:
+            config_resources = set(RESOURCE_SPECS) - {'routes'}
+            self.read_resources.update(config_resources | {'spec_options', 'counts'})
+            self.write_resources.update(config_resources | {'import', 'default_route_preflight'})
+        if 'mythic.positions' in grants:
+            self.read_resources.update({'versions', 'dungeons', 'floors', 'enemies', 'spawns'})
+            self.write_resources.update({'spawns', 'spawn_groups', 'spawn_position_reset'})
+        if 'mythic.routes' in grants:
+            self.read_resources.update({'versions', 'dungeons', 'routes'})
+            self.write_resources.add('routes')
+        if not self.read_resources:
             return error('无权访问该 Dashboard 页面。', status=403)
+        try:
+            if request.method in ('POST', 'PATCH', 'DELETE'):
+                body = parse_body(request)
+                if body.get('resource') not in self.write_resources:
+                    return error('无权修改该规划器资源。', status=403)
+                resources = body.get('snapshot_resources')
+            else:
+                if kwargs.get('object_id') is not None and 'routes' not in self.read_resources:
+                    return error('无权读取路线详情。', status=403)
+                resources = request.GET.get('resources')
+            if isinstance(resources, str):
+                resources = [item.strip() for item in resources.split(',') if item.strip()]
+            if resources is not None and not isinstance(resources, list):
+                return error('资源列表格式无效。')
+            self.snapshot_resources = self.read_resources if resources is None else set(resources)
+            if not self.snapshot_resources <= self.read_resources:
+                return error('无权读取所选规划器资源。', status=403)
+        except (TypeError, ValueError):
+            return error('无效的规划器请求。')
         return super().dispatch(request, *args, **kwargs)
+
+    def _snapshot(self, resources, dungeon_id, *, summary=False):
+        return management_snapshot(resources, dungeon_id, summary=summary, allowed_resources=self.read_resources)
 
     def get(self, request, object_id=None):
         if object_id is not None:
@@ -1230,8 +1265,8 @@ class DashboardMythicPlannerAPIView(View):
                     pk=route.owner_user_id,
                 ).first()
             return success(_management_route(route, owner, include_payload=True))
-        return success(management_snapshot(
-            request.GET.get('resources'),
+        return success(self._snapshot(
+            self.snapshot_resources,
             request.GET.get('dungeon_id'),
             summary=request.GET.get('summary') == '1',
         ))
@@ -1246,7 +1281,7 @@ class DashboardMythicPlannerAPIView(View):
         try:
             body = parse_body(request)
             resource = str(body.get('resource') or '')
-            snapshot_resources = body.get('snapshot_resources')
+            snapshot_resources = self.snapshot_resources
             snapshot_dungeon_id = body.get('snapshot_dungeon_id')
             if resource == 'default_route_preflight':
                 data = body.get('data')
@@ -1272,7 +1307,7 @@ class DashboardMythicPlannerAPIView(View):
                 )
                 return success(
                     result,
-                    snapshot=management_snapshot(
+                    snapshot=self._snapshot(
                         snapshot_resources,
                         snapshot_dungeon_id,
                     ),
@@ -1311,7 +1346,7 @@ class DashboardMythicPlannerAPIView(View):
                     route.save(update_fields=[*changed_fields, 'updated_at'])
                 return success(
                     {'id': route.id, 'resource': resource},
-                    snapshot=management_snapshot(
+                    snapshot=self._snapshot(
                         snapshot_resources,
                         snapshot_dungeon_id,
                     ),
@@ -1432,7 +1467,7 @@ class DashboardMythicPlannerAPIView(View):
                         ).filter(is_featured=True).update(is_featured=False)
                 return success(
                     {'id': row.id, 'resource': resource},
-                    snapshot=management_snapshot(
+                    snapshot=self._snapshot(
                         snapshot_resources,
                         snapshot_dungeon_id,
                     ),
@@ -1487,7 +1522,7 @@ class DashboardMythicPlannerAPIView(View):
                     ])
                 return success(
                     {'id': spawn.id, 'resource': 'spawns', 'restored': True},
-                    snapshot=management_snapshot(
+                    snapshot=self._snapshot(
                         snapshot_resources,
                         snapshot_dungeon_id,
                     ),
@@ -1496,7 +1531,7 @@ class DashboardMythicPlannerAPIView(View):
                 result = _manage_spawn_groups(request, body.get('data'))
                 return success(
                     result,
-                    snapshot=management_snapshot(
+                    snapshot=self._snapshot(
                         snapshot_resources,
                         snapshot_dungeon_id,
                     ),
@@ -1673,7 +1708,7 @@ class DashboardMythicPlannerAPIView(View):
                     MythicDungeonDataVersion.objects.exclude(id=row.id).filter(is_active=True).update(is_active=False)
             return success(
                 {'id': row.id, 'resource': resource},
-                snapshot=management_snapshot(
+                snapshot=self._snapshot(
                     snapshot_resources,
                     snapshot_dungeon_id,
                 ),
@@ -1692,7 +1727,7 @@ class DashboardMythicPlannerAPIView(View):
         try:
             body = parse_body(request)
             resource = str(body.get('resource') or '')
-            snapshot_resources = body.get('snapshot_resources')
+            snapshot_resources = self.snapshot_resources
             snapshot_dungeon_id = body.get('snapshot_dungeon_id')
             spec = RESOURCE_SPECS.get(resource)
             if not spec or resource == 'configs':
@@ -1714,7 +1749,7 @@ class DashboardMythicPlannerAPIView(View):
             row.save(update_fields=update_fields)
             return success(
                 {'id': row.id, 'resource': resource, 'archived': True},
-                snapshot=management_snapshot(
+                snapshot=self._snapshot(
                     snapshot_resources,
                     snapshot_dungeon_id,
                 ),

@@ -1,0 +1,6 @@
+{% if waves %}<form id="waves" class="wave-picker" method="get">
+{% for k,v in wave_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+<label for="analysis-wave">分析波次</label><select id="analysis-wave" name="wave">
+<option value="all"{% if not active_wave %} selected{% endif %}>整把钥匙</option>
+{% for w in waves %}<option value="{{ w.id }}"{% if w.id == active_wave.id %} selected{% endif %}>{{ w.caption }}{% if w.enemies %} · {{ w.enemies }}{% endif %}</option>{% endfor %}
+</select><button type="submit">进入分析</button></form>{% endif %}

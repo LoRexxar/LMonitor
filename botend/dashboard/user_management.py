@@ -321,7 +321,7 @@ class DashboardUserGroupListAPIView(View):
         return JsonResponse({
             'status': 'success',
             'data': [_serialize_group(group) for group in groups],
-            'permission_catalog': permission_catalog(),
+            'permission_catalog': [item for item in permission_catalog() if not item.get('superuser_only')],
             'user_catalog': [
                 {'id': user.pk, 'username': user.username}
                 for user in User.objects.filter(is_active=True).order_by('username', 'pk')
