@@ -4391,12 +4391,12 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         self.assertEqual(portal.status_code, 200)
         from bs4 import BeautifulSoup
         document = BeautifulSoup(portal.content, 'html.parser')
-        tools = document.select_one(
-            '#portal-primary-nav details[data-nav-category="tools"]',
+        mythic = document.select_one(
+            '#portal-primary-nav details[data-nav-category="mythic"]',
         )
-        self.assertIsNotNone(tools)
-        self.assertEqual(tools.find('summary').get_text(' ', strip=True), '玩家工具')
-        entry = tools.select_one('a[href="/portal/mythic-planner/"]')
+        self.assertIsNotNone(mythic)
+        self.assertEqual(mythic.find('summary').get_text(' ', strip=True), '副本与路线')
+        entry = mythic.select_one('a[href="/portal/mythic-planner/"]')
         self.assertIsNotNone(entry)
         self.assertEqual(entry.get_text(' ', strip=True), 'MDT 路线')
         self.assertIsNone(entry.find_parent(attrs={'hidden': True}))

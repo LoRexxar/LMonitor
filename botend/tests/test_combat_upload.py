@@ -345,6 +345,8 @@ class UploadBrowserTests(StaticLiveServerTestCase):
             browser = pw.chromium.launch(channel="msedge")
             try:
                 page = browser.new_page(reduced_motion="reduce")
+                # 管理表和编辑窗口使用站内静态资源，隔离公共 CDN 的响应时间。
+                page.route("https://**/*", lambda route: route.abort())
                 page.context.add_cookies([{"name":"sessionid", "value":self.client.cookies["sessionid"].value,
                                            "url":self.live_server_url}])
                 page.goto(self.live_server_url + reverse("dashboard") + f"?section=combat-public-roles&saved={admin.pk}",
@@ -393,6 +395,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 page = browser.new_page()
                 page.context.add_cookies([{"name": "sessionid", "value": self.client.cookies["sessionid"].value,
                                            "url": self.live_server_url}])
+                page.route("https://**/*", lambda route: route.abort())
                 page.goto(self.live_server_url + reverse("dashboard") + "?section=combat-upload-policy")
                 default = page.locator("#policy-row-default")
                 custom = page.locator(f"#policy-row-{owner.pk}")
