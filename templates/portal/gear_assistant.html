@@ -15,6 +15,7 @@
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
     <main class="gear-assistant-page"
+          data-job-owner="{{ request.user.pk }}"
           data-builder-bootstrap-url="{% url 'portal_gear_builder_bootstrap' %}"
           data-assistant-bootstrap-url="{% url 'portal_gear_assistant_bootstrap' %}"
           data-optimize-url="{% url 'portal_gear_assistant_optimize' %}"
@@ -29,11 +30,15 @@
                 <p>保留锁定装备，优先携带特效装备，再匹配目标绿字。</p>
             </div>
             <div class="gear-assistant-controls">
-                <label><span>职业</span><select id="assistant-class"></select></label>
-                <label><span>专精</span><select id="assistant-spec"></select></label>
+                <label><span>职业</span><select id="assistant-class" disabled></select></label>
+                <label><span>专精</span><select id="assistant-spec" disabled></select></label>
                 <a class="assistant-btn" href="{% url 'portal_gear_builder' %}">返回职业配装器</a>
             </div>
         </header>
+        <p id="assistant-latest-job" hidden>
+            最近任务：<button type="button" id="assistant-view-job" class="assistant-link-btn" disabled></button>
+            <small>结果保留 24 小时；新任务提交成功后，旧结果不再可查。</small>
+        </p>
 
         <section class="gear-assistant-grid">
             <aside class="assistant-panel assistant-equipment-panel">
@@ -113,7 +118,7 @@
 
                         <div class="assistant-generate-row">
                             <div><strong>将生成三套方案</strong><span>优先备选装备、全装备池、不含团本装备</span></div>
-                            <button type="button" id="assistant-generate" class="assistant-btn assistant-btn--primary">开始模拟</button>
+                            <button type="button" id="assistant-generate" class="assistant-btn assistant-btn--primary" disabled>开始模拟</button>
                         </div>
                     </div>
                 </div>
@@ -124,7 +129,7 @@
                         <div class="assistant-result-actions">
                             <small id="assistant-result-lock-summary">锁定 0 件</small>
                             <button type="button" id="assistant-edit-config" class="assistant-btn">调整配置</button>
-                            <button type="button" id="assistant-rerun" class="assistant-btn assistant-btn--primary">再次模拟</button>
+                            <button type="button" id="assistant-rerun" class="assistant-btn assistant-btn--primary" disabled>再次模拟</button>
                         </div>
                     </div>
                     <div id="assistant-results" class="assistant-results">
@@ -154,6 +159,6 @@
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
     <script src="{% static 'shared/js/wow-gear-sources.js' %}?v=20261010_sources"></script>
     <script src="{% static 'portal/js/gear_assistant_results.js' %}?v=20261010_skip_empty_enhancements"></script>
-    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261010_clean_sources"></script>
+    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261125_latest_job"></script>
 </body>
 </html>

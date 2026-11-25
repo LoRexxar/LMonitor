@@ -25,8 +25,6 @@ body.simc-reference-page { height: auto; min-height: 100%; overflow-y: visible; 
 .simc-reference h2 { font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
 .simc-reference h3 { font-size: 15px; font-weight: 650; }
 .reference-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 24px; margin-bottom: 24px; }
-.reference-title-row { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-.reference-beta { border: 1px solid var(--reference-border); color: var(--reference-muted); padding: 2px 8px; border-radius: 5px; font-size: 11px; letter-spacing: .04em; }
 .reference-heading p { color: var(--reference-muted); font-size: 13px; max-width: 62ch; }
 .reference-workbench { border: 1px solid var(--reference-border); background: var(--reference-surface); border-radius: 16px; }
 .reference-navigation-status { position: fixed; top: calc(var(--reference-header-height, 64px) + 12px); left: 50%; transform: translateX(-50%); z-index: 60; display: flex; align-items: flex-start; gap: 12px; width: min(560px, calc(100vw - 32px)); padding: 14px 18px; border: 1px solid var(--reference-accent); border-radius: 12px; background: var(--reference-surface); color: var(--reference-text); box-shadow: 0 8px 28px #0002; overflow-wrap: anywhere; }

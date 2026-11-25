@@ -289,14 +289,13 @@ class ReferenceRankingTests(TestCase):
         self.assertIsNone(leaderboard(self.config, '0' * 64, 'overall'))
         self.assertIsNone(leaderboard(self.config, anchor.signature, 'invalid'))
 
-    def test_leaderboard_requires_login_and_escapes_names(self):
+    def test_anonymous_leaderboard_escapes_names_and_only_reads_published_results(self):
+        self.client.logout()
         self.profile.name = '<script>alert(1)</script>'
         self.profile.save()
         refresh_configs()
         anchor = self.result(100)
         url = reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall'])
-        self.assertEqual(self.client.get(url).status_code, 302)
-        self.client.force_login(self.user)
         response = self.client.get(url)
         self.assertContains(response, '<!DOCTYPE html>')
         self.assertContains(response, '<title>全职业模拟排行榜 · WowDaily</title>')
@@ -372,14 +371,13 @@ class ReferenceRankingTests(TestCase):
 
     def test_navigation_exists_without_selected_simulation_and_empty_entry_is_read_only(self):
         entry_url = reverse('portal_simc_reference_rankings_entry')
-        self.assertEqual(self.client.get(entry_url).status_code, 302)
-        self.client.force_login(self.user)
         source = self.client.get(reverse('portal_simc_reference'), {'spec': 'warrior_fury'})
         self.assertContains(source, '模拟资料页面导航', count=1)
         self.assertContains(source, f'href="{entry_url}"')
         empty = self.client.get(entry_url)
         self.assertContains(empty, '暂无可展示的模拟结果')
         self.assertNotContains(empty, 'class="simc-leaderboard"')
+        self.client.force_login(self.user)
         admin_empty = self.client.get(reverse('simc_reference_rankings_entry'))
         self.assertContains(admin_empty, '前往模拟结果管理')
         self.assertContains(admin_empty, 'dashboard-primary-nav')
@@ -393,7 +391,7 @@ class ReferenceRankingTests(TestCase):
         anchor = self.result(100)
         other = self.other_spec()
         other_row = self.result(200, **other)
-        self.client.force_login(self.user)
+        self.client.logout()
         entry_url = reverse('portal_simc_reference_rankings_entry')
         response = self.client.get(entry_url, {'config': self.config.pk})
         self.assertRedirects(response, reverse('portal_simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']))

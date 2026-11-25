@@ -4355,6 +4355,29 @@ class AIProviderConfiguration(models.Model):
                                                name='ai_provider_supported_key')]
 
 
+class GearAssistantJob(models.Model):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    request_id = models.UUIDField()
+    active_slot = models.PositiveSmallIntegerField(null=True, default=1)
+    worker_slot = models.PositiveSmallIntegerField(null=True, unique=True)
+    state = models.CharField(max_length=12, default='queued')
+    class_name = models.CharField(max_length=32)
+    spec_name = models.CharField(max_length=32)
+    payload = models.JSONField(default=dict)
+    result = models.JSONField(default=dict)
+    error = models.CharField(max_length=300, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=('owner', 'request_id'), name='gear_job_owner_request'),
+            models.UniqueConstraint(fields=('owner', 'active_slot'), name='gear_job_owner_slot'),
+        ]
+        indexes = [models.Index(fields=('state', 'created_at'), name='gear_job_queue_idx'),
+                   models.Index(fields=('active_slot', 'updated_at'), name='gear_job_expiry_idx')]
+
+
 class MythicCompositionJob(models.Model):
     """五人阵容查询。每个账号的活动任务占用一个槽位，结束后释放并保留结果。"""
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True)

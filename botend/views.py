@@ -214,6 +214,8 @@ class LMonitorCoreBackend:
         # No plugin-specific MonitorTask workers; maintenance below is separate.
         from botend.services.gear_catalog_snapshot import start_catalog_snapshot_worker
         self._workers.append(start_catalog_snapshot_worker(lifecycle=self.lifecycle))
+        from botend.services.gear_assistant_jobs import start_worker as start_gear_assistant_worker
+        self._workers.append(start_gear_assistant_worker(lifecycle=self.lifecycle))
         from botend.services.journal_loot_snapshot import start_journal_loot_snapshot_worker
         self._workers.append(start_journal_loot_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.news_snapshot import start_news_snapshot_worker

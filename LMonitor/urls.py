@@ -86,6 +86,7 @@ from botend.portal.gear_builder import (
     PortalGearBuilderView,
     PortalGearBuilderOwnedItemsAPIView,
     PortalGearAssistantBootstrapAPIView,
+    PortalGearAssistantJobAPIView,
     PortalGearAssistantOptimizeAPIView,
     PortalGearAssistantView,
 )
@@ -317,6 +318,7 @@ urlpatterns = [
     path('portal/api/gear-builder/owned-items/<int:owned_id>/', PortalGearBuilderOwnedItemsAPIView.as_view(), name='portal_gear_builder_owned_item_detail'),
     path('portal/api/gear-assistant/bootstrap/', PortalGearAssistantBootstrapAPIView.as_view(), name='portal_gear_assistant_bootstrap'),
     path('portal/api/gear-assistant/optimize/', PortalGearAssistantOptimizeAPIView.as_view(), name='portal_gear_assistant_optimize'),
+    path('portal/api/gear-assistant/optimize/<uuid:request_id>/', PortalGearAssistantJobAPIView.as_view(), name='portal_gear_assistant_job'),
     path('portal/api/mythic-planner/catalog/', MythicPlannerCatalogAPIView.as_view(), name='mythic_planner_catalog'),
     path('portal/api/mythic-planner/dungeons/<slug:dungeon_key>/', MythicPlannerDungeonAPIView.as_view(), name='mythic_planner_dungeon'),
     path('portal/api/mythic-planner/share-code/', MythicPlannerShareCodeAPIView.as_view(), name='mythic_planner_share_code'),

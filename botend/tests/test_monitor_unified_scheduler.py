@@ -325,6 +325,7 @@ class UnifiedWorkerStartupTests(TestCase):
             # Also catches the old startup path without creating real daemons.
             stack.enter_context(patch.object(views, 'start_isolated_monitor_worker', isolated, create=True))
             for module, function in (
+                ('gear_assistant_jobs', 'start_worker'),
                 ('gear_catalog_snapshot', 'start_catalog_snapshot_worker'),
                 ('journal_loot_snapshot', 'start_journal_loot_snapshot_worker'),
                 ('news_snapshot', 'start_news_snapshot_worker'),

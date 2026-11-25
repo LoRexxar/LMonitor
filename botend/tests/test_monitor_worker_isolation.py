@@ -69,6 +69,7 @@ class MonitorWorkerIsolationTests(TestCase):
             release.wait(5)
 
         maintenance = (
+            ('gear_assistant_jobs', 'start_worker'),
             ('gear_catalog_snapshot', 'start_catalog_snapshot_worker'),
             ('journal_loot_snapshot', 'start_journal_loot_snapshot_worker'),
             ('news_snapshot', 'start_news_snapshot_worker'),

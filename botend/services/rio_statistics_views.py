@@ -5,6 +5,7 @@ from datetime import timedelta
 import gzip
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 import sys
@@ -17,6 +18,7 @@ from django.utils import timezone
 from botend.services.rio_statistics_scope import ScopeUnavailable, public_scope
 from botend.services.rio_statistics_storage import encoded, StorageError
 from botend.services.rio_statistics_dimensions import project_periods
+from botend.services.rio_statistics_archive import archive_revision, capture_previous, read_archive
 from botend.services.simc_benchmark_result_snapshot import _lock
 
 SCHEMA = 3
@@ -26,6 +28,7 @@ _cache = OrderedDict()
 _cache_bytes = 0
 _mutex = RLock()
 _pending = {}
+logger = logging.getLogger(__name__)
 
 
 def _object_bytes(value):
@@ -342,6 +345,11 @@ def refresh_views(*, keys=None, verify=None):
         changed = previous_layout != SCHEMA or previous.get('source_revision') != source_revision or written or bad_index
         revision = hashlib.sha256(encoded([source_revision, rio._now()])).hexdigest() if changed else previous['revision']
         if changed:
+            if not same_scope:
+                try:
+                    capture_previous(previous, scope)
+                except (OSError, StorageError) as exc:
+                    logger.warning('历史展示索引未登记，继续发布当前版本 error=%s', type(exc).__name__)
             pointer, _ = _file(folder / 'current.json')
             slot = 'b' if pointer and pointer.get('slot') == 'a' else 'a'
             indexes = _publish_indexes(entries, files, previous if same_scope else {}, scope['token'], verify=verify)
@@ -411,8 +419,9 @@ def read_public(module, params, *, status_only=False, _retry=False):
     if status_only:
         epoch = timezone.now().timestamp()
         phase = sum(boundary <= epoch for boundary in published.get('period_boundaries', []))
-        return _response(('status', stamp, phase), lambda: {'scope': public_scope(scope), 'scope_state': 'ready',
-            'updated_at': published.get('updated_at'), 'revision': f"{published['revision']}:{phase}"})
+        archive = archive_revision(scope)
+        return _response(('status', stamp, phase, archive), lambda: {'scope': public_scope(scope), 'scope_state': 'ready',
+            'updated_at': published.get('updated_at'), 'revision': f"{published['revision']}:{phase}:{archive}"})
     meta = published.get('meta')
     if not isinstance(meta, dict) or (meta.get('scope') or {}).get('token') != scope['token']:
         raise StorageError('展示目录身份不一致')
@@ -423,10 +432,11 @@ def read_public(module, params, *, status_only=False, _retry=False):
         'scope': public_scope(scope), 'scope_state': 'ready', 'scope_message': ''}, _object_bytes)
     if module == 'catalog':
         phase = sum(boundary <= now.timestamp() for boundary in _boundaries(meta))
-        return _response(('catalog', stamp, period_key), lambda: {
+        archive = archive_revision(scope)
+        return _response(('catalog', stamp, period_key, archive), lambda: {
             **rio.describe_catalog(view_meta, published.get('available', [])),
             'availability': published.get('availability') if published.get('level_policy') == list(rio.LEVELS) else None,
-            'revision': f"{published['revision']}:{phase}"})
+            'revision': f"{published['revision']}:{phase}:{archive}"})
     c = rio.coordinate(module, params, meta=view_meta)
     key = rio.key_for(c)
     path, expected_marker = _entry_location(published, key)
@@ -435,11 +445,18 @@ def read_public(module, params, *, status_only=False, _retry=False):
             or record.get('marker') != expected_marker):
         if not _retry:
             return read_public(module, params, status_only=status_only, _retry=True)
+        archived = read_archive(c, scope)
+        if archived:
+            return archived
         return _body({'snapshot': {'state': 'pending', 'message': '该筛选范围的展示数据尚未准备好，请稍后查看。'},
                       'data': None, 'scope': public_scope(scope)})
     envelope = record['response']
     if (envelope.get('scope') or {}).get('token') != scope['token']:
         raise StorageError('展示快照身份不一致')
+    if not isinstance(envelope.get('data'), dict):
+        archived = read_archive(c, scope)
+        if archived:
+            return archived
     snapshot = envelope.get('snapshot') or {}
     fetched = rio._stamp(snapshot.get('fetched_at'))
     expired = bool(fetched and now - fetched > rio.freshness_window(c) and snapshot.get('state') == 'ready')

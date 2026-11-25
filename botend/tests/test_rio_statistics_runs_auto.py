@@ -7,12 +7,15 @@ from copy import deepcopy
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import threading
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 import requests
 from django.test import SimpleTestCase
+from django.db import InterfaceError
 from django.utils import timezone
 
 from botend.services import rio_statistics as rio
@@ -42,6 +45,8 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
         rio._write(self.directory / 'catalog.json', self.meta)
         self.received = []
         self.mode = 'ready'
+        self.unavailable_regions = set()
+        self.overview_failures = {}
         self.mutate = lambda data: None
         case = self
 
@@ -52,7 +57,7 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
                 case.received.append((parsed.path, q))
                 if parsed.path.endswith('/summary'):
                     payload = dict(deepcopy(fixtures.OVERVIEW), region=q['region'])
-                    status, headers = 200, {}
+                    status, headers = case.overview_failures.get(q['region'], 200), {}
                 elif parsed.path == '/api/v1/mythic-plus/static-data':
                     payload, status, headers = {'seasons': case.meta['seasons']}, 200, {}
                 elif parsed.path == '/api/v1/raiding/static-data':
@@ -66,7 +71,8 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
                 else:
                     payload = case.source(q)
                     case.mutate(payload)
-                    status = 429 if case.mode == 'limited' else 200
+                    status = (429 if case.mode == 'limited'
+                              else 503 if q.get('region', 'world') in case.unavailable_regions else 200)
                     headers = {'Retry-After': '180'} if status == 429 else {}
                 raw = json.dumps(payload).encode()
                 self.send_response(status)
@@ -179,6 +185,78 @@ class AutomaticRunStatisticsTests(SimpleTestCase):
         count = len(self.received)
         later = self.collect(force=True).run(modules=['runs'], regions=['cn'])
         self.assertEqual((later['state'], later['requests'], len(self.received)), ('backoff', 0, count))
+
+    def test_three_unavailable_run_ranges_do_not_stop_other_ranges(self):
+        self.unavailable_regions = {'cn', 'world', 'us'}
+        with patch('utils.log.logger.warning') as warning:
+            result = self.collect(max_requests=4).run(
+                modules=['runs'], regions=['cn', 'world', 'us', 'eu'], levels=['10-plus'])
+        self.assertEqual((result['state'], result['requests'], result['failed'], result['ready']),
+                         ('partial', 4, 3, 1))
+        self.assertFalse((self.directory / 'cooldown.json').exists())
+        messages = [call.args[0] % call.args[1:] for call in warning.call_args_list]
+        for region in ('cn', 'world', 'us', 'eu'):
+            c = rio.coordinate('runs', {'region': region}, meta=self.meta)
+            available = region not in self.unavailable_regions
+            self.assertEqual(read_view(c)['snapshot']['state'], 'ready' if available else 'pending')
+            if not available:
+                _, entry = rio.store().read(c)
+                self.assertTrue(entry['error'])
+                self.assertTrue(any(f'region={region} ' in message and 'http_status=503' in message
+                                    for message in messages))
+
+    def test_local_scope_or_display_failure_stops_further_source_requests(self):
+        for broken, error in (('guard_scope', InterfaceError('not logged')),
+                              ('publish_views', rio.StorageError('not logged'))):
+            with self.subTest(broken=broken):
+                self.received.clear()
+                collector = self.collect(force=False)
+                with patch.object(collector, broken, side_effect=error), patch.object(collector, 'metadata',
+                        side_effect=lambda: (setattr(collector, 'scope', self.scope) or self.meta)):
+                    result = collector.run(modules=['runs'], regions=['cn'])
+                self.assertEqual(result['requests'], 1)
+                self.assertEqual(len(self.received), 1)
+                self.assertGreater(result['remaining'], 0)
+
+    def test_overview_503_preserves_old_snapshots_and_continues_normal_and_forced_refresh(self):
+        regions = ('cn', 'world', 'us', 'eu')
+        for force in (False, True):
+            with self.subTest(force=force), TemporaryDirectory() as directory, self.settings(RIO_STATISTICS_ROOT=directory):
+                root = Path(directory)
+                rio._write(root / 'catalog.json', self.meta)
+                self.received.clear()
+                self.overview_failures = {region: 503 for region in regions[:3]}
+                old_time = '2026-11-01T00:00:00Z'
+                old_payloads = {}
+                for region in ('cn', 'eu'):
+                    coord = rio.coordinate('overview', {'region': region}, meta=self.meta)
+                    payload = rio.normalize_overview(dict(fixtures.OVERVIEW, region=region), coord['season'], region)
+                    rio.store().publish(coord, payload, fetched_at=old_time, upstream_at=None, next_at=old_time)
+                    old_payloads[region], _ = rio.store().read(coord)
+                result = self.collect(max_requests=12, force=force).run(modules=['overview'], regions=regions)
+                requests_made = [q['region'] for url, q in self.received if url.endswith('/summary')]
+                self.assertEqual((result['state'], result['failed'], result['ready'], result['remaining']),
+                                 ('partial', 3, 1, 0), requests_made)
+                self.assertEqual(requests_made, ['world', 'us', 'cn', 'eu'])
+                self.assertFalse((root / 'cooldown.json').exists())
+                actual, entry = rio.store().read(rio.coordinate('overview', {'region': 'cn'}, meta=self.meta))
+                self.assertEqual(actual, old_payloads['cn'])
+                self.assertTrue(entry['error'])
+                old_view = json.loads(read_public('overview', {'region': 'cn'}).raw)['data']
+                self.assertEqual((old_view['snapshot']['state'], old_view['fetched_at'], old_view['data']),
+                                 ('stale', old_time, old_payloads['cn']['data']))
+                new_view = json.loads(read_public('overview', {'region': 'eu'}).raw)['data']
+                self.assertEqual(new_view['snapshot']['state'], 'ready')
+                self.assertEqual(new_view['data']['region'], 'eu')
+                self.assertGreater(rio._stamp(new_view['fetched_at']), rio._stamp(old_time))
+
+    def test_other_consecutive_server_errors_still_trip_existing_breaker(self):
+        regions = ('cn', 'world', 'us', 'eu')
+        self.overview_failures = {region: 502 for region in regions}
+        result = self.collect(max_requests=5).run(modules=['overview'], regions=regions)
+        self.assertEqual((result['state'], result['requests'], result['failed'], result['remaining']),
+                         ('backoff', 3, 3, 1))
+        self.assertTrue((self.directory / 'cooldown.json').is_file())
 
     def test_older_source_is_rejected_and_equal_ready_source_can_recover_failure(self):
         c = rio.coordinate('runs', {'region': 'cn'}, meta=self.meta)

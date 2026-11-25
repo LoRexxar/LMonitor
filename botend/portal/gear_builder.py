@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from botend.services.gear_builder import (
@@ -37,7 +40,8 @@ from botend.services.gear_builder_owned import (
     save_owned_item,
     save_owned_items,
 )
-from botend.services.gear_assistant import assistant_bootstrap, optimize_loadouts
+from botend.services.gear_assistant import assistant_bootstrap
+from botend.services.gear_assistant_jobs import ActiveGearJob, enqueue, latest_job
 from botend.services.gear_catalog_projection import compact_equipment_payload
 
 
@@ -282,12 +286,58 @@ class PortalGearAssistantBootstrapAPIView(View):
         return JsonResponse({'success': True, **payload})
 
 
+def _gear_job_response(job, *, status=200, include_result=False):
+    data = {'id': str(job.request_id), 'state': job.state, 'class_name': job.class_name,
+            'spec_name': job.spec_name, 'error': job.error}
+    if include_result and job.state == 'done':
+        data['result'] = job.result
+    response = JsonResponse({'success': True, 'job': data}, status=status)
+    response['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@method_decorator(never_cache, name='dispatch')
 class PortalGearAssistantOptimizeAPIView(View):
+    def get(self, request):
+        if not request.user.is_authenticated:
+            return _error_response('请登录后使用辅助配装', status=401)
+        job = latest_job(request.user)
+        response = JsonResponse({'success': True, 'job': {'id': str(job.request_id), 'state': job.state} if job else None})
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
     def post(self, request):
         if not request.user.is_authenticated:
             return _error_response('请登录后使用辅助配装', status=401)
+        if len(request.body) > 512 * 1024:
+            return _error_response('配装请求过大', status=413)
         try:
-            payload = optimize_loadouts(request.user, _json_body(request))
+            payload = _json_body(request)
+            try:
+                request_id = UUID(str(payload.pop('request_id', '')))
+                json.dumps(payload, allow_nan=False)
+            except (TypeError, ValueError):
+                raise GearBuilderError('配装请求标识或数值无效') from None
+            job = enqueue(request.user, request_id, payload)
+        except ActiveGearJob as exc:
+            return _error_response(exc, status=409)
+        except RecursionError:
+            return _error_response('配装请求结构过深')
         except GearBuilderError as exc:
             return _error_response(exc)
-        return JsonResponse({'success': True, **payload})
+        response = _gear_job_response(job, status=202)
+        response['Location'] = reverse('portal_gear_assistant_job', kwargs={'request_id': job.request_id})
+        return response
+
+
+@method_decorator(never_cache, name='dispatch')
+class PortalGearAssistantJobAPIView(View):
+    def get(self, request, request_id):
+        if not request.user.is_authenticated:
+            return _error_response('请登录后使用辅助配装', status=401)
+        job = latest_job(request.user, request_id=request_id)
+        if not job:
+            response = _error_response('配装任务不存在、已被替换或已过期', status=404)
+            response['Cache-Control'] = 'private, no-store'
+            return response
+        return _gear_job_response(job, include_result=True)

@@ -6,7 +6,6 @@ from copy import deepcopy
 from email.utils import parsedate_to_datetime
 import hashlib
 import json
-import logging
 import math
 import time
 from pathlib import Path
@@ -23,12 +22,12 @@ from botend.services.simc_benchmark_result_snapshot import _lock, _load
 from botend.wow_i18n import cn_dungeon_from_slug
 from botend.services.rio_statistics_scope import active_scope, public_scope, ScopeUnavailable
 from botend.services.rio_statistics_localization import localize_catalog
-from django.db import DatabaseError
+from django.db import DatabaseError, Error as DjangoDatabaseError
 from botend.services.rio_statistics_dimensions import (PERIODS, identities, normalize_filters,
     upstream_filters, week_options, add_period, period_parameters, integer, ID_FIELDS, RANGE_FIELDS, project_periods)
 from botend.services.rio_statistics_storage import SnapshotStore, StorageError
+from utils.log import logger
 
-logger = logging.getLogger(__name__)
 REGIONS = {'cn': '国服', 'world': '全球', 'us': '美服', 'eu': '欧服', 'kr': '韩服', 'tw': '台服'}
 LEVELS = {'10-plus': (10, 99, '10 层及以上'),
           '15-plus': (15, 99, '15 层及以上'),
@@ -567,9 +566,9 @@ class Collector:
                     result['views'] = self.publish_views()
                     if result['views']['state'] != 'complete':
                         result.update(state='partial', views_error='部分正文未就绪，保留已发布数据')
-                except (StorageError, ScopeUnavailable, OSError, ValueError) as exc:
+                except (StorageError, ScopeUnavailable, DjangoDatabaseError, OSError, ValueError) as exc:
                     result.update(state='partial', views_error=type(exc).__name__)
-                    logger.exception('统计展示文件未能发布，保留现有展示')
+                    logger.warning('统计展示文件未能发布，保留现有展示 error=%s', type(exc).__name__)
                 if maintain:
                     try:
                         self._progress(stage='backup')
@@ -722,34 +721,51 @@ class Collector:
                     break
             try:
                 payload, stamp = self.fetch(c, meta)
-                self.guard_scope()
-                if c['module'] == 'runs':
-                    # Revalidate an unchanged ready aggregate daily, but never
-                    # replace a newer imported/collected aggregate with an old one.
-                    if not _publish(c, payload, upstream_at=stamp, newer_only=True, refresh_equal=True):
-                        raise ValueError('来源完成记录聚合时间早于已保存数据')
-                else:
-                    _publish(c, payload, upstream_at=stamp)
-                self._view_keys.add(key_for(c))
-                ready += 1
-                consecutive_errors = 0
-            except ScopeUnavailable:
+            except (ScopeUnavailable, DjangoDatabaseError, StorageError) as exc:
                 self.stopped = True
+                failed += 1
+                logger.warning('Raider.IO 统计采集停止 module=%s error=%s', c['module'], type(exc).__name__)
                 break
             except Exception as exc:
-                _failure(c, '来源限流' if isinstance(exc, RateLimited) else '本轮采集失败')
+                limited = isinstance(exc, RateLimited)
+                _failure(c, '来源限流' if limited else '本轮采集失败')
                 self._view_keys.add(key_for(c))
                 failed += 1
-                logger.warning('Raider.IO 统计采集失败 %s：%s', c, type(exc).__name__)
                 response = getattr(exc, 'response', None)
+                status = 429 if limited else getattr(response, 'status_code', None)
+                logger.warning('Raider.IO 统计采集失败 module=%s season=%s region=%s level=%s error=%s http_status=%s',
+                               c['module'], c['season'], c['region'], c.get('level', '-'), type(exc).__name__, status)
                 transient = (isinstance(exc, (requests.ConnectionError, requests.Timeout, ValueError))
                              or (isinstance(exc, requests.HTTPError) and response is not None and response.status_code >= 500))
-                consecutive_errors = consecutive_errors + 1 if transient else 0
-                if isinstance(exc, StorageError) or consecutive_errors >= 3:
+                # 503 and unavailable completion ranges affect only this snapshot.
+                # 429 still trips the transport's global cooldown immediately.
+                if transient and status != 503 and c['module'] != 'runs':
+                    consecutive_errors += 1
+                else:
+                    consecutive_errors = 0
+                if consecutive_errors >= 3:
                     self.stopped = True
                     with _lock(root() / 'publish.lock'):
                         _write(root() / 'cooldown.json', {'until': (timezone.now() + timedelta(minutes=30)).isoformat()})
                     break
+            else:
+                try:
+                    self.guard_scope()
+                    runs = c['module'] == 'runs'
+                    published = _publish(c, payload, upstream_at=stamp, newer_only=runs, refresh_equal=runs)
+                    if not published:
+                        _failure(c, '来源完成记录聚合时间早于已保存数据')
+                except (ScopeUnavailable, DjangoDatabaseError, StorageError, OSError, ValueError) as exc:
+                    self.stopped = True
+                    failed += 1
+                    logger.warning('Raider.IO 统计采集无法提交 module=%s error=%s', c['module'], type(exc).__name__)
+                    break
+                if published:
+                    ready += 1
+                else:
+                    failed += 1
+                consecutive_errors = 0
+                self._view_keys.add(key_for(c))
             if (ready + failed) % 25 == 0:
                 self._progress(ready=ready, failed=failed)
             if ready + failed == 1 or (ready + failed) % 100 == 0:
@@ -757,8 +773,10 @@ class Collector:
                     self._progress(stage='snapshots', ready=ready, failed=failed)
                     published = self.publish_views()
                     self._progress(stage='snapshots', ready=ready, failed=failed, views=published)
-                except (StorageError, ScopeUnavailable, OSError, ValueError):
-                    logger.exception('采集过程展示检查点未发布，已有发布保留')
+                except (StorageError, ScopeUnavailable, DjangoDatabaseError, OSError, ValueError) as exc:
+                    self.stopped = True
+                    logger.warning('采集过程展示检查点未发布，已有发布保留 error=%s', type(exc).__name__)
+                    break
         if 'heatmaps' in modules and not self.stopped and not maps_started:
             prepare_maps()
         def map_ready(dungeon):
