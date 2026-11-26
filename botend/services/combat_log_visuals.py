@@ -7,6 +7,7 @@ from django.db.models import Case, IntegerField, Value, When
 from botend.constants.wow import CLASS_CN, specialization_catalog
 from botend.models import WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
+from botend.services.content_image_display import display_image_url
 from botend.services.combat_replay_activity import spell_icons
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
@@ -133,6 +134,6 @@ def talents(db, report, fight, actor):
                 icon = wow_icon_oss_url(icon)
             items.append(dict(entry=entry, rank=rank, icon_id=spell or row.get("display_spell_id") or row.get("spell_id"),
                               name=row.get("name_zh") or names.get(spell) or row.get("name") or f"天赋 #{entry}",
-                              icon=icon or missing.get(spell or row.get("display_spell_id") or row.get("spell_id"))))
+                              icon=display_image_url(icon) or missing.get(spell or row.get("display_spell_id") or row.get("spell_id"))))
         build["items"] = items
     return builds

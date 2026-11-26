@@ -1,4 +1,5 @@
 window.createReplayCastAxis = function ({data, players, selected, badge, precise, jump, query, redraw}) {
+    const setIcon = window.setPublishedWowImage || ((img, src) => { img.src = src; });
     const $ = id => document.getElementById(id);
     const scroll = $('cast-scroll'), sheet = $('cast-sheet'), head = $('cast-head');
     const body = $('cast-body'), ruler = $('cast-ruler'), tracks = $('activity-casts');
@@ -129,7 +130,7 @@ window.createReplayCastAxis = function ({data, players, selected, badge, precise
             missingIcons.add(cast.spell_id);
             img.remove();
         };
-        img.src = data.cast_icons[cast.spell_id] || lookup;
+        setIcon(img, data.cast_icons[cast.spell_id] || lookup);
         button.prepend(img);
     }
     function marker(cast) {

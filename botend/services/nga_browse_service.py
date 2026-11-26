@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
 
+from botend.services.content_image_display import display_image_url
 from botend.models import WowArticle
 from botend.services.nga_facts_service import LEGACY_AUTHORS
 from botend.services.wowhead_bbcode_renderer import render_wowhead_bbcode
@@ -126,14 +127,14 @@ def render_main_post(content):
         if tag.name in ('img', 'source'):
             url = nga_image_url(tag.get('src'))
             if url:
-                attrs['src'] = url
+                attrs['src'] = display_image_url(url)
             # srcset is intentionally rebuilt, never copied verbatim.
             candidates = []
             for candidate in str(tag.get('srcset') or '').split(','):
                 fields = candidate.split()
                 if fields and safe_url(fields[0]) and (len(fields) == 1 or
                         (len(fields) == 2 and re.fullmatch(r'\d+(?:\.\d+)?[wx]', fields[1]))):
-                    candidates.append(' '.join([nga_image_url(fields[0]), *fields[1:]]))
+                    candidates.append(' '.join([display_image_url(nga_image_url(fields[0])), *fields[1:]]))
             if candidates:
                 attrs['srcset'] = ', '.join(candidates)
             if tag.name == 'img':

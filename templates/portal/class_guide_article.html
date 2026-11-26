@@ -1,10 +1,11 @@
 {% extends 'portal/class_guide_base.html' %}
+{% load site_images %}
 {% block content %}
 <div class="cg-container cg-reader" style="--class-color:{{ spec.color }}">
 <nav class="cg-breadcrumb" aria-label="面包屑"><a href="/portal/class-guides/">职业攻略</a><span>／</span><a href="/portal/class-guides/?class={{ guide.class_name }}&amp;spec={{ guide.spec_id }}">{{ spec.label }}</a></nav>
 <header class="cg-article-hero">
   <div class="cg-hero-content">
-    <div class="cg-title-line"><img src="{{ spec.icon }}" alt="" width="40" height="40"><h1>{{ guide.title }}</h1></div>
+    <div class="cg-title-line"><img src="{{ spec.icon|published_image_url }}" alt="" width="40" height="40"><h1>{{ guide.title }}</h1></div>
     <div class="cg-byline"><span>作者 {{ author_profile.name }}</span>{% if updated %}<span>更新于 <time datetime="{{ updated|date:'c' }}">{{ updated|date:'Y-m-d' }}</time></span>{% endif %}<span>完整阅读约 {{ read_minutes }} 分钟</span>{% if guide.source_url %}<a href="{{ guide.source_url }}" target="_blank" rel="noopener noreferrer">来源原文 ↗</a>{% endif %}</div>
     <div class="cg-reader-meta"><div class="cg-hero-tags">{% for tag in guide.tags.all %}<a class="cg-tag" href="/portal/class-guides/?tag={{ tag.name|urlencode }}">{{ tag.name }}</a>{% endfor %}</div><nav class="cg-tool-links" aria-label="实战工具"><a href="{{ talent_url }}" target="_blank" rel="noopener">天赋模拟器 ↗</a><a href="{{ gear_url }}" target="_blank" rel="noopener">职业配装器 ↗</a><a href="/portal/spec/{{ guide.class_name }}/{{ guide.spec_name }}/" target="_blank" rel="noopener">专精数据 ↗</a></nav></div>
   </div>

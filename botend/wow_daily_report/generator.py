@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 from django.utils.safestring import SafeData
+from botend.services.content_image_display import display_image_html
 from botend.wow_daily_report.site_sections import collect_site_sections, day_window
 from botend.wow_daily_report.edition import SHANGHAI, edition_for_report_date
 
@@ -778,7 +779,7 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
     from botend.wow_daily_report.presentation import render_daily_document
     if edition is None:
         edition = edition_for_report_date(report_date)
-    return render_daily_document(report_date, sections, {
+    document = render_daily_document(report_date, sections, {
         'news': lambda items: _render_news_items(items, summary_only=edition['kind'] == 'wednesday_weekly'),
         'nga': _render_nga_items,
         'videos': _render_video_items, 'cutoffs': _render_cutoff_items,
@@ -786,6 +787,7 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
         'rio': _render_rio_items,
     }, generated_at=timezone.localtime(timezone.now(), timezone=SHANGHAI).strftime('%Y-%m-%d %H:%M:%S'),
         edition=edition)
+    return display_image_html(document)
 
 
 def _static_report_path(report_date: datetime.date):

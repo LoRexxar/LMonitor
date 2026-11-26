@@ -1,5 +1,6 @@
 // 只在缺少站内图标且技能进入视口时查询公开技能编号。
 (() => {
+    const displayIcon = window.publishedWowIconUrl || window.publishedImageUrl || (url => url);
     if (customElements.get('combat-spell-icon')) return;
     const key = 'combat-spell-icons:v1';
     const slugs = new Map();
@@ -40,7 +41,9 @@
                 img.alt = '';
                 img.referrerPolicy = 'no-referrer';
                 img.onerror = () => { node.hidden = true; };
-                img.src = 'https://wow.zamimg.com/images/wow/icons/small/' + icon + '.jpg';
+                const url = await displayIcon('https://wow.zamimg.com/images/wow/icons/small/' + icon + '.jpg');
+                if (!node.isConnected) return;
+                img.src = url;
                 node.replaceChildren(img);
                 return;
             }

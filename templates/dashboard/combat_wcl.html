@@ -1,11 +1,12 @@
-{% extends 'dashboard/combat_base.html' %}{% load static %}
+{% extends 'dashboard/combat_base.html' %}{% load site_images combat_icons %}
+{% load static %}
 {% block title %}{% if section == "account" %}{% if private %}WCL 账号授权{% else %}关联公开角色{% endif %}{% else %}{% firstof title "战斗目录" %}{% endif %}{% endblock %}
 {% block assets %}
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_boss.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_raid_study.css' %}">
-{% if section == "account" and not private %}<script defer src="{% static 'dashboard/js/combat_public_roles.js' %}"></script>{% endif %}
+{% if section == "account" and not private %}<script defer src="{% static 'dashboard/js/combat_public_roles.js' %}?v=wow_icons2"></script>{% endif %}
 {% if show_directory %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_wcl_picker.css' %}?v=views2">{% endif %}
 {% endblock %}
 {% block trail %}{% if section == 'report' %}{% if group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url }}">战斗目录</a>{% if fight and request.GET.group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ group_url }}">首领开荒复盘</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if comparing %}开荒场次对比{% elif group.dungeon %}副本复盘{% else %}首领开荒复盘{% endif %}</span>{% else %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">战斗目录</span>{% endif %}{% else %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if private %}WCL 账号授权{% else %}关联公开角色{% endif %}</span>{% endif %}{% endblock %}
@@ -23,7 +24,7 @@
     {% for source in sources %}
         {% if source.kind == 'character' %}
         <div class="public-role">
-            {% if source.spec_icon %}<img src="{{ source.spec_icon }}" width="36" height="36" alt="">{% endif %}
+            {% if source.spec_icon %}<img src="{{ source.spec_icon|published_image_url|published_wow_icon_url }}" width="36" height="36" alt="">{% endif %}
             <div class="role-identity"><a href="{% url 'combat_logs' %}?source={{ source.pk }}">{{ source.name }}</a><small><span data-spec-label>{{ source.spec_label }}</span> · {{ source.realm }} · {{ source.region|upper }}</small></div>
             <div class="role-actions"><a href="{% url 'combat_logs' %}?source={{ source.pk }}">查看日志</a>
             <form method="post">{% csrf_token %}{% if not source.spec_icon %}<button name="refresh_spec" value="{{ source.pk }}">更新专精</button>{% endif %}<button name="detach" value="{{ source.pk }}" aria-label="取消关联 {{ source.name }}">取消关联</button></form></div>
@@ -36,7 +37,7 @@
 <section class="public-roster" aria-labelledby="account-roles"><h2 id="account-roles">从账号绑定的角色关联</h2>
     {% for role in bound_roles %}
     <div class="public-role">
-        {% if role.spec_icon %}<img src="{{ role.spec_icon }}" width="36" height="36" alt="">{% endif %}
+        {% if role.spec_icon %}<img src="{{ role.spec_icon|published_image_url|published_wow_icon_url }}" width="36" height="36" alt="">{% endif %}
         <div class="role-identity"><strong>{{ role.character_name }}</strong><small>{{ role.spec_label }} · {{ role.realm_slug }} · {{ role.region|upper }}</small></div>
         {% if role.linked %}<span>已关联</span>{% else %}<form method="post">{% csrf_token %}<button name="bind_role" value="{{ role.pk }}"{% if at_limit %} disabled{% endif %}>关联角色</button></form>{% endif %}
     </div>

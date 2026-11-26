@@ -1,10 +1,11 @@
+const characterImageUrl = window.publishedImageUrl || (url => url);
 /* Native forms work without JavaScript; enhance confirmation and pending state. */
 document.querySelectorAll('[data-character-icon]').forEach(image => {
     const fallback = () => {
         if (image.dataset.fallback) {
             const source = image.dataset.fallback;
             image.dataset.fallback = '';
-            image.src = source;
+            image.src = characterImageUrl(source);
         } else {
             image.hidden = true;
         }

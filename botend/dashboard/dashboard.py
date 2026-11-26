@@ -815,6 +815,13 @@ class DashboardView(View):
                     article[key] = value.strftime('%Y-%m-%d %H:%M:%S')
             if article.get('author') == 'LMonitor':
                 article['author'] = ''
+            from botend.services.article_content_service import loads_blocks, dumps_blocks
+            from botend.services.content_image_display import display_article_blocks
+            for key in ('content_blocks', 'content_blocks_cn'):
+                blocks = loads_blocks(article[key])
+                display = display_article_blocks(blocks)
+                if display != blocks:
+                    article[key] = dumps_blocks(display)
             article.update(_wow_article_channel(article))
             return JsonResponse({"status": "success", "data": article})
         except Exception as e:

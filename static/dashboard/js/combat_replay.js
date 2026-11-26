@@ -1,4 +1,6 @@
 (() => {
+    const publishedImageUrl = window.publishedImageUrl || (url => url);
+    const setIcon = window.setPublishedWowImage || ((img, src) => { img.src = src; });
     const $ = id => document.getElementById(id);
     if (!$('replay-data')) return;
     const data = JSON.parse($('replay-data').textContent);
@@ -66,7 +68,7 @@
             const image = new Image();
             specImages.set(actor.spec_icon,image);
             image.onload = () => draw();
-            image.src = actor.spec_icon;
+            setIcon(image, actor.spec_icon);
         }
         const image = specImages.get(actor.spec_icon);
         return image.complete && image.naturalWidth ? image : null;
@@ -80,7 +82,7 @@
             const img = document.createElement('img');
             img.alt = '';
             img.onerror = () => img.remove();
-            img.src = actor.spec_icon;
+            setIcon(img, actor.spec_icon);
             icon.append(img);
         }
         return icon;
@@ -417,7 +419,7 @@
         artCache.set(terrain.url, entry);
         image.onload = () => { entry.status = 'ready'; draw(); };
         image.onerror = () => { entry.status = 'error'; draw(); };
-        image.src = terrain.url;
+        image.src = publishedImageUrl(terrain.url);
         return entry;
     }
     function onAtlas(point, terrain) {

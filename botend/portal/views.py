@@ -10,6 +10,7 @@ from django.views.decorators.cache import never_cache
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
 
+from botend.services.content_image_display import display_image_html, display_image_url
 from botend.models import WowSkillDiffReport, WowHotfixReport
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.services.wago_report_html import build_wow_skill_diff_fallback_html
@@ -93,7 +94,7 @@ class PortalSpecsView(View):
             {
                 'name': CLASS_CN[class_name],
                 'color': CLASS_COLOR[class_name],
-                'icon': f'https://render.worldofwarcraft.com/us/icons/56/classicon_{class_name.lower()}.jpg',
+                'icon': display_image_url(f'https://render.worldofwarcraft.com/us/icons/56/classicon_{class_name.lower()}.jpg'),
                 'key': class_name,
                 'specs': [{'key': spec, 'name': SPEC_CN[spec],
                            'icon': SPEC_ICON[(class_name, spec)]} for spec in specs],
@@ -145,7 +146,7 @@ class PortalCurrentDailyReportView(View):
         except (OSError, UnicodeError, ValueError, RuntimeError):
             return render(request, 'portal/daily_report_pending.html',
                           {'publication_date': day, 'unavailable': True}, status=503)
-        response = HttpResponse(content, content_type='text/html; charset=utf-8')
+        response = HttpResponse(display_image_html(content), content_type='text/html; charset=utf-8')
         response['X-Daily-Report-ID'] = str(row.pk)
         response['X-Daily-Report-Date'] = row.report_date.isoformat()
         return response
@@ -187,7 +188,7 @@ class PortalReportFileView(View):
                         '<script src="/static/portal/js/wow-skill-report-metadata.js?v=hotfix_relation_display_v2"></script>'
                     )
                     content = content.replace('</body>', enhancement + '</body>', 1) if '</body>' in content else content + enhancement
-            return HttpResponse(content, content_type='text/html; charset=utf-8')
+            return HttpResponse(display_image_html(content), content_type='text/html; charset=utf-8')
         except Exception:
             return HttpResponse('Not Found', status=404)
 
@@ -208,7 +209,7 @@ class PortalWowHotfixReportView(View):
             content = full_path.read_text(encoding='utf-8')
             if not row.collection_complete:
                 content = _legacy_hotfix_warning_html(content)
-            return HttpResponse(content, content_type='text/html; charset=utf-8')
+            return HttpResponse(display_image_html(content), content_type='text/html; charset=utf-8')
         except Exception:
             return HttpResponse('Not Found', status=404)
 
@@ -284,7 +285,7 @@ def _extract_portal_report_embedded_html(html_text):
     styles = '\n'.join(re.findall(r'<style\b[^>]*>.*?</style>', text, flags=re.I | re.S))
     body_match = re.search(r'<body\b[^>]*>(.*?)</body>', text, flags=re.I | re.S)
     body = body_match.group(1) if body_match else text
-    return f"{styles}\n{body}".strip()
+    return display_image_html(f"{styles}\n{body}".strip())
 
 
 class PortalWowSkillDiffReportView(View):

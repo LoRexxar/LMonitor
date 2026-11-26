@@ -1,6 +1,7 @@
 /* 后台中央资料只读查询；所有来源文字按纯文本输出。 */
 (() => {
     'use strict';
+    const publishedImageUrl = window.publishedImageUrl || (url => url);
     function init() {
         const root = document.getElementById('central-data-workspace');
         if (!root) return;
@@ -69,7 +70,7 @@
             return data;
         }
         function artwork(row) {
-            return row.icon_url ? `<img class="cd-icon" src="${escape(row.icon_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="cd-icon" aria-hidden="true"></span>';
+            return row.icon_url ? `<img class="cd-icon" src="${escape(publishedImageUrl(row.icon_url))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="cd-icon" aria-hidden="true"></span>';
         }
         function talentDescription(row, central = {}) {
             if (row.tree_type === 'hero_anchor') return '英雄天赋';

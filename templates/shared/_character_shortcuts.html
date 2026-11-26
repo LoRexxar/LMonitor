@@ -1,3 +1,4 @@
+{% load site_images %}
 {% load static %}
 {% if authenticated %}
 <link rel="stylesheet" href="{% static 'dashboard/css/character_shortcuts.css' %}">
@@ -10,7 +11,7 @@
             {% if character.url %}<a class="character-shortcut" href="{{ character.url }}" aria-label="查看 {{ character.name }} · {{ character.realm }} 的角色详情">{% else %}<span class="character-shortcut character-shortcut-unavailable">{% endif %}
                 <span class="character-shortcut-icon" aria-hidden="true">
                     <svg width="22" height="22"><use href="{% static 'portal/icons/icons.svg' %}#icon-user"></use></svg>
-                    {% if character.icon %}<img src="{{ character.icon }}" alt="" width="34" height="34" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}
+                    {% if character.icon %}<img src="{{ character.icon|published_image_url }}" alt="" width="34" height="34" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display='none'">{% endif %}
                 </span>
                 <span class="character-shortcut-info"><strong>{{ character.name }}</strong><small>{{ character.realm }} · {{ character.region }}</small></span>
                 {% if not character.url %}<span class="character-shortcut-state">资料待更新</span>{% elif not character.active %}<span class="character-shortcut-state">已关闭</span>{% endif %}

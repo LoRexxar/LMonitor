@@ -10,6 +10,8 @@ from botend.journal_models import JournalEncounter, JournalState
 from botend.models import MythicDungeonEnemy, MythicDungeonSpell, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
 from botend.services.combat_log_facts import DAMAGE, pull_catalog
+from botend.services.published_wow_icons import published_wow_icon_url
+from botend.services.site_image_assets import published_image_url
 from botend.services.wow_skill_report_metadata import _tooltip_icon
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
@@ -131,7 +133,14 @@ def missing_cast_icon(db, fight, sid, bosses):
     source, params = _cast_spell_query(fight, bosses)
     if not db.execute("SELECT 1 "+source+" AND f.spell=? LIMIT 1", (*params,str(sid))).fetchone():
         return ""
-    return wow_icon_oss_url(_tooltip_icon("wow",sid))
+    slug = _tooltip_icon("wow", sid)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", slug or ""):
+        return ""
+    source = f"https://wow.zamimg.com/images/wow/icons/small/{slug}.jpg"
+    destination = published_wow_icon_url(published_image_url(source))
+    # The report-scoped redirect only serves delivered icons; never send this
+    # private lookup through to the third-party image host on a miss.
+    return destination if destination != source else ""
 
 
 def _damage_rows(db, fight, start, end, interval):

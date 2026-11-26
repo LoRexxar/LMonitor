@@ -1,3 +1,4 @@
+const portalImageUrl = window.publishedImageUrl || (url => url);
 async function fetchJson(url, controller = new AbortController()) {
   let timer = setTimeout(() => controller.abort(), 10000);
   const clearTimer = () => {
@@ -65,7 +66,7 @@ function sanitizeHref(raw) {
 }
 
 function getBilibiliThumbnailUrl(raw) {
-  const s = sanitizeHref(raw);
+  const s = portalImageUrl(sanitizeHref(raw));
   if (!s) return "";
   try {
     const u = new URL(s);
@@ -73,7 +74,7 @@ function getBilibiliThumbnailUrl(raw) {
     if (!u.pathname.includes("/bfs/archive/")) return s;
     if (u.pathname.includes("@")) return s;
     u.pathname = `${u.pathname}@384w_216h_1c_!web-search-common-cover.avif`;
-    return u.toString();
+    return portalImageUrl(u.toString());
   } catch (e) {
     return s;
   }
@@ -566,7 +567,7 @@ async function loadTools() {
             const { href, attrs } = linkAttrs(item);
             const name = escapeHtml(item.name || "未命名入口");
             const desc = escapeHtml(item.desc || "");
-            const iconPath = escapeHtml(getFaviconSrc(item));
+            const iconPath = escapeHtml(portalImageUrl(getFaviconSrc(item)));
             const visual = item.icon_key
               ? iconHtml(item.icon_key, "portal-tool-row-svg")
               : `<img src="${iconPath}" alt="" loading="lazy" onerror="this.src='/static/portal/favicons/default.svg'">`;
@@ -691,7 +692,7 @@ function renderWowTodayItem(item, moduleKind, showIcon = true) {
   const value = escapeHtml(item?.value || "");
   const title = `<span class="portal-tiw-item-name">${name}</span>`;
   const iconHtml = icon
-    ? `<img class="portal-tiw-item-icon" src="${escapeHtml(icon)}" alt="" loading="lazy">`
+    ? `<img class="portal-tiw-item-icon" src="${escapeHtml(portalImageUrl(icon))}" alt="" loading="lazy">`
     : "";
   const tokenValue = moduleKind === "token" && value
     ? `<span class="portal-tiw-item-value">${value} 金币</span>`
@@ -1648,7 +1649,7 @@ function renderMplusRuns(containerId, items) {
     const iconUrl = sanitizeHref(m?.spec_icon_url);
     const specLabel = escapeHtml([m?.class_name_cn || m?.class, m?.spec_name_cn || m?.spec].filter(Boolean).join(" · ") || "专精未知");
     const icon = iconUrl
-      ? `<img class="portal-mplus-spec-icon h-5 w-5 shrink-0 rounded border object-cover" src="${escapeHtml(iconUrl)}" width="20" height="20" alt="${specLabel}" title="${specLabel}" style="border-color:${color}" loading="lazy" decoding="async">`
+      ? `<img class="portal-mplus-spec-icon h-5 w-5 shrink-0 rounded border object-cover" src="${escapeHtml(portalImageUrl(iconUrl))}" width="20" height="20" alt="${specLabel}" title="${specLabel}" style="border-color:${color}" loading="lazy" decoding="async">`
       : `<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-xs text-slate-500" title="专精未知" aria-label="专精未知">?</span>`;
     const characterHref = sanitizeHref(m?.character_url || "");
     const tag = characterHref ? "a" : "span";
@@ -1719,9 +1720,11 @@ function renderMplusRuns(containerId, items) {
     image.addEventListener('error', () => {
       // OSS 加载失败时使用同名高清图标的备用源，仅切换一次。
       const original = new URL(image.src);
-      if (original.hostname !== 'oss.wowdaily.cn') return;
+      if (original.origin !== 'https://oss.wowdaily.cn' || !/^\/wow_icons_oss\/(tiny|small|medium|large)\/[a-z0-9_-]+\.jpg$/i.test(original.pathname)) return;
       const filename = original.pathname.split('/').pop();
-      image.src = `https://wow.zamimg.com/images/wow/icons/large/${filename}`;
+      const upstream = `https://wow.zamimg.com/images/wow/icons/large/${filename}`;
+      const mapped = portalImageUrl(upstream);
+      image.src = mapped === original.href ? upstream : mapped;
     }, {once: true});
   });
 }

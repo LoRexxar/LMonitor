@@ -11,6 +11,7 @@ from django.views import View
 from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, QUALITY_CN
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot, WowSpellSnapshot, WowTalentNodeMetadata
+from botend.services.content_image_display import display_image_url
 from botend.services.gear_builder import SLOT_LABELS
 from botend.services.wow_data_branch import branch_item, item_cdn_icon
 from botend.templatetags.wow_tags import wow_icon_oss_url
@@ -43,7 +44,7 @@ def options(mapping):
 def icon_payload(icon):
     name = str(icon or '')
     url = f'https://wow.zamimg.com/images/wow/icons/large/{name}.jpg' if re.fullmatch(r'[A-Za-z0-9_-]+', name) else ''
-    return {'icon': name, 'icon_url': url, 'icon_source': 'Wowhead 图标 CDN；图标名称取自中央资料'}
+    return {'icon': name, 'icon_url': display_image_url(url), 'icon_source': 'Wowhead 图标 CDN；图标名称取自中央资料'}
 
 
 def page_rows(queryset, params):

@@ -1,4 +1,5 @@
 (() => {
+  const publishedImageUrl = window.publishedImageUrl || (url => url);
   const lootForm = document.querySelector('.journal-loot-filters');
   const filterData = JSON.parse(document.getElementById('journal-loot-filter-data')?.textContent || 'null');
   const snapshot = JSON.parse(document.getElementById('journal-loot-snapshot')?.textContent || 'null');
@@ -149,7 +150,7 @@
           }
           if (data.icon && !row.querySelector('.journal-loot-symbol img')) {
             const icon = document.createElement('img');
-            icon.src = data.icon;
+            icon.src = publishedImageUrl(data.icon);
             icon.alt = '';
             icon.addEventListener('error', () => { icon.hidden = true; });
             row.querySelector('.journal-loot-symbol').append(icon);

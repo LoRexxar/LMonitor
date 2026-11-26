@@ -1,4 +1,5 @@
 (async () => {
+    const setIcon = window.setPublishedWowImage || ((img, src) => { img.src = src; });
     for (const button of document.querySelectorAll('.public-role button[name=refresh_spec]')) {
         const row = button.closest('.public-role');
         try {
@@ -12,7 +13,7 @@
             row.querySelector('[data-spec-label]').textContent = spec.label;
             if (spec.icon) {
                 const icon = new Image(36, 36);
-                icon.src = spec.icon;
+                await setIcon(icon, spec.icon);
                 icon.alt = '';
                 row.prepend(icon);
                 button.hidden = true;

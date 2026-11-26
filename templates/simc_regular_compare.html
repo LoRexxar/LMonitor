@@ -1,9 +1,11 @@
+{% load site_images %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="https://wow.lorexxar.cn/favicon.ico">
+    <link rel="icon" href="/favicon.ico">
     <title>多模拟对比</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
@@ -803,7 +805,7 @@
                     registry.set(eventRef, { item, task, taskIndex });
                     const name = timelineDisplayName(item.row, task);
                     const url = item.row.spell && item.row.spell.icon_url;
-                    const icon = url ? `<img src="${escapeHtml(url)}" alt="">` : `<span class="cast-timeline-event-fallback" aria-hidden="true">${escapeHtml(name.slice(0, 1))}</span>`;
+                    const icon = url ? `<img src="${escapeHtml(publishedImageUrl(url))}" alt="">` : `<span class="cast-timeline-event-fallback" aria-hidden="true">${escapeHtml(name.slice(0, 1))}</span>`;
                     const deltaLabel = castTimelineState.mode === 'diff'
                         ? (status === 'early' ? `-${Math.abs(item.delta).toFixed(1)}s` : status === 'late' ? `+${Math.abs(item.delta).toFixed(1)}s` : status === 'missing' ? '缺失' : status === 'replacement' ? '替换' : '')
                         : (status === 'missing' ? '缺失' : status === 'replacement' ? '替换' : '');
@@ -843,7 +845,7 @@
                     return { task: resultTask, row: nearest, delta: nearest ? Number(nearest.time_seconds) - referenceTime : null };
                 });
                 const iconUrl = row.spell && row.spell.icon_url;
-                inspector.innerHTML = `<div class="inspector-skill">${iconUrl ? `<img class="inspector-icon" src="${escapeHtml(iconUrl)}" alt="">` : `<span class="inspector-icon cast-timeline-event-fallback">${escapeHtml(timelineDisplayName(row, task).slice(0, 1))}</span>`}<div><div class="inspector-title">${escapeHtml(timelineDisplayName(row, task))}</div><div class="inspector-subtitle">${escapeHtml(task.name || '任务')} · ${Number(row.time_seconds).toFixed(3)}s</div></div></div><span class="inspector-status">${escapeHtml(timelineStatusLabel(item.status, item.delta))}</span><dl class="inspector-grid"><dt>动作列表</dt><dd>${escapeHtml(row.action_list || '—')}</dd><dt>目标</dt><dd>${escapeHtml(row.target || '—')}</dd><dt>资源</dt><dd>${escapeHtml(row.resources || '—')}</dd><dt>Buff</dt><dd>${escapeHtml(row.buffs || '—')}</dd></dl><div class="inspector-comparison"><h4>各结果最近一次同名施法</h4>${nearestRows.map(candidate => `<div class="inspector-compare-row"><strong>${escapeHtml(candidate.task.name || '任务')}</strong><span>${candidate.row ? `${Number(candidate.row.time_seconds).toFixed(3)}s` : '缺失'}</span><span class="${candidate.delta !== null && candidate.delta < 0 ? 'delta-positive' : candidate.delta > 0 ? 'delta-negative' : ''}">${candidate.delta === null ? '—' : candidate.task.is_base ? '基准' : formatSigned(candidate.delta, 2, 's')}</span></div>`).join('')}</div>`;
+                inspector.innerHTML = `<div class="inspector-skill">${iconUrl ? `<img class="inspector-icon" src="${escapeHtml(publishedImageUrl(iconUrl))}" alt="">` : `<span class="inspector-icon cast-timeline-event-fallback">${escapeHtml(timelineDisplayName(row, task).slice(0, 1))}</span>`}<div><div class="inspector-title">${escapeHtml(timelineDisplayName(row, task))}</div><div class="inspector-subtitle">${escapeHtml(task.name || '任务')} · ${Number(row.time_seconds).toFixed(3)}s</div></div></div><span class="inspector-status">${escapeHtml(timelineStatusLabel(item.status, item.delta))}</span><dl class="inspector-grid"><dt>动作列表</dt><dd>${escapeHtml(row.action_list || '—')}</dd><dt>目标</dt><dd>${escapeHtml(row.target || '—')}</dd><dt>资源</dt><dd>${escapeHtml(row.resources || '—')}</dd><dt>Buff</dt><dd>${escapeHtml(row.buffs || '—')}</dd></dl><div class="inspector-comparison"><h4>各结果最近一次同名施法</h4>${nearestRows.map(candidate => `<div class="inspector-compare-row"><strong>${escapeHtml(candidate.task.name || '任务')}</strong><span>${candidate.row ? `${Number(candidate.row.time_seconds).toFixed(3)}s` : '缺失'}</span><span class="${candidate.delta !== null && candidate.delta < 0 ? 'delta-positive' : candidate.delta > 0 ? 'delta-negative' : ''}">${candidate.delta === null ? '—' : candidate.task.is_base ? '基准' : formatSigned(candidate.delta, 2, 's')}</span></div>`).join('')}</div>`;
                 playhead.style.left = `${leftFor(Number(row.time_seconds))}px`;
                 playhead.dataset.time = `${Number(row.time_seconds).toFixed(3)}s`;
                 playhead.style.display = 'block';

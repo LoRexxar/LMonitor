@@ -1,3 +1,4 @@
+const dashboardImageUrl = window.publishedImageUrl || (url => url);
 function applyDashboardPagePermissions() { window.DashboardSidebar.applyPermissions(); }
 
 /**
@@ -880,8 +881,8 @@ function parseNewsWowBlocks(raw) {
         if (Array.isArray(blocks)) {
             return blocks.map(block => {
                 if (!block || typeof block !== 'object') return '';
-                if (block.type === 'html' && block.html) return String(block.html);
-                if (block.type === 'image' && block.url) return `<p><img src="${escapeHtml(block.url)}" alt=""></p>`;
+                if (block.type === 'html' && block.html) return window.publishedImageHtml?.(block.html) ?? String(block.html);
+                if (block.type === 'image' && block.url) return `<p><img src="${escapeHtml(dashboardImageUrl(block.url))}" alt=""></p>`;
                 if (block.text) return `<p>${escapeHtml(block.text)}</p>`;
                 return '';
             }).join('\n');
@@ -1392,7 +1393,7 @@ function renderSpecBadgeHtml(specValue, displayValue = '', visual = {}) {
     const iconUrl = String(visual.spec_icon_url || '').trim();
     const mark = spec ? spec.charAt(0).toUpperCase() : '?';
     const icon = iconUrl
-        ? `<img src="${escapeHtml(iconUrl)}" alt="" class="h-6 w-6 shrink-0 rounded object-cover" style="box-shadow: 0 0 0 1px var(--simc-class-color);">`
+        ? `<img src="${escapeHtml(dashboardImageUrl(iconUrl))}" alt="" class="h-6 w-6 shrink-0 rounded object-cover" style="box-shadow: 0 0 0 1px var(--simc-class-color);">`
         : `<span class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white" style="background: var(--simc-class-color);">${escapeHtml(mark)}</span>`;
     return `<span class="inline-flex items-center gap-1.5 rounded-full border px-1.5 py-1 text-xs font-semibold" style="--simc-class-color: ${classColor}; border-color: var(--simc-class-color); background: color-mix(in srgb, var(--simc-class-color) 10%, white); color: color-mix(in srgb, var(--simc-class-color) 68%, #0f172a);">${icon}<span>${escapeHtml(text)}</span></span>`;
 }
@@ -2075,7 +2076,7 @@ function renderSimcProfileEquipmentCards(items, { compact = false } = {}) {
         const tooltipDescription = String(item.tooltip || item.display_description || '').trim();
         const iconUrl = String(item.icon_url || '').trim();
         const itemIcon = iconUrl
-            ? `<img class="wow-item-icon" src="${escapeHtml(iconUrl)}" alt="" loading="lazy">`
+            ? `<img class="wow-item-icon" src="${escapeHtml(dashboardImageUrl(iconUrl))}" alt="" loading="lazy">`
             : '';
         const tooltipAttrs = tooltipDescription
             ? ` data-wow-item-tooltip="${escapeHtml(tooltipDescription)}" data-wow-item-tooltip-name="${escapeHtml(String(item.display_name || itemId || '装备'))}" tabindex="0"`
@@ -2103,7 +2104,7 @@ function renderSimcOmniumTalents(items) {
             entry.spell_id ? `Spell ${entry.spell_id}` : '',
         ].filter(Boolean).join(' · ');
         const icon = iconUrl
-            ? `<img class="h-9 w-9 shrink-0 rounded-md border border-amber-200 bg-white object-cover" src="${escapeHtml(iconUrl)}" alt="" loading="lazy">`
+            ? `<img class="h-9 w-9 shrink-0 rounded-md border border-amber-200 bg-white object-cover" src="${escapeHtml(dashboardImageUrl(iconUrl))}" alt="" loading="lazy">`
             : '<span class="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-amber-200 bg-white text-sm text-amber-600">✦</span>';
         return `<article class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5" data-omnium-entry="${escapeHtml(String(nodeKey))}"><div class="flex items-start gap-2.5">${icon}<div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-1.5"><strong class="text-sm text-amber-950">${escapeHtml(String(displayName || `万奥条目 #${nodeKey}`))}</strong><span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">万奥符文</span><span class="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">${escapeHtml(rankLabel)}</span></div><div class="mt-1 font-mono text-[11px] text-amber-700">${escapeHtml(identifiers)}</div>${description ? `<p class="mt-1.5 text-xs leading-5 text-amber-900/80">${escapeHtml(String(description))}</p>` : ''}</div></div></article>`;
     }).join('');

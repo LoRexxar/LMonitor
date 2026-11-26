@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const publishedImageUrl = window.publishedImageUrl || (url => url);
   const root = document.getElementById('simc-detail-root');
   if (!root) return;
   const kind = 'tasks';
@@ -357,7 +358,7 @@
         const dps = Number(item.dps);
         const ratio = minimumDps > 0 ? dps / minimumDps * 100 : 0;
         const width = maximumDps > 0 ? dps / maximumDps * 100 : 0;
-        const icon = item.candidate_icon_url ? `<img src="${esc(item.candidate_icon_url)}" alt="" loading="lazy">` : '<span class="candidate-icon-placeholder">?</span>';
+        const icon = item.candidate_icon_url ? `<img src="${esc(publishedImageUrl(item.candidate_icon_url))}" alt="" loading="lazy">` : '<span class="candidate-icon-placeholder">?</span>';
         return `<div class="comparison-relative-bar-chart" data-candidate-icon-url="${esc(item.candidate_icon_url || '')}"><div class="comparison-relative-bar-label"><span class="candidate-icon">${icon}</span><b>${value(item.label || item.name || `方案 ${index + 1}`)}</b><small>${number(dps)} DPS · ${ratio.toFixed(1)}%</small></div><div class="comparison-relative-track"><div class="comparison-relative-fill ${item.is_base === true ? 'is-baseline' : ''}" style="width:${Math.min(100, Math.max(0, width))}%"></div></div></div>`;
       }).join('');
       comparisonChartPanel = card('最低 DPS 基准 · 相对比例', `<section class="comparison-simulation-context"><b>冻结模拟上下文</b><span>${baselineFacts}</span></section><div class="comparison-relative-bars">${bars || '<div class="empty">暂无完整 DPS，无法绘制比例图</div>'}</div><p class="muted">最低完成候选固定为 100%，其他候选按 DPS / 最低 DPS 计算。绝对 DPS 和相对基线变化见下方表格。</p>`, true);

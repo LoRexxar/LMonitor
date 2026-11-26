@@ -7428,7 +7428,8 @@ class WagoSkillDiffMonitor(BaseScan):
         if not value:
             return ''
         if value.startswith(('https://', 'http://', '/')):
-            return value
+            from botend.services.site_image_assets import published_image_url
+            return published_image_url(value)
         value = re.sub(r'\.(?:jpg|png|blp)$', '', value.replace('\\', '/').rsplit('/', 1)[-1], flags=re.I)
         safe_name = re.sub(r'[^0-9A-Za-z_-]+', '', value).lower()
         if not safe_name:

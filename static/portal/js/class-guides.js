@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const publishedImageUrl = window.publishedImageUrl || (url => url);
   const header=document.querySelector('.portal-header');
   if(header){const offset=()=>document.body.style.setProperty('--cg-header-height',`${Math.ceil(header.getBoundingClientRect().height)}px`);offset();new ResizeObserver(offset).observe(header);}
   const form = document.getElementById('cg-filters');
@@ -109,8 +110,16 @@
     const recover=()=>{
       if(!img.dataset.cgFallback){
         img.dataset.cgFallback='1';
-        const filename=new URL(img.src,location.href).pathname.split('/').pop();
-        if(/^[a-z0-9_]+\.(jpg|png)$/i.test(filename)){img.src='https://render.worldofwarcraft.com/us/icons/56/'+filename;return;}
+        const original=new URL(img.src,location.href);
+        // Only derive public WoW slugs from known icon paths, never from private media filenames.
+        const icon=/^https:\/\/(?:oss\.wowdaily\.cn\/wow_icons_oss\/(?:tiny|small|medium|large)|wow\.zamimg\.com\/images\/wow\/icons\/(?:tiny|small|medium|large)|static\.icy-veins\.com\/images\/wow\/large_icons)\/([a-z0-9_-]+\.(?:jpg|png))$/i.exec(original.href);
+        if(icon){
+          const filename=icon[1];
+          const upstream='https://render.worldofwarcraft.com/us/icons/56/'+filename;
+          const mapped=publishedImageUrl(upstream);
+          img.src=mapped===img.src ? upstream : mapped;
+          return;
+        }
       }
       img.hidden=true;
     };

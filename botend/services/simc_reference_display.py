@@ -2,6 +2,7 @@
 
 import logging
 
+from botend.services.content_image_display import display_image_url
 from botend.templatetags.wow_tags import wow_icon_oss_url
 from botend.wow.talents.build_code import TalentBuildCodeDecoder
 from botend.wow.talents.metadata import TalentMetadataProvider
@@ -46,11 +47,15 @@ def equipment_display(detail):
     for item in detail.get('equipment') or []:
         row = dict(item)
         row['tooltip_text'] = item.get('tooltip') or item.get('display_description') or item.get('description_zh') or item.get('description') or '当前资料尚未提供属性说明。'
-        row['display_icon'] = item.get('icon_url') or (wow_icon_oss_url(item['icon']) if item.get('icon') else '')
-        for enhancement in [item.get('enchant'), *(item.get('gems') or [])]:
+        row['display_icon'] = display_image_url(item.get('icon_url')) or (wow_icon_oss_url(item['icon']) if item.get('icon') else '')
+        if item.get('enchant'):
+            row['enchant'] = dict(item['enchant'])
+        if item.get('gems'):
+            row['gems'] = [dict(gem) if gem else gem for gem in item['gems']]
+        for enhancement in [row.get('enchant'), *(row.get('gems') or [])]:
             if not enhancement:
                 continue
             enhancement['tooltip_text'] = enhancement.get('tooltip') or enhancement.get('display_description') or enhancement.get('description_zh') or enhancement.get('description') or '当前资料尚未提供说明。'
-            enhancement['display_icon'] = enhancement.get('icon_url') or (wow_icon_oss_url(enhancement['icon']) if enhancement.get('icon') else '')
+            enhancement['display_icon'] = display_image_url(enhancement.get('icon_url')) or (wow_icon_oss_url(enhancement['icon']) if enhancement.get('icon') else '')
         rows.append(row)
     return rows

@@ -9,6 +9,7 @@ from botend.journal_models import JournalState
 from botend.services.journal_service import ROLE_FLAGS, SLOTS
 from botend.services.journal_text import integer
 from botend.services.journal_loot import class_matches, equipment_type, specialization_options, enrich_loot_specializations
+from botend.services.content_image_display import display_image_url
 from botend.services.journal_tooltip import cached_tooltip
 from botend.services.wow_item_display import load_item_display_metadata
 from botend.services.season_keys import canonical_season_key
@@ -52,6 +53,8 @@ def instance_source(release, instance_id, *, season=_UNSET):
 
 def _present_tooltip(data, source):
     """赛季展示标签与保留的数值来源分开，避免把旧 PTR 构建伪装成正式服。"""
+    if data and data.get('icon'):
+        data = {**data, 'icon': display_image_url(data['icon'])}
     if data and source['key'] == 'current':
         return {**data, 'source': 'LMonitor 装备目录'}
     return data

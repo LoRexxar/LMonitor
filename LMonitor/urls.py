@@ -24,7 +24,7 @@ from botend.portal.adventure_journal import (
     PortalAdventureJournalView, PortalAdventureJournalDetailView, PortalAdventureJournalAPIView, PortalAdventureJournalArtView,
     PortalAdventureJournalTooltipView,
 )
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from django.views.generic.base import RedirectView
@@ -163,7 +163,10 @@ from django.http import HttpResponse, JsonResponse
 from botend.portal.updates import PortalSiteUpdatesAPIView
 from botend.portal.rio_statistics import RioStatisticsView, RioStatisticsAPIView, RioStatisticsMapView, RioStatisticsPrepareView
 
+from botend.site_image_map import image_map_script
+
 urlpatterns = [
+    re_path(r'^assets/site-image-maps/(?P<version>[0-9a-f]{64})\.js$', image_map_script, name='site_image_map_script'),
     path('portal/rio-statistics/', RioStatisticsView.as_view(), name='portal_rio_statistics'),
     path('portal/api/rio-statistics/', RioStatisticsAPIView.as_view(), name='portal_rio_statistics_catalog'),
     path('portal/api/rio-statistics/prepare/', RioStatisticsPrepareView.as_view(), name='portal_rio_statistics_prepare'),

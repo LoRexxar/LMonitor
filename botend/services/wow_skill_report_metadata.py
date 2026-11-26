@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db.models import Q
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
+from botend.services.content_image_display import display_image_url
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
@@ -226,8 +227,8 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
             r'(?:Spell|技能)?\s*#?\d+', report_name.strip(), flags=re.I) else '')
         return {'id': sid, 'name': frozen_label or value['name'] or report_name or f'技能 #{sid}',
                 'url': wowhead_spell_url(branch, sid), 'icon_source': source,
-                'icon_fallback_url': fallback,
-                'icon_url': (f'https://wow.zamimg.com/images/wow/icons/large/{icon}.jpg' if source == 'wowhead' else wow_icon_oss_url(icon)) if icon else ''}
+                'icon_fallback_url': display_image_url(fallback),
+                'icon_url': (display_image_url(f'https://wow.zamimg.com/images/wow/icons/large/{icon}.jpg') if source == 'wowhead' else wow_icon_oss_url(icon)) if icon else ''}
 
     result = {}
     for sid in ids:
