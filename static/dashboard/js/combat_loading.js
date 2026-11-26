@@ -105,7 +105,7 @@
 
     const indicator = document.getElementById('combat-pending');
     if (!indicator) return;
-    let current;
+    let current, lastNavigation, lastClick = 0;
     // 同一页面切换多个筛选时，较早完成的请求不能清除新的提示。
     function start(message) {
         current?.();
@@ -135,7 +135,7 @@
         return end;
     }
     window.combatPending = {start};
-    addEventListener('pageshow', () => current?.());
+    addEventListener('pageshow', () => { lastNavigation = null; current?.(); });
     addEventListener('pagehide', () => current?.());
     addEventListener('keydown', event => { if (event.key === 'Escape') current?.(); });
     window.navigation?.addEventListener('navigateerror', () => current?.());
@@ -146,6 +146,13 @@
         const dest = new URL(link.href);
         if (dest.origin !== location.origin || !dest.pathname.startsWith(indicator.dataset.root) ||
             dest.pathname.endsWith('/original/') || dest.hash && dest.pathname === location.pathname && dest.search === location.search) return;
+        const now = performance.now();
+        if (dest.href === lastNavigation && now - lastClick < 1500) {
+            event.preventDefault();
+            return;
+        }
+        lastNavigation = dest.href;
+        lastClick = now;
         const label = link.getAttribute('aria-label') || link.textContent.trim();
         start(label ? '正在打开' + label.slice(0,48) + '…' : '正在打开战斗数据…');
     });

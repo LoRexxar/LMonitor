@@ -122,7 +122,7 @@
         try { if (query.size) sessionStorage.setItem(key, '?' + query); } catch { /* 存储不可用时仍可直接分享网址。 */ }
     }
     rememberView();
-    let pending;
+    let pending, pendingUrl;
     const notice = document.querySelector('.query-notice');
     function notify(message) {
         notice.querySelector('span').textContent = message;
@@ -130,9 +130,13 @@
     }
     notice.querySelector('button').onclick = () => {notice.hidden = true;};
     async function navigate(url, push, trigger) {
+        const target = new URL(url, location.href).href;
+        if (pendingUrl === target && !pending.signal.aborted) return;
         pending?.abort();
+        if (push && target === location.href) return;
         const request = new AbortController();
         pending = request;
+        pendingUrl = target;
         const previous = document.querySelector('#explorer');
         previous.setAttribute('aria-busy', 'true');
         const endLoading = window.combatPending?.start('正在按当前场次和筛选条件读取战斗数据…');
@@ -188,6 +192,7 @@
         } finally {
             endLoading?.();
             if (pending === request) {
+                pending = pendingUrl = undefined;
                 previous.removeAttribute('aria-busy');
                 if (previous.isConnected && trigger?.matches('.wave-picker')) trigger.reset();
             }

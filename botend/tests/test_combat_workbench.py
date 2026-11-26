@@ -107,6 +107,51 @@ class CombatWorkbenchTests(TestCase):
         self.assertEqual(r.state, "ready", r.message)
         return r
 
+    def test_cached_battle_directory_rechecks_filters_revision_and_reader(self):
+        from botend.dashboard import combat_library
+        from django.utils import timezone
+
+        book = CombatLogCollection.objects.create(owner=self.owner, title="共享目录")
+        book.reports.add(self.report)
+        book.readers.add(self.member)
+        self.client.force_login(self.member)
+        url = reverse("combat_battles")
+        query = {"log": str(self.report.pk)}
+        browser = {"HTTP_SEC_FETCH_DEST":"document", "HTTP_ACCEPT":"text/html"}
+        fetch = {"HTTP_SEC_FETCH_DEST":"empty", "HTTP_ACCEPT":"text/html"}
+        with patch.object(combat_library, "local_groups", wraps=combat_library.local_groups) as groups:
+            cold = self.client.get(url, query, **browser)
+            self.assertTemplateUsed(cold, "dashboard/combat_loading.html")
+            page = self.client.get(cold.context["continue_url"], **fetch, HTTP_X_COMBAT_NAVIGATION="continue")
+            self.assertEqual(page.status_code, 200)
+            warm = self.client.get(url, query, **browser)
+            self.assertEqual(warm.content, page.content)
+            self.assertIn("no-store", warm["Cache-Control"])
+            self.assertEqual(groups.call_count, 1)
+            reload = self.client.get(url, query, **browser, HTTP_CACHE_CONTROL="no-cache")
+            self.assertIn("refresh=1", reload.context["continue_url"])
+            changed = self.client.get(url, {**query, "q":"另一组筛选"}, **browser)
+            self.assertTemplateUsed(changed, "dashboard/combat_loading.html")
+            type(self.report).objects.filter(pk=self.report.pk).update(updated_at=timezone.now())
+            self.assertTemplateUsed(self.client.get(url, query, **browser), "dashboard/combat_loading.html")
+            self.assertEqual(self.client.get(url, query, **fetch).status_code, 200)
+            self.assertEqual(groups.call_count, 2)
+            book.readers.remove(self.member)
+            self.assertEqual(self.client.get(url, query, **browser).status_code, 404)
+
+    def test_replay_cache_separates_document_and_chunks(self):
+        from botend.services import combat_log_replay
+
+        url = reverse("combat_replay", args=[self.report.pk, self.samples[0]["id"]])
+        fetch = {"HTTP_SEC_FETCH_DEST":"empty"}
+        with patch.object(combat_log_replay, "read", wraps=combat_log_replay.read) as read:
+            page = self.client.get(url, **fetch)
+            chunk = self.client.get(url, {"chunk":0}, **fetch)
+            self.assertEqual((page.status_code, chunk.status_code), (200, 200))
+            self.assertEqual(self.client.get(url, **fetch).content, page.content)
+            self.assertEqual(self.client.get(url, {"chunk":0}, **fetch).json(), chunk.json())
+            self.assertEqual(read.call_count, 2)
+
     def test_selected_logs_drive_battles_replay_and_character_comparison(self):
         from urllib.parse import urlsplit
         from django.http import QueryDict
@@ -1082,12 +1127,14 @@ class CombatWorkbenchTests(TestCase):
 
     def test_ai_snapshot_is_validated_and_reused(self):
         url = reverse("combat_review", args=[self.report.pk, 2, "mechanic", "22"])
-        self.assertContains(self.client.get(url), "响应")
+        fetch = {"HTTP_SEC_FETCH_DEST":"empty"}
+        self.assertContains(self.client.get(url, **fetch), "响应")
         with patch("core.glm.GLMClient") as ctor:
             ai = ctor.return_value
             ai.available = True
             ai.send_message.return_value = '[{"hypothesis":"需查看第二次响应","check":"检查打断原行","lines":[12,13]}]'
             self.assertContains(self.client.post(url), "检查打断原行")
+            self.assertContains(self.client.get(url, **fetch), "检查打断原行")
             self.client.post(url)
             self.assertEqual(ai.send_message.call_count, 1)
             self.assertNotIn("Player-1", ai.send_message.call_args.args[0])
@@ -1282,6 +1329,13 @@ class BossReviewBrowserTests(StaticLiveServerTestCase):
                 expect(page.get_by_role("heading", name="战斗分组")).to_be_visible()
                 self.assertEqual(len(calls), 3)
                 self.assertEqual(page.url, self.live_server_url + path)
+                page.goto(self.live_server_url + reverse("combat_logs") + "?source=uploads")
+                continuations = []
+                page.on("request", lambda req: continuations.append(req.url) if "_clwait=" in req.url else None)
+                page.goto(self.live_server_url + path)
+                expect(page.get_by_role("heading", name="战斗分组")).to_be_visible()
+                self.assertEqual(continuations, [])
+                self.assertEqual(len(calls), 3)
             finally:
                 release.set()
                 browser.close()

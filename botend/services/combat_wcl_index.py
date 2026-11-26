@@ -195,18 +195,29 @@ def build(db, raw, fight, stream):
     combat_replay_activity.index_damage(db, fights.execute("SELECT * FROM fight"))
 
 
-def materialize(user, binding, code, fid):
+def index_key(user, binding, code, fid):
     account = binding.wcl_id if binding else None
-    key = uuid.uuid5(uuid.NAMESPACE_URL,f"lmonitor/wcl/1/{user.pk}/{account}/{code}/{fid}")
+    return uuid.uuid5(uuid.NAMESPACE_URL,f"lmonitor/wcl/1/{user.pk}/{account}/{code}/{fid}")
+
+
+def current(path):
+    try:
+        return path.stat().st_mtime > time.time() - TTL
+    except FileNotFoundError:
+        return False
+
+
+def materialize(user, binding, code, fid):
+    key = index_key(user, binding, code, fid)
     root = folder()
     root.mkdir(parents=True,exist_ok=True)
     path = root / f"{key}.sqlite3"
-    if path.exists() and path.stat().st_mtime > time.time()-TTL:
+    if current(path):
         return key
     with path.with_suffix(".lock").open("ab") as guard:
         if not locks.lock(guard,locks.LOCK_EX | locks.LOCK_NB):
             raise wcl.WclError("这场战斗正在建立事件索引，请稍后重新打开。")
-        if not path.exists() or path.stat().st_mtime <= time.time()-TTL:
+        if not current(path):
             os.utime(guard.name,None)
             write_index(user,binding,code,fid,path)
             cache.set(f"wcl-view:{key}",True,30)
@@ -238,6 +249,10 @@ def write_index(user, binding, code, fid, path):
         os.replace(staging,path)
     finally:
         staging.unlink(missing_ok=True)
+
+
+def needs_access_check(key):
+    return (folder() / f"{key}.sqlite3").is_file() and not cache.get(f"wcl-view:{key}")
 
 
 def resolve(user, key):

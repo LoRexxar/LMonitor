@@ -24,7 +24,7 @@ from django.views.decorators.http import require_http_methods
 
 from botend.models import CombatLogReport, CombatLogPolicy
 from botend.services import combat_log_archive as archive
-from botend.services import combat_loading
+from botend.services import combat_loading, combat_page_cache
 from botend.services.combat_wcl_account import WclError
 
 
@@ -33,10 +33,29 @@ def endpoint(*methods):
         @wraps(view)
         def checked(request, *args, **kwargs):
             try:
+                key = combat_page_cache.page_key(request)
+                force_reload = request.headers.get("Sec-Fetch-Dest") == "document" and "no-cache" in request.headers.get("Cache-Control", "")
+                request.combat_refresh = bool(key and (request.GET.get("refresh") or force_reload))
+                entry = combat_page_cache.lookup(key) if key and not request.combat_refresh else None
+                versions = None
+                if entry is not None:
+                    initial = request.headers.get("Sec-Fetch-Dest") == "document" and "_clwait" not in request.GET
+                    versions = combat_page_cache.scope(request, quick=initial)
+                    if versions == entry[0]:
+                        return combat_page_cache.response(entry, request)
                 with combat_loading.navigation(request) as waiting:
                     if waiting is not None:
                         return waiting
+                    if key and "refresh" in request.GET:
+                        query = request.GET.copy()
+                        del query["refresh"]
+                        request.GET = query
+                        request.META["QUERY_STRING"] = query.urlencode()
+                    if key and entry is None:
+                        versions = combat_page_cache.scope(request)
                     response = view(request, *args, **kwargs)
+                    if key:
+                        combat_page_cache.remember(key, versions, request, response)
                     if request.headers.get("X-Combat-Navigation") == "continue" and response.get("Content-Type", "").startswith("text/html"):
                         response["X-Combat-Document"] = "1"
                     return response

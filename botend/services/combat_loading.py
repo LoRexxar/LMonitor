@@ -50,7 +50,7 @@ def status(user, token):
         return None
 
 
-def page_title(request, public_list=False):
+def page_title(request, public_list=False, index_build=False):
     continuation = (request.headers.get("X-Combat-Navigation") == "continue" and
                     re.fullmatch(r"[a-f0-9]{32}", request.GET.get(PARAM, "")))
     if (request.method != "GET" or (request.headers.get("Sec-Fetch-Dest") != "document" and not continuation)
@@ -59,6 +59,8 @@ def page_title(request, public_list=False):
     name = request.resolver_match.url_name
     if public_list:
         return "读取公开日志列表"
+    if name == "combat_wcl_single" and not index_build:
+        return None
     if name == "combat_logs" and (request.GET.get("source") != "private" and request.GET.get("channel") != "private" or request.GET.get("analyze")):
         return None
     if name == "combat_wcl" and request.GET.get("channel") == "private" and "settings" not in request.GET:
@@ -76,15 +78,17 @@ def page_title(request, public_list=False):
 
 
 @contextmanager
-def navigation(request, public_list=False, source=None):
+def navigation(request, public_list=False, source=None, index_build=False):
     if _active_key.get():
         yield None
         return
-    title = page_title(request, public_list)
+    title = page_title(request, public_list, index_build)
     token = request.GET.get(PARAM, "")
     if title and not re.fullmatch(r"[a-f0-9]{32}", token):
         ident = uuid4()
         query = request.GET.copy()
+        if getattr(request, "combat_refresh", False):
+            query["refresh"] = "1"
         query[PARAM] = ident.hex
         from botend.dashboard.combat_library import LIST_KEYS, SOURCE_KEYS, back_directory
         library_url = reverse("combat_logs")

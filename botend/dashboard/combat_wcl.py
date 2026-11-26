@@ -79,7 +79,12 @@ def single(request, code, fight):
     try:
         if private and not binding:
             raise wcl.AccessDenied("请先绑定有权读取这场战斗的 WCL 账号。")
-        key = combat_wcl_index.materialize(request.user,binding,code,fight)
+        key = combat_wcl_index.index_key(request.user,binding,code,fight)
+        if not combat_wcl_index.current(combat_wcl_index.folder() / f"{key}.sqlite3"):
+            with combat_loading.navigation(request, index_build=True) as waiting:
+                if waiting is not None:
+                    return waiting
+                key = combat_wcl_index.materialize(request.user,binding,code,fight)
     except wcl.WclError as exc:
         directory = workspace_url([code],private,origin)
         return render(request,"dashboard/combat_wcl.html",
