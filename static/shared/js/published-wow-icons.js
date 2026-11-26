@@ -7,7 +7,7 @@
     const large = /^https:\/\/(?:static\.icy-veins\.com\/images\/wow\/large_icons|render\.worldofwarcraft\.com\/us\/icons\/56)\/([a-zA-Z0-9_-]{1,160})\.jpg$/;
     let index;
     function loadIndex() {
-        return index ||= fetch(inventory, {credentials:'omit', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(6000)})
+        return index ||= fetch(inventory, {mode:'same-origin', redirect:'error', credentials:'omit', referrerPolicy:'no-referrer', signal:AbortSignal.timeout(6000)})
             .then(async r => {
                 if (!r.ok) throw Error();
                 const doc = await r.json();
@@ -21,15 +21,18 @@
             }).catch(() => new Map());
     }
     window.publishedWowIconUrl = async source => {
-        const exact = window.publishedImageUrl ? window.publishedImageUrl(source) : source;
-        if (exact !== source || typeof source !== 'string' || source.length > 512) return exact;
+        const exact = window.publishedImageUrl?.(source) || '';
+        if (exact || typeof source !== 'string' || source.length > 512) return exact;
         const match = zam.exec(source) || large.exec(source);
-        if (!match || match[0] !== source) return source;
+        if (!match || match[0] !== source) return '';
         const name = match.at(-1), size = match.length === 3 ? match[1] : 'large';
         // Legacy tiny/ can contain small JPEG bytes. Only exact releases qualify.
-        if (size === 'tiny') return source;
+        if (size === 'tiny') return '';
         const mask = (await loadIndex()).get(name);
-        return mask & (1 << sizes.indexOf(size)) ? `https://oss.wowdaily.cn/wow_icons_oss/${size}/${name}.jpg` : source;
+        return mask & (1 << sizes.indexOf(size)) ? `https://oss.wowdaily.cn/wow_icons_oss/${size}/${name}.jpg` : '';
     };
-    window.setPublishedWowImage = async (image, source) => { image.src = await window.publishedWowIconUrl(source); };
+    window.setPublishedWowImage = async (image, source) => {
+        const url = await window.publishedWowIconUrl(source);
+        if (url) image.src = url;
+    };
 })();

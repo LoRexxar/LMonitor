@@ -61,7 +61,7 @@
             if (!response.ok) throw new Error();
             const content = await response.text();
             if (request.signal.aborted) return;
-            panel.innerHTML = content;
+            panel.replaceChildren(window.publishedImageFragment(content));
             if (focusHeading) panel.querySelector('h3')?.focus();
         } catch {
             if (request.signal.aborted) return;

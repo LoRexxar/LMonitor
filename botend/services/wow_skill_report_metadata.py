@@ -11,7 +11,6 @@ from django.core.cache import cache
 from django.db.models import Q
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
-from botend.services.content_image_display import display_image_url
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
@@ -218,17 +217,15 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
     def item(sid):
         value = metadata[sid]
         icon = value['icon']
-        # 数据库图标优先 OSS，未入库的备用源直接使用原站资源，不拼出不存在的 OSS 对象。
         source = value['icon_source']
-        basename = re.sub(r'\.(?:jpg|png|blp)$', '', str(icon).rsplit('/', 1)[-1], flags=re.I)
-        fallback = f'https://wow.zamimg.com/images/wow/icons/large/{basename}.jpg' if re.fullmatch(r'[a-zA-Z0-9_-]+', basename) else ''
+        fallback = wow_icon_oss_url(icon, 'large')
         report_name = entries.get(sid, {}).get('name') or ''
         frozen_label = (report_name if not resolve_remote and not re.fullmatch(
             r'(?:Spell|技能)?\s*#?\d+', report_name.strip(), flags=re.I) else '')
         return {'id': sid, 'name': frozen_label or value['name'] or report_name or f'技能 #{sid}',
                 'url': wowhead_spell_url(branch, sid), 'icon_source': source,
-                'icon_fallback_url': display_image_url(fallback),
-                'icon_url': (display_image_url(f'https://wow.zamimg.com/images/wow/icons/large/{icon}.jpg') if source == 'wowhead' else wow_icon_oss_url(icon)) if icon else ''}
+                'icon_fallback_url': fallback,
+                'icon_url': wow_icon_oss_url(icon) or fallback}
 
     result = {}
     for sid in ids:

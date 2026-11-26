@@ -15,7 +15,7 @@ from datetime import date, timedelta
 
 from botend.models import PortalEvent, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
-from botend.services.content_image_display import display_article_blocks, display_image_url
+from botend.services.content_image_display import display_article_blocks, display_image_html, display_image_url
 from botend.services.news_snapshot import news_response
 from botend.services.wow_hotfix_entries import continuous_entries, public_hotfix_entry
 from botend.services.wow_today_service import (
@@ -706,7 +706,7 @@ class PortalArticleDetailAPIView(View):
                 'source': article.source or '',
                 'category': article.category or '',
                 'publish_time': _fmt_dt(article.publish_time),
-                'content': content,
+                'content': display_image_html(content),
                 'content_cn': content_cn,
                 'content_blocks': display_article_blocks(content_blocks),
                 'content_blocks_cn': display_article_blocks(content_blocks_cn),

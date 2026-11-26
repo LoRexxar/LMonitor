@@ -816,7 +816,8 @@ class DashboardView(View):
             if article.get('author') == 'LMonitor':
                 article['author'] = ''
             from botend.services.article_content_service import loads_blocks, dumps_blocks
-            from botend.services.content_image_display import display_article_blocks
+            from botend.services.content_image_display import display_article_blocks, display_image_html
+            article['content'] = display_image_html(article['content'])
             for key in ('content_blocks', 'content_blocks_cn'):
                 blocks = loads_blocks(article[key])
                 display = display_article_blocks(blocks)
@@ -1610,15 +1611,20 @@ class WclAnalysisReportView(View):
                     'report_html': ''
                 })
 
+            from botend.services.content_image_display import display_image_html
             with open(report_path, 'r', encoding='utf-8') as f:
                 report_html = f.read()
-            return render(request, 'wcl_analysis_report.html', {
+            response = render(request, 'wcl_analysis_report.html', {
                 'task': task,
                 'token': token,
                 'status': task.status,
                 'error_message': task.error_message or '',
-                'report_html': report_html
+                'report_html': display_image_html(report_html),
             })
+            response['Content-Security-Policy'] = 'img-src https://oss.wowdaily.cn data:'
+            response['Referrer-Policy'] = 'no-referrer'
+            response['Cache-Control'] = 'private, no-store'
+            return response
         except Exception as e:
             logger.error(f"WCL分析报告页渲染失败: {str(e)}\n{traceback.format_exc()}")
             return HttpResponse("页面加载失败", status=500)

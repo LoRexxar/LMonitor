@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-const publishedImageUrl = window.publishedImageUrl || (url => url);
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
   const sectionMeta = {
     results: {

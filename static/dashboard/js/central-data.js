@@ -1,7 +1,7 @@
 /* 后台中央资料只读查询；所有来源文字按纯文本输出。 */
 (() => {
     'use strict';
-    const publishedImageUrl = window.publishedImageUrl || (url => url);
+    const publishedImageUrl = window.publishedImageUrl || (() => '');
     function init() {
         const root = document.getElementById('central-data-workspace');
         if (!root) return;

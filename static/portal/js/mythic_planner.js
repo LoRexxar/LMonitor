@@ -1,6 +1,6 @@
 (() => {
     'use strict';
-const publishedImageUrl = window.publishedImageUrl || (url => url);
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
     const $ = (selector, root = document) => root.querySelector(selector);
     const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));

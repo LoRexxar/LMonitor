@@ -126,19 +126,22 @@ def render_main_post(content):
                 attrs.update(href=url, rel='nofollow noopener noreferrer', target='_blank')
         if tag.name in ('img', 'source'):
             url = nga_image_url(tag.get('src'))
-            if url:
-                attrs['src'] = display_image_url(url)
+            if src := display_image_url(url):
+                attrs['src'] = src
             # srcset is intentionally rebuilt, never copied verbatim.
             candidates = []
             for candidate in str(tag.get('srcset') or '').split(','):
                 fields = candidate.split()
                 if fields and safe_url(fields[0]) and (len(fields) == 1 or
                         (len(fields) == 2 and re.fullmatch(r'\d+(?:\.\d+)?[wx]', fields[1]))):
-                    candidates.append(' '.join([display_image_url(nga_image_url(fields[0])), *fields[1:]]))
+                    if src := display_image_url(nga_image_url(fields[0])):
+                        candidates.append(' '.join([src, *fields[1:]]))
             if candidates:
                 attrs['srcset'] = ', '.join(candidates)
             if tag.name == 'img':
                 attrs.update(loading='lazy', referrerpolicy='no-referrer')
+                if not (attrs.get('src') or attrs.get('srcset') or attrs.get('alt')):
+                    attrs['alt'] = '图片尚未发布'
         tag.attrs = attrs
     result = str(soup).strip()
     has_image = any(image.get('src') or image.get('srcset') or image.get('alt')

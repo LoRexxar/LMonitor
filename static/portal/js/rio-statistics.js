@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const publishedImageUrl = window.publishedImageUrl || (url => url);
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const $ = (id) => document.getElementById(`rio-${id}`);
   const host = $('statistics');
   if (!host) return;

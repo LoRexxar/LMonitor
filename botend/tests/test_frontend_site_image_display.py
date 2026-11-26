@@ -25,7 +25,8 @@ class FrontendImageDisplayTests(SimpleTestCase):
         self.assertIn(f'href="{UP}"', html)
         profile['avatar'] += '?unpublished=1'
         html = render_to_string('shared/class_guide_author.html', {'author_profile': profile})
-        self.assertIn(f'src="{UP}?unpublished=1"', html)
+        self.assertNotIn('<img', html)
+        self.assertIn(f'href="{UP}"', html)
 
     def test_rich_preview_maps_before_request_without_changing_text_or_links(self):
         if sync_playwright is None:

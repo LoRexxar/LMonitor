@@ -1,7 +1,7 @@
 /* Presentation only: consume optimizer facts without resolving or modifying gear. */
 (() => {
   "use strict";
-  const publishedImageUrl = window.publishedImageUrl || (url => url);
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const esc = value => String(value ?? "").replace(/[&<>'"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'})[c]);
   const labels = {crit: '暴击', haste: '急速', mastery: '精通', versatility: '全能', stamina: '耐力', strength: '力量', agility: '敏捷', intellect: '智力', armor: '护甲', primary: '主属性'};
   const rarity = {0: '粗糙', 1: '普通', 2: '优秀', 3: '精良', 4: '史诗', 5: '传说', 6: '神器', 7: '传家宝'};

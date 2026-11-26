@@ -1,5 +1,5 @@
 (function () {
-    const publishedImageUrl = window.publishedImageUrl || (url => url);
+    const publishedImageUrl = window.publishedImageUrl || (() => '');
     const page = document.querySelector('.talent-sim-page');
     if (!page) return;
 

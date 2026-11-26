@@ -23,6 +23,10 @@ def item_cdn_icon(item):
     asset = verified_item_icon_asset(item)
     if asset:
         return asset['value']
+    # URL identity is the complete URL, not its last path component. Never
+    # borrow a published icon simply because an unknown host used its name.
+    if isinstance(item.icon, str) and any(c in item.icon for c in '/\\?#:'):
+        return ''
     named = named_item_icon(item.icon)
     if named:
         return named
@@ -31,6 +35,14 @@ def item_cdn_icon(item):
             and original.isascii() and original.isdigit() and str(item.icon) == original):
         return original
     return ''
+
+
+def item_display_icon_url(item, size):
+    from botend.services.site_image_assets import published_image_url
+    name = item_cdn_icon(item)
+    if name:
+        return published_image_url(f'https://wow.zamimg.com/images/wow/icons/{size}/{name}.jpg')
+    return published_image_url(getattr(item, 'icon', ''))
 
 
 def current_fact_store(entries):

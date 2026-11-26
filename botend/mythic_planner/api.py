@@ -8,6 +8,8 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F
 from django.http import JsonResponse
+
+from botend.services.content_image_display import display_icon_fields
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -64,6 +66,9 @@ def success(data=None, **extra):
     if data is not None:
         payload['data'] = data
     payload.update(extra)
+    # Project only presentation URL slots; preserve route/navigation identities.
+    payload = display_icon_fields(payload, url_fields=('icon_url', 'resolved_icon_url', 'model_preview_url',
+                                                      'model_portrait_url', 'background_url'))
     return JsonResponse(payload, json_dumps_params={'ensure_ascii': False})
 
 

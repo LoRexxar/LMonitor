@@ -185,7 +185,7 @@ class PortalReportFileView(View):
                     enhancement = (
                         f'<div data-report-branch="{branch}" data-skill-report-metadata="{metadata_url}"></div>'
                         '<link rel="stylesheet" href="/static/portal/css/wow-skill-report-metadata.css?v=20260924_hotfix_source">'
-                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=hotfix_relation_display_v2"></script>'
+                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=oss-images2"></script>'
                     )
                     content = content.replace('</body>', enhancement + '</body>', 1) if '</body>' in content else content + enhancement
             return HttpResponse(display_image_html(content), content_type='text/html; charset=utf-8')

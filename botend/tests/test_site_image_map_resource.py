@@ -141,10 +141,10 @@ class SiteImageMapResourceTests(SimpleTestCase):
                             html = render_to_string('shared/_site_images.html').encode() + consumer
                         seen.clear()
                         page.goto(f'http://127.0.0.1:{httpd.server_port}/consumer?visit={visit}')
-                        page.wait_for_function("document.querySelectorAll('combat-spell-icon img').length === 2")
+                        page.wait_for_function("Array.from(document.querySelectorAll('combat-spell-icon')).every(n => n.hidden || n.firstElementChild)")
                         page.wait_for_load_state('networkidle')
-                        self.assertCountEqual(seen, [(mirror if visit < 3 else upstream) + 'spell_799.jpg',
-                                                     upstream + 'spell_missing.jpg'])
+                        self.assertCountEqual(seen, [mirror + 'spell_799.jpg'] if visit < 3 else [])
+                        self.assertFalse(any(src.startswith(upstream) for src in seen))
                         self.assertEqual(requests, [url])  # second navigation: no HTTP round trip
                     browser.close()
             finally:

@@ -1,4 +1,4 @@
-const portalImageUrl = window.publishedImageUrl || (url => url);
+const portalImageUrl = window.publishedImageUrl || (() => '');
 async function fetchJson(url, controller = new AbortController()) {
   let timer = setTimeout(() => controller.abort(), 10000);
   const clearTimer = () => {
@@ -66,18 +66,7 @@ function sanitizeHref(raw) {
 }
 
 function getBilibiliThumbnailUrl(raw) {
-  const s = portalImageUrl(sanitizeHref(raw));
-  if (!s) return "";
-  try {
-    const u = new URL(s);
-    if (!u.hostname.endsWith("hdslb.com")) return s;
-    if (!u.pathname.includes("/bfs/archive/")) return s;
-    if (u.pathname.includes("@")) return s;
-    u.pathname = `${u.pathname}@384w_216h_1c_!web-search-common-cover.avif`;
-    return portalImageUrl(u.toString());
-  } catch (e) {
-    return s;
-  }
+  return portalImageUrl(sanitizeHref(raw));
 }
 
 // --- Homepage NGA preview: one invalidatable, non-modal session ---
@@ -570,7 +559,7 @@ async function loadTools() {
             const iconPath = escapeHtml(portalImageUrl(getFaviconSrc(item)));
             const visual = item.icon_key
               ? iconHtml(item.icon_key, "portal-tool-row-svg")
-              : `<img src="${iconPath}" alt="" loading="lazy" onerror="this.src='/static/portal/favicons/default.svg'">`;
+              : `<img src="${iconPath}" alt="" loading="lazy" onerror="this.hidden=true">`;
             const badgeTone = item?.badge_tone === "new" ? " is-new" : "";
             const badge = item.badge ? `<span class="portal-tool-row-badge${badgeTone}">${escapeHtml(item.badge)}</span>` : "";
             const content = `<span class="portal-tool-row-icon">${visual}</span><span class="portal-tool-row-copy"><strong>${name}</strong>${desc ? `<small>${desc}</small>` : ""}</span>${badge}<span class="portal-tool-row-arrow" aria-hidden="true">→</span>`;
@@ -1718,13 +1707,7 @@ function renderMplusRuns(containerId, items) {
   `;
   el.querySelectorAll('.portal-mplus-spec-icon').forEach((image) => {
     image.addEventListener('error', () => {
-      // OSS 加载失败时使用同名高清图标的备用源，仅切换一次。
-      const original = new URL(image.src);
-      if (original.origin !== 'https://oss.wowdaily.cn' || !/^\/wow_icons_oss\/(tiny|small|medium|large)\/[a-z0-9_-]+\.jpg$/i.test(original.pathname)) return;
-      const filename = original.pathname.split('/').pop();
-      const upstream = `https://wow.zamimg.com/images/wow/icons/large/${filename}`;
-      const mapped = portalImageUrl(upstream);
-      image.src = mapped === original.href ? upstream : mapped;
+      image.hidden = true;
     }, {once: true});
   });
 }

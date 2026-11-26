@@ -1,5 +1,5 @@
 (() => {
-  const publishedImageUrl = window.publishedImageUrl || (url => url);
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const lootForm = document.querySelector('.journal-loot-filters');
   const filterData = JSON.parse(document.getElementById('journal-loot-filter-data')?.textContent || 'null');
   const snapshot = JSON.parse(document.getElementById('journal-loot-snapshot')?.textContent || 'null');

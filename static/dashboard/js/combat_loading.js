@@ -62,7 +62,7 @@
                 if (!response.ok || !trusted) {
                     let reason;
                     if (trusted) {
-                        const alert = new DOMParser().parseFromString(html, 'text/html').querySelector('[role=alert]');
+                        const alert = window.publishedImageFragment?.(html)?.querySelector('[role=alert]');
                         reason = alert?.firstChild?.textContent.trim();
                     }
                     if (!reason && response.headers.get('Content-Type')?.includes('application/json')) {

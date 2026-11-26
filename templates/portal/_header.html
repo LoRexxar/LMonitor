@@ -7,7 +7,7 @@
             <a href="/" class="portal-header-brand" aria-label="返回 WowDaily 首页">
                 <div class="portal-header-logo">
                     <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
-                    <img class="portal-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                    <img class="portal-logo-img" src="{% load site_images %}{{ '/static/portal/images/portal-logo.webp'|published_image_url }}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
                 </div>
                 <div class="portal-header-wordmark">
                     <strong>WowDaily</strong>

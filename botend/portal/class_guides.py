@@ -30,7 +30,7 @@ class PortalGuidePageMixin:
             raise Http404
         body, (start, end, offset) = page
         # Stored offsets refer to source bytes. Split before any mapped URL
-        # changes their length. Never cache or project a user's private header.
+        # changes their length. Never cache a user's private header.
         header = body[start:end]
         management = b''
         if request.user.is_authenticated:
@@ -42,7 +42,7 @@ class PortalGuidePageMixin:
         def public_fragment(fragment):
             return display_image_html(fragment.decode('utf-8'), public_guide=True).encode('utf-8')
 
-        body = b''.join((public_fragment(body[:start]), header, public_fragment(body[end:offset]),
+        body = b''.join((public_fragment(body[:start]), display_image_html(header.decode()).encode(), public_fragment(body[end:offset]),
                          management, public_fragment(body[offset:])))
         return HttpResponse(body, content_type='text/html; charset=utf-8')
 

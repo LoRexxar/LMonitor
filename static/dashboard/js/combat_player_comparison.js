@@ -67,11 +67,10 @@
         try {
             const response = await fetch(url, {signal:controller.signal});
             if (!response.ok || response.redirected) throw Error();
-            const template = document.createElement('template');
-            template.innerHTML = await response.text();
-            if (!template.content.querySelector('.duel-actors')) throw Error();
+            const fragment = window.publishedImageFragment(await response.text());
+            if (!fragment.querySelector('.duel-actors')) throw Error();
             if (controller.signal.aborted) return;
-            area.replaceChildren(template.content);
+            area.replaceChildren(fragment);
             enableSearch(area);
         } catch (error) {
             if (controller.signal.aborted) return;

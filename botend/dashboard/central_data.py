@@ -13,8 +13,8 @@ from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.services.content_image_display import display_image_url
 from botend.services.gear_builder import SLOT_LABELS
-from botend.services.wow_data_branch import branch_item, item_cdn_icon
-from botend.templatetags.wow_tags import wow_icon_oss_url
+from botend.services.wow_data_branch import branch_item, item_display_icon_url
+from botend.templatetags.wow_tags import named_icon_source
 from botend.services.wow_item_effects import resolve_effects
 from botend.services.wow_item_display import _native_journal_variant
 from botend.services.wow_spell_display import SpellDisplayReader, node_spell_id
@@ -43,8 +43,9 @@ def options(mapping):
 
 def icon_payload(icon):
     name = str(icon or '')
-    url = f'https://wow.zamimg.com/images/wow/icons/large/{name}.jpg' if re.fullmatch(r'[A-Za-z0-9_-]+', name) else ''
-    return {'icon': name, 'icon_url': display_image_url(url), 'icon_source': 'Wowhead 图标 CDN；图标名称取自中央资料'}
+    url = display_image_url(named_icon_source(name, 'large') or name)
+    return {'icon': name if named_icon_source(name) else url, 'icon_url': url,
+            'icon_source': '统一图标服务；图标取自中央资料' if url else '图片尚未发布'}
 
 
 def page_rows(queryset, params):
@@ -213,8 +214,7 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
 
     @staticmethod
     def item_summary(item):
-        icon_name = item_cdn_icon(item)
-        icon_url = wow_icon_oss_url(icon_name, 'large') if icon_name else ''
+        icon_url = item_display_icon_url(item, 'large')
         return {'id': item.item_id, 'name': item.name_zh or item.name or f'物品 {item.item_id}',
                 'name_zh': item.name_zh, 'name_en': item.name, 'slot': SLOTS.get(item.slot_key, item.slot_key),
                 'quality': QUALITY_CN.get(item.quality, '未知'), 'translated': bool(re.search(CJK, item.name_zh)),

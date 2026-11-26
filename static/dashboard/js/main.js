@@ -1,4 +1,4 @@
-const dashboardImageUrl = window.publishedImageUrl || (url => url);
+const dashboardImageUrl = window.publishedImageUrl || (() => '');
 function applyDashboardPagePermissions() { window.DashboardSidebar.applyPermissions(); }
 
 /**
@@ -881,7 +881,7 @@ function parseNewsWowBlocks(raw) {
         if (Array.isArray(blocks)) {
             return blocks.map(block => {
                 if (!block || typeof block !== 'object') return '';
-                if (block.type === 'html' && block.html) return window.publishedImageHtml?.(block.html) ?? String(block.html);
+                if (block.type === 'html' && block.html) return window.publishedImageHtml?.(block.html) ?? '';
                 if (block.type === 'image' && block.url) return `<p><img src="${escapeHtml(dashboardImageUrl(block.url))}" alt=""></p>`;
                 if (block.text) return `<p>${escapeHtml(block.text)}</p>`;
                 return '';

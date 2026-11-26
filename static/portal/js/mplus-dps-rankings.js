@@ -1,6 +1,6 @@
 (function () {
     'use strict';
-const publishedImageUrl = window.publishedImageUrl || (url => url);
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
     const state = {
         payload: null, activeScope: 'overall', source: 'local', localScope: 'overall',

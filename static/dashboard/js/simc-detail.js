@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const publishedImageUrl = window.publishedImageUrl || (url => url);
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const root = document.getElementById('simc-detail-root');
   if (!root) return;
   const kind = 'tasks';

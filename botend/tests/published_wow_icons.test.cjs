@@ -12,23 +12,23 @@ const fire = 'spell_fire_flamebolt.jpg', frost = 'spell_frost_frostbolt02.jpg';
 function harness(ok) {
     const requests = [];
     const inventory = '/static/release.json';
-    const context = {document:{currentScript:{dataset:{inventory}}}, window:{}, AbortSignal,
+    const context = {URL, location:new URL('https://wowdaily.cn/'), document:{currentScript:{dataset:{inventory}}}, window:{}, AbortSignal,
         fetch:async (url, options) => { requests.push([url,options.credentials,options.referrerPolicy]); return {ok,json:async()=>doc}; }};
-    context.window.publishedImageUrl = s => s === base+'small/exact.jpg' ? '/static/exact.jpg' : s;
+    context.window.publishedImageUrl = s => s === base+'small/exact.jpg' ? cdn+'small/exact.jpg' : '';
     vm.runInNewContext(src, context);
     return {resolve:context.window.publishedWowIconUrl, requests};
 }
 test('exact map first, no probes; documented same-size aliases share one public inventory', async () => {
     const {resolve,requests} = harness(true);
-    for (const miss of ['?cast_icon=133', base+'small/'+fire+'?token=1', base+'tiny/'+fire, null]) assert.equal(await resolve(miss), miss);
-    assert.equal(await resolve(base+'small/exact.jpg'), '/static/exact.jpg');
+    for (const miss of ['?cast_icon=133', base+'small/'+fire+'?token=1', base+'tiny/'+fire, null]) assert.equal(await resolve(miss), '');
+    assert.equal(await resolve(base+'small/exact.jpg'), cdn+'small/exact.jpg');
     assert.equal(requests.length, 0);
     const inputs = [base+'small/'+fire, 'https://render.worldofwarcraft.com/us/icons/56/'+frost,
                     base+'medium/'+fire,base+'small/not_published_fixture.jpg'];
-    assert.deepEqual(await Promise.all(inputs.map(resolve)), [cdn+'small/'+fire, cdn+'large/'+frost,...inputs.slice(2)]);
+    assert.deepEqual(await Promise.all(inputs.map(resolve)), [cdn+'small/'+fire, cdn+'large/'+frost,'', '']);
     assert.deepEqual(requests,[['/static/release.json','omit','no-referrer']]);
 });
-test('unavailable inventory preserves original for every caller without retry storms', async () => {
+test('unavailable inventory suppresses upstream for every caller without retry storms', async () => {
     const {resolve,requests} = harness(false), url = base+'small/'+fire;
-    assert.equal(await resolve(url), url); assert.equal(await resolve(url), url); assert.equal(requests.length,1);
+    assert.equal(await resolve(url), ''); assert.equal(await resolve(url), ''); assert.equal(requests.length,1);
 });

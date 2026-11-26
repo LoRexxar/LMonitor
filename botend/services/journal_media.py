@@ -21,6 +21,14 @@ def cached_art(file_id):
             response = session.get(f'https://wago.tools/api/casc/{int(file_id)}', timeout=(5, 20))
             response.raise_for_status()
             content = response.content
+    rendered = render_art_v2(content)
+    directory.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(rendered)
+    return path
+
+
+def render_art_v2(content):
+    """The same crop, resize and WebP encoding used by cached_art."""
     if len(content) > 10 * 1024 * 1024:
         raise ValueError('手册图片超出大小限制')
     with Image.open(BytesIO(content)) as original:
@@ -32,6 +40,4 @@ def cached_art(file_id):
         img.thumbnail((900, 600))
         output = BytesIO()
         img.save(output, 'WEBP', quality=85)
-    directory.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(output.getvalue())
-    return path
+    return output.getvalue()

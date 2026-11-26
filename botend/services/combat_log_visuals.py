@@ -9,7 +9,6 @@ from botend.constants.wow import CLASS_CN, specialization_catalog
 from botend.models import WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
 from botend.services.content_image_display import display_image_url
-from botend.services.published_wow_icons import published_wow_icon_url
 from botend.services.combat_replay_activity import spell_icons
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
@@ -19,7 +18,7 @@ SPECS = {s["spec_id"]: s for s in specialization_catalog()}
 def identity(spec_ids, class_name=""):
     specs = [SPECS[i] for i in sorted(spec_ids) if i in SPECS]
     if len(specs) == 1:
-        return dict(icon=specs[0]["icon"], icon_label=specs[0]["label"])
+        return dict(icon=display_image_url(specs[0]["icon"]), icon_label=specs[0]["label"])
     if specs and len({s["class_name"] for s in specs}) == 1:
         return dict(icon=wow_icon_oss_url("classicon_" + specs[0]["class_name"].lower()),
                     icon_label=specs[0]["class_label"] + " · " + " / ".join(s["spec_label"] for s in specs))
@@ -32,7 +31,7 @@ def _report_icon(icon):
     if not isinstance(icon, str):
         return ''
     if icon.startswith(('https://', '/static/')):
-        mapped = published_wow_icon_url(display_image_url(icon))
+        mapped = display_image_url(icon)
         return mapped if mapped.startswith(('https://oss.wowdaily.cn/', '/static/')) else ''
     match = re.fullmatch(r'([A-Za-z0-9_-]{1,160})(?:\.jpg)?', icon, re.I)
     if match and not match[1].isdecimal() and match[1].lower() != 'inv_misc_questionmark':

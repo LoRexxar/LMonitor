@@ -17,7 +17,7 @@ class PublishedWowIconTests(SimpleTestCase):
         self.assertIn('src="' + mirror + '"', render_to_string('dashboard/combat_entity_icon.html', {'icon': source}))
         for miss in (base + 'medium/' + file, base + 'tiny/' + file, source + '?sig=1',
                      base + 'small/absent_fixture.jpg', '?cast_icon=133', None):
-            self.assertEqual(published_wow_icon_url(miss), miss)
+            self.assertEqual(published_wow_icon_url(miss), '')
 
     def test_complete_scoped_pagination_and_safe_regular_keys(self):
         def page(req):

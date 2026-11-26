@@ -1,5 +1,5 @@
 (() => {
-    const setIcon = window.setPublishedWowImage || ((img, src) => { img.src = src; });
+    const setIcon = window.setPublishedWowImage || ((img, src) => { const url = window.publishedImageUrl?.(src); if (url) img.src = url; });
     const filter = document.getElementById('filter-inspect');
     const evidence = document.getElementById('event-inspect');
     if (!filter || typeof filter.showModal !== 'function') return;

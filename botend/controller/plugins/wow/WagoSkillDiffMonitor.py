@@ -7424,17 +7424,8 @@ class WagoSkillDiffMonitor(BaseScan):
         return 'mechanic'
 
     def _report_spell_icon_url(self, icon_name):
-        value = str(icon_name or '').strip()
-        if not value:
-            return ''
-        if value.startswith(('https://', 'http://', '/')):
-            from botend.services.site_image_assets import published_image_url
-            return published_image_url(value)
-        value = re.sub(r'\.(?:jpg|png|blp)$', '', value.replace('\\', '/').rsplit('/', 1)[-1], flags=re.I)
-        safe_name = re.sub(r'[^0-9A-Za-z_-]+', '', value).lower()
-        if not safe_name:
-            return ''
-        return f"https://oss.wowdaily.cn/wow_icons_oss/small/{safe_name}.jpg"
+        from botend.templatetags.wow_tags import wow_icon_oss_url
+        return wow_icon_oss_url(icon_name)
 
     def _write_empty_html_report(self, branch, server_title, from_build, to_build, display_from_build='', display_to_build='', message=''):
         rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}_empty.html"

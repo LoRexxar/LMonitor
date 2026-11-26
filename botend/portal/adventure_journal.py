@@ -1,7 +1,7 @@
 """冒险手册公开目录、首领详情及其共用数据接口。"""
 from urllib.parse import urlencode
 
-from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import render
 from django.views import View
 
@@ -135,8 +135,9 @@ def detail_data(request, instance_id, *, for_html=False):
     result['loot_snapshot'] = projection['snapshot']
     drops = projection.get('loot', [])
     result['loot_total'] = projection.get('loot_total', 0)
-    for row in drops:
-        row['visible'] = loot_matches(row, result)
+    drops = [{**row, 'icon_url': display_image_url(row.get('icon_url')),
+              'details': _present_tooltip(row.get('details') or {}, source),
+              'visible': loot_matches(row, result)} for row in drops]
     filtered = [row for row in drops if row['visible']]
     result['loot_catalog'] = drops
     result['loot_filter_data'] = {
@@ -270,14 +271,11 @@ class PortalAdventureJournalArtView(View):
             return HttpResponse('手册图片资料暂不可用。', status=503)
         if file_id not in index['art_ids']:
             raise Http404('图片未被当前手册引用')
-        from botend.services.journal_media import cached_art
-        try:
-            path = cached_art(file_id)
-        except Exception:
-            raise Http404('来源图片暂不可用')
-        response = FileResponse(path.open('rb'), content_type='image/webp')
-        response['Cache-Control'] = 'public, max-age=604800'
-        return response
+        # Only use the exact published rendition; never fetch/decode Wago art on GET.
+        url = display_image_url(f'/portal/adventure-journal/art/{file_id}/?v=2')
+        if url and url.startswith('https://oss.wowdaily.cn/'):
+            return HttpResponseRedirect(url)
+        raise Http404('图片尚未发布至 OSS')
 
 
 class PortalAdventureJournalTooltipView(View):

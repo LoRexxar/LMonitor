@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const publishedImageUrl = window.publishedImageUrl || (url => url);
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 const API = '/api/simc-benchmarks/';
 const STRUCTURED_PARAMS = ['iterations','target_error','fight_style','max_time','vary_combat_length','enemy_type','desired_targets','enemy_initial_health_percentage'];
 const SCENARIO_PRIMARY_PARAMS = ['desired_targets','enemy_initial_health_percentage','max_time','iterations','fight_style'];

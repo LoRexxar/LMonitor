@@ -13,7 +13,6 @@ from botend.journal_models import JournalEncounter, JournalState
 from botend.models import MythicDungeonEnemy, MythicDungeonSpell, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
 from botend.services.combat_log_facts import DAMAGE, pull_catalog
-from botend.services.published_wow_icons import published_wow_icon_url
 from botend.services.site_image_assets import published_image_url
 from botend.services.wow_skill_report_metadata import _tooltip_icon
 from botend.templatetags.wow_tags import wow_icon_oss_url
@@ -109,26 +108,25 @@ def _file_icon_names(path, revision):
 def spell_icons(spell_ids, source_icons=None):
     """批量查找当前页实际出现的技能，沿用回放的图标资源。"""
     ids = {localization.number(s) for s in spell_ids} - {0}
-    result = {sid: source_icons[sid] for sid in ids if source_icons and source_icons.get(sid)}
-    if ids == result.keys():
-        return result
-    files, original_urls = {}, {}
+    result, files, mirrored_files = {}, {}, {}
+
     def add(sid, icon):
-        if sid in result or not icon:
+        if sid in result or not isinstance(icon, str) or not icon:
             return
         file_icon = re.fullmatch(r'https://assets-ng\.maxroll\.gg/wow/icons/([1-9][0-9]{0,9})\.webp', icon)
         if file_icon:
-            # This number identifies an image, never a spell or a basename.
             files.setdefault(sid, file_icon[1])
-            original_urls.setdefault(sid, icon)
-        elif icon.startswith(('https://','/static/')):
-            mapped = published_wow_icon_url(published_image_url(icon))
-            if mapped.startswith(('/static/', 'https://oss.wowdaily.cn/')):
-                result[sid] = mapped
-            else:
-                original_urls.setdefault(sid, icon)
-        elif re.fullmatch(r'[a-zA-Z0-9_-]+',icon) and not icon.isdecimal():
-            result[sid] = wow_icon_oss_url(icon)
+            if mapped := published_image_url(icon):
+                mirrored_files.setdefault(sid, mapped)
+        elif mapped := wow_icon_oss_url(icon):
+            result[sid] = mapped
+
+    for sid in ids:
+        add(sid, (source_icons or {}).get(sid))
+        if sid in mirrored_files:
+            result[sid] = mirrored_files[sid]
+    if ids == result.keys():
+        return result
 
     for sid, icon in WowSpellSnapshot.objects.filter(branch="wow",spell_id__in=ids).exclude(icon="").order_by(
             "-updated_at","pk").values_list("spell_id","icon"):
@@ -149,7 +147,8 @@ def spell_icons(spell_ids, source_icons=None):
     for sid, icon, url in MythicDungeonSpell.objects.filter(
             spell_id__in=ids-result.keys(), is_active=True, data_version__is_active=True
     ).values_list("spell_id", "icon_name", "icon_url"):
-        add(sid, icon or url)
+        add(sid, url)
+        add(sid, icon)
     unresolved = files.keys() - result.keys()
     if unresolved:
         version = TalentVersionResolver.get_default()
@@ -162,7 +161,7 @@ def spell_icons(spell_ids, source_icons=None):
                 names = {}
             for sid in unresolved:
                 add(sid, names.get(files[sid]))
-    return original_urls | result
+    return mirrored_files | result
 
 
 def missing_cast_icon(db, fight, sid, bosses):
@@ -173,10 +172,7 @@ def missing_cast_icon(db, fight, sid, bosses):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", slug or ""):
         return ""
     source = f"https://wow.zamimg.com/images/wow/icons/small/{slug}.jpg"
-    destination = published_wow_icon_url(published_image_url(source))
-    # The report-scoped redirect only serves delivered icons; never send this
-    # private lookup through to the third-party image host on a miss.
-    return destination if destination != source else ""
+    return published_image_url(source)
 
 
 def _damage_rows(db, fight, start, end, interval):

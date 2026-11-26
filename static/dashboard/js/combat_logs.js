@@ -66,7 +66,7 @@
                         url.searchParams.set('source', sync.dataset.source);
                         const result = await fetch(url, {signal:request.signal, credentials:'same-origin', cache:'no-store'});
                         if (!result.ok || result.redirected) throw Error();
-                        const next = new DOMParser().parseFromString(await result.text(), 'text/html');
+                        const next = window.publishedImageFragment(await result.text());
                         const nextRows = next.querySelector('[data-directory-rows]');
                         const nextSync = next.querySelector('[data-sync-url]');
                         if (request.signal.aborted) return;

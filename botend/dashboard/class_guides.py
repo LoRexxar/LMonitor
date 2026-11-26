@@ -23,6 +23,7 @@ from botend.services.class_guide_authors import normalize_author_profile, author
 from botend.services.class_guide_content import walk_blocks
 from botend.constants.wow import resolve_spec_identity, specialization_catalog, CLASS_CN
 from botend.services.class_guide_render import render_blocks
+from botend.services.content_image_display import display_image_html
 from botend.services.class_guide_service import save_article, check_article, ArticleConflict
 from botend.services.class_guide_markdown import compile_markdown
 
@@ -155,7 +156,7 @@ class GuideDetailAPI(GuideAccess, View):
         blocks = compile_markdown(data['content_markdown'])
         checks = check_article(guide, blocks)
         rendered = render_blocks(blocks, checks['references'], guide)
-        return JsonResponse({'html': render_to_string('dashboard/class_guide_blocks.html', {'blocks': rendered}),
+        return JsonResponse({'html': display_image_html(render_to_string('dashboard/class_guide_blocks.html', {'blocks': rendered})),
             'toc': [{'id': b['id'], 'title': b.get('title', ''), 'level': b['data']['level'], 'line': b['data']['source_line']}
                     for b in walk_blocks(rendered) if b['type'] == 'heading']})
 
@@ -198,10 +199,12 @@ class GuidePreviewPage(GuideAccess, View):
         guide = get_object_or_404(ClassGuide, pk=guide_id)
         checks = check_article(guide)
         blocks = render_blocks(guide.blocks, checks['references'], guide)
-        return render(request, 'dashboard/class_guide_preview.html', {'guide': guide,
+        response = render(request, 'dashboard/class_guide_preview.html', {'guide': guide,
             'author_profile': author_profile_for(guide), 'disclaimers': guide_disclaimers(guide),
             'blocks': blocks, 'checks': checks,
             'toc': [b for b in walk_blocks(blocks) if b['type'] == 'heading']})
+        response.content = display_image_html(response.content.decode(response.charset))
+        return response
 
 
 class GuideDisclaimerAPI(GuideAccess, View):

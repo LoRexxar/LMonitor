@@ -18,7 +18,7 @@ class AssetPolicyTests(unittest.TestCase):
     def test_only_public_namespaces(self):
         url = 'https://wow.zamimg.com/images/wow/icons/small/spell_fire.jpg'
         self.assertEqual(assets.source_url(url), url)
-        self.assertEqual(assets.published_image_url(url + '?token=private'), url + '?token=private')
+        self.assertEqual(assets.published_image_url(url + '?token=private'), '')
         for invalid in (url + '?', url + '#', url + '?token=private', url.replace('wow.', 'user@wow.'),
                         url.replace('small/', 'small/../small/'), url.replace('/icons/', '/avatars/'),
                         url.replace('.com/', '.com.attacker/'), url.replace('spell_fire', '%73pell_fire')):
@@ -78,7 +78,7 @@ class PublisherTests(unittest.TestCase):
             assets.published_image_map().clear()
             self.manifest.unlink()
             self.assertEqual(assets.published_image_url(self.src), assets.CDN + k)
-            self.assertEqual(assets.published_image_url('/local'), '/local')
+            self.assertEqual(assets.published_image_url('/local'), '')
 
     def test_existing_canonical_must_be_same_bytes(self):
         self.assertEqual(self.cli('--stage'), 0)

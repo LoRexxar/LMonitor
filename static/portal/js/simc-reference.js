@@ -57,9 +57,9 @@
             if (canonical.origin !== location.origin || canonical.pathname !== location.pathname) throw new Error('资料地址不匹配');
             canonical.hash = url.hash.startsWith('#apl-list-') && data.section === 'reference-apl' ? url.hash : `#${data.section}`;
             cleanup?.();
-            workspace.innerHTML = data.html;
+            workspace.replaceChildren(window.publishedImageFragment(data.html));
             const navigation = document.querySelector('.simc-module-navigation');
-            if (navigation) navigation.outerHTML = data.navigation;
+            if (navigation) navigation.replaceWith(window.publishedImageFragment(data.navigation));
             if (historyMode === 'push') history.pushState(null, '', canonical);
             else history.replaceState(null, '', canonical);
             displayedQuery = canonical.search;

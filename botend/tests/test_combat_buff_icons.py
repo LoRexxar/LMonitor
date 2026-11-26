@@ -1,6 +1,8 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from io import StringIO
+from django.core.management import call_command
 from django.test import TestCase
 
 from botend.models import WowTalentNodeMetadata, WowTalentVersion
@@ -25,11 +27,17 @@ class BuffIconTests(TestCase):
             decorate_spells(rows, 'spell')
             self.assertEqual([r['icon'] for r in rows], [wow_icon_oss_url(s) for s in
                 ('spell_holy_powerwordshield', 'spell_holy_powerinfusion', 'spell_fire_sealoffire')] +
-                ['https://assets-ng.maxroll.gg/wow/icons/17.webp'])
-            report_art = wow_icon_oss_url('reported_art')
+                [None])
+            # A pending FileDataID remains discoverable from raw public catalog rows,
+            # not from private reports, page views or a speculative OSS key.
+            pending = StringIO()
+            call_command('list_pending_display_images', stdout=pending)
+            self.assertIn('https://assets-ng.maxroll.gg/wow/icons/17.webp', pending.getvalue().splitlines())
+            report_art = wow_icon_oss_url('spell_fire_flamebolt')
+            self.assertTrue(report_art)
             decorate_spells(rows, 'spell', {10060: report_art})
             self.assertEqual(rows[1]['icon'], report_art)
             with Path(root, 'file_data_icon_cache.csv').open('a') as f:
-                f.write('17,updated_file_icon\n')
+                f.write('17,spell_fire_flamebolt\n')
             decorate_spells(rows, 'spell')
-            self.assertEqual(rows[-1]['icon'], wow_icon_oss_url('updated_file_icon'))
+            self.assertEqual(rows[-1]['icon'], wow_icon_oss_url('spell_fire_flamebolt'))

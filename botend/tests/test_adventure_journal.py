@@ -259,7 +259,8 @@ class JournalInitialItemDisplayTests(TestCase):
             icon='inv_trinket_test', catalog_type='equipment', inventory_type=12,
         )
 
-    def test_initial_display_uses_central_identity_for_all_tooltip_states(self):
+    @patch('botend.services.published_wow_icons._index', return_value={'inv_trinket_test': 2})
+    def test_initial_display_uses_central_identity_for_all_tooltip_states(self, _):
         from bs4 import BeautifulSoup
         from botend.models import SeasonMeta, WowItemVariantSnapshot
 
@@ -359,7 +360,8 @@ class JournalInitialItemDisplayTests(TestCase):
                 response = self.source_response()
                 dom = BeautifulSoup(response.content, 'html.parser').select_one('[data-loot-id="60"]')
                 self.assertEqual(dom.select_one('.journal-loot-link strong').text, 'Original Trinket')
-                self.assertEqual(dom.select_one('img')['src'], '/portal/adventure-journal/art/123456/?v=2')
+                self.assertIsNone(dom.select_one('img[src]'))
+                self.assertEqual(response.context['loot'][0]['icon'], 123456)
                 self.assertIn('暂无中文名称', dom.text)
 
 
@@ -665,8 +667,7 @@ class JournalPublicationTests(TestCase):
         self.assertEqual(data['stats'], [])
         self.assertEqual(data['effects'], [])
         self.assertEqual(
-            data['icon'],
-            'https://oss.wowdaily.cn/wow_icons_oss/small/inv_trinket_test.jpg',
+            data['icon'], '',  # A catalog name is not a publication receipt.
         )
 
     def test_central_catalog_fallback_marks_recipe_as_not_equipment(self):

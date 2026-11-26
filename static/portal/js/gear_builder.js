@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-const publishedImageUrl = window.publishedImageUrl || (url => url);
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
   const page = document.querySelector(".gear-builder-page");
   if (!page) return;
@@ -1444,9 +1444,9 @@ const publishedImageUrl = window.publishedImageUrl || (url => url);
     els.preview_class.textContent = currentClass.name || state.className;
     els.preview_spec.textContent = currentSpec.name || state.specName;
     els.preview_spec_fallback.textContent = String(currentSpec.name || state.specName || "专").slice(0, 1);
-    const specIconUrl = currentSpec.icon || "";
+    const specIconUrl = publishedImageUrl(currentSpec.icon);
     if (!specIconUrl) els.preview_spec_icon.removeAttribute("src");
-    else if (els.preview_spec_icon.getAttribute("src") !== specIconUrl) els.preview_spec_icon.src = publishedImageUrl(specIconUrl);
+    else if (els.preview_spec_icon.getAttribute("src") !== specIconUrl) els.preview_spec_icon.src = specIconUrl;
     const specIconLoaded = Boolean(specIconUrl && els.preview_spec_icon.complete && els.preview_spec_icon.naturalWidth);
     els.preview_spec_icon.alt = specIconUrl ? `${currentSpec.name || state.specName}专精图标` : "";
     els.preview_spec_icon.hidden = !specIconLoaded;

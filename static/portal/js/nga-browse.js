@@ -27,7 +27,7 @@
             });
             if (!response.ok) throw new Error('batch request failed');
             // Only our autoescaped server template supplies markup, never string-built post data.
-            const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+            const doc = window.publishedImageFragment(await response.text());
             const next = doc.getElementById('nga-batch');
             if (!next || !next.dataset.url) throw new Error('invalid batch');
             const canonical = new URL(next.dataset.url, window.location.href);

@@ -11,7 +11,6 @@ from django.db.models import Exists, OuterRef
 
 from botend.constants.wow import localize_gear_source
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
-from botend.templatetags.wow_tags import wow_icon_oss_url
 from botend.services.gear_builder_tier_sources import tier_set_sources
 from botend.services.wow_item_text import (
     EFFECT_PREFIX, ENHANCEMENTS, STAT_NAMES, separate_item_text,
@@ -461,7 +460,7 @@ def item_display_metadata(
         has_identity_store, resolve_display_identity, variant_identity, project_item_identity,
     )
     identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
-    from botend.services.wow_data_branch import branch_item, item_cdn_icon, variant_branch
+    from botend.services.wow_data_branch import branch_item, item_display_icon_url, variant_branch
     central_snapshot = snapshot
     effect_branch = data_branch or (variant_branch(variant) if variant is not None else 'ptr' if is_ptr else 'retail')
     if snapshot and variant is not None and not identity:
@@ -504,7 +503,7 @@ def item_display_metadata(
     from botend.services.wow_item_icon_asset import verified_item_icon_asset
     icon_asset = verified_item_icon_asset(snapshot)
     icon = icon_asset['value'] if icon_asset else (snapshot.icon if snapshot else "") or ""
-    icon_name = item_cdn_icon(snapshot)
+    icon_url = item_display_icon_url(snapshot, icon_size)
     normalized_stats = _normalize_stats(stats)
     variant_metadata = (
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
@@ -630,8 +629,8 @@ def item_display_metadata(
         "tooltip_complete": bool(normalized_stats or normalized_effects) and not (
             expects_effect and not normalized_effects
         ),
-        "icon": icon,
-        "icon_url": wow_icon_oss_url(icon_name, icon_size) if icon_name else "",
+        "icon": icon if not isinstance(icon, str) or not any(c in icon for c in "/\\?#:") else icon_url,
+        "icon_url": icon_url,
         "quality": (snapshot.quality if snapshot else 0) or 0,
         "catalog_type": (snapshot.catalog_type if snapshot else "") or "",
         "inventory_type": (snapshot.inventory_type if snapshot else 0) or 0,

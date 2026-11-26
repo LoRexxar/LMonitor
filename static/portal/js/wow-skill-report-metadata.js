@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const publishedImageUrl = window.publishedImageUrl || (url => url);
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const host = document.querySelector('[data-skill-report-metadata]');
   if (!host) return;
   const articles = [...document.querySelectorAll('.spell[id^="spell-"]')];

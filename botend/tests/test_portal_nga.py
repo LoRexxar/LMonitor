@@ -127,7 +127,6 @@ class PortalNgaTests(TestCase):
 
     def test_nga_attachment_images_and_readable_bbcode_summary(self):
         path = 'mon_202609/07/7Q76-bf30KoT1kSb3-6i.jpg'
-        cdn = 'https://img.nga.cn/attachments/' + path
         item = self.article(content=(
             f'[img]./{path}[/img][url=./{path}]原图链接[/url][s:ac:哭笑]'
             f'<img src="https://external.test/{path}">'
@@ -136,15 +135,12 @@ class PortalNgaTests(TestCase):
             description=f'摘要[img]./{path}[/img][url=https://example.com]链接文字[/url][s:ac:哭笑]')
         response = self.client.get(f'/portal/nga/{item.id}/')
         body = BeautifulSoup(response.content, 'html.parser').select_one('#nga-main-post')
-        self.assertEqual(body.find_all('img')[0]['src'], cdn)
-        self.assertEqual(body.find_all('img')[1]['src'], 'https://external.test/' + path)
-        self.assertEqual(body.find_all('img')[2]['src'], 'https://bbs.nga.cn/mon_202609/07/document.pdf')
-        self.assertEqual(body.source['srcset'], cdn + ' 2x')
+        self.assertFalse(body.select('img[src], source[srcset]'))
         self.assertEqual(body.a['href'], 'https://bbs.nga.cn/' + path)
         self.assertIn('哭笑', body.get_text())
         self.assertNotIn('[s:ac:', str(body))
         listing = BeautifulSoup(self.client.get('/portal/nga/').content, 'html.parser').select_one('.nga-body')
-        self.assertEqual(listing.img['src'], cdn)
+        self.assertFalse(listing.img.has_attr('src'))
         self.assertIn('哭笑', listing.get_text())
         self.assertNotIn('摘要', listing.get_text())
 
@@ -187,15 +183,14 @@ class PortalNgaTests(TestCase):
         self.assertNotContains(response, '不要冒充主帖')
         self.assertContains(response, '历史正文可能不完整')
 
-    def test_image_only_main_post_keeps_srcset_and_fallback_text(self):
+    def test_image_only_main_post_keeps_fallback_text_without_unpublished_srcset(self):
         item = self.article(content='<picture><source srcset="/attachments/a.webp 1x">'
                             '<img alt="图片正文" srcset="/attachments/a.png 1x"></picture>')
         response = self.client.get(f'/portal/nga/{item.id}/')
         self.assertContains(response, 'id="nga-main-post"')
         body = BeautifulSoup(response.content, 'html.parser').select_one('#nga-main-post')
         self.assertEqual(body.img['alt'], '图片正文')
-        self.assertEqual(body.img['srcset'], 'https://bbs.nga.cn/attachments/a.png 1x')
-        self.assertEqual(body.source['srcset'], 'https://bbs.nga.cn/attachments/a.webp 1x')
+        self.assertFalse(body.select('[srcset]'))
 
     def test_malformed_source_urls_and_image_candidates_do_not_break_reader(self):
         item = self.article(url='https://[invalid', content='''
@@ -211,7 +206,7 @@ class PortalNgaTests(TestCase):
         self.assertIsNone(soup.select_one('#nga-source-link'))
         self.assertFalse(body.a.has_attr('href'))
         self.assertFalse(body.img.has_attr('src'))
-        self.assertEqual(body.img['srcset'], 'https://bbs.nga.cn/attachments/good.png 2x')
+        self.assertFalse(body.img.has_attr('srcset'))
         self.assertNotIn('javascript:', str(body))
 
     def test_collector_preserves_full_main_post_and_never_substitutes_replies(self):
