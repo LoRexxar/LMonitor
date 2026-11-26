@@ -58,10 +58,39 @@
         keys.set(id,key); return key;
     }
     modes.forEach(r=>r.onchange=()=>{status.textContent='';render();});
-    fileInput.onchange = () => {
+    const dropZone = document.querySelector('#file-drop');
+    const isFileDrag = event => Array.from(event.dataTransfer?.types || []).includes('Files');
+    document.addEventListener('dragover', event => {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = busy ? 'none' : 'copy';
+        dropZone.classList.toggle('is-dragging', !busy);
+    });
+    document.addEventListener('dragleave', event => {
+        if (!event.relatedTarget) dropZone.classList.remove('is-dragging');
+    });
+    document.addEventListener('drop', event => {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        dropZone.classList.remove('is-dragging');
+        if (busy) return;
+        const files = event.dataTransfer.files;
+        if (files.length !== 1) {
+            fileInput.value = ''; scan();
+            status.textContent = '请一次拖入一个 .txt 日志文件。';
+            return;
+        }
+        fileInput.files = files;
+        scan();
+    });
+    fileInput.onchange = scan;
+    function scan() {
         worker?.terminate(); worker=null; file=fileInput.files[0]; scenes=[]; selections.clear(); uploaded.replaceChildren();
         bar.hidden=true;stop.hidden=true;sourceSize.textContent=sourceLimit;
         status.textContent='';list.replaceChildren();refresh(); if (!file) return;
+        if (!/\.txt$/i.test(file.name)) {
+            fileInput.value=''; status.textContent='请选择 .txt 格式的日志文件。'; return;
+        }
         sourceSize.textContent='当前原文件 '+size(file.size)+' · '+sourceLimit;
         if (file.size > maxSourceBytes) {
             status.textContent='原文件超过本地扫描上限，请选择 '+size(maxSourceBytes)+' 以内的日志。';
@@ -79,9 +108,9 @@
             if(root.dataset.resume && scenes.length!==1) scenes=[];
             render();
         };
-        scanning.onerror=()=>{scanning.terminate();worker=null;bar.hidden=true;stop.hidden=true;status.textContent='扫描失败，请重新选择文件。';render();};
+        scanning.onerror=()=>{if(worker!==scanning) return; scanning.terminate();worker=null;bar.hidden=true;stop.hidden=true;status.textContent='扫描失败，请重新选择文件。';render();};
         scanning.postMessage(file);
-    };
+    }
     stop.onclick=()=>{
         if(worker){worker.terminate();worker=null;bar.hidden=true;stop.hidden=true;list.textContent='扫描已取消。';fileInput.value='';}
         if (busy) {

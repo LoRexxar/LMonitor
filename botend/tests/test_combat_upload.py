@@ -356,11 +356,22 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 page.context.add_cookies([dict(name="sessionid", value=self.client.cookies["sessionid"].value,
                                                url=self.live_server_url)])
                 page.goto(self.live_server_url+reverse("combat_upload"))
-                page.locator("#source-file").set_input_files(dict(name="两把钥匙.txt",mimeType="text/plain",buffer=data))
+                writes = []
+                page.on('request', lambda req: writes.append(req.method) if req.method in ('POST', 'PUT') else None)
+                page.wait_for_function("typeof document.querySelector('#source-file').onchange === 'function'")
+                drop = """([name, body]) => { const dt = new DataTransfer();
+                  dt.items.add(new File([body], name));
+                  document.querySelector('main').dispatchEvent(new DragEvent('drop',
+                    {dataTransfer:dt, bubbles:true, cancelable:true})); }"""
+                page.evaluate(drop, ['不是日志.csv', data.decode()])
+                expect(page.locator('#upload-status')).to_contain_text('.txt')
+                expect(page.locator('#send-log')).to_be_disabled()
+                page.evaluate(drop, ['两把钥匙.TXT', data.decode()])
                 rows = page.locator("#scene-list label")
                 expect(rows).to_have_count(2)
                 expect(rows.nth(0)).to_contain_text("未结算（离开副本")
                 expect(rows.nth(1)).to_contain_text("未结算（文件结束")
+                self.assertEqual(writes, [])
                 page.locator("#send-log").click()
                 expect(page.locator("#upload-status")).to_contain_text("上传完成")
             finally:
