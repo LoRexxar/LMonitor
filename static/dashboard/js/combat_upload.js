@@ -191,7 +191,8 @@
             if (!legacy) { try { localStorage.removeItem(receipt(key)); } catch {} }
             const a=document.createElement('a');a.href=url;a.textContent='查看解析进度 · '+name;uploaded.append(a);
             document.getElementById('choose-uploads').hidden=false;
-            status.textContent='上传完成，已提交解析。';
+            status.textContent='上传完成，正在打开日志详情…';
+            window.location.assign(url);
         } catch(e){status.textContent=e.message;}
         finally {
             if (pauseRequested && url && !finished) {

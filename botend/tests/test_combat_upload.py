@@ -396,8 +396,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 self.assertEqual(writes, [])
                 expect(page.locator("#send-log")).to_be_enabled()
                 page.locator("#send-log").click()
-                expect(page.locator("#upload-status")).to_contain_text("上传完成")
-                expect(page.locator("#uploaded a")).to_have_count(1)
+                expect(page.locator("main[data-state]")).to_be_visible()
             finally:
                 browser.close()
         self.wait_for_indexes()
@@ -592,7 +591,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 page.locator("#scene-list label").filter(has_text="Voidscar Arena").first.locator("input").check()
                 self.assertEqual(writes, [])
                 page.locator("#send-log").click()
-                expect(page.locator("#uploaded a")).to_have_count(1,timeout=90000)
+                expect(page.locator("main[data-state]")).to_be_visible(timeout=90000)
                 self.wait_for_indexes()
             finally:
                 browser.close()
@@ -643,7 +642,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 expect(rows).to_contain_text("Raid boss")
                 self.assertEqual(parts, [])
                 page.locator("#send-log").click()
-                expect(page.locator("#upload-status")).to_contain_text("上传完成")
+                expect(page).to_have_url(self.live_server_url + reverse("combat_report", args=[old.pk]))
                 self.assertEqual(parts, [reverse("combat_part", args=[old.pk, i]) for i in range(1, archive.part_count(old))])
             finally:
                 browser.close()
@@ -716,7 +715,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 expect(resume.locator("#send-log")).to_be_enabled()
                 self.assertEqual(writes, [])
                 resume.locator("#send-log").click()
-                expect(resume.locator("#upload-status")).to_contain_text("上传完成")
+                expect(resume).to_have_url(self.live_server_url + reverse("combat_report", args=[paused.pk]))
                 self.assertEqual([path for method, path in writes if method == "PUT"],
                                  [reverse("combat_part", args=[paused.pk, i]) for i in range(1, archive.part_count(paused))])
                 self.wait_for_indexes()
@@ -727,10 +726,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 self.assertIn(b'CHALLENGE_MODE_START', content)
                 self.assertNotIn(b'EXCLUDED_SCENE_SENTINEL', content)
                 self.assertNotIn(b'OUTDOOR_ENTRY', content)
-                link = resume.locator("#uploaded a")
-                expect(link).to_have_count(1)
-                self.assertEqual(urlsplit(link.get_attribute("href")).path, reverse("combat_report", args=[report.pk]))
-                link.click()
+                expect(resume.locator('main[data-state="ready"]')).to_be_visible(timeout=15000)
                 fights = resume.locator("tbody a[href*='fight=']")
                 expect(fights).to_have_count(4)  # 钥匙、两次内嵌首领、所选团本首领。
                 for name in ("测试, 地城", "Raid boss"):
@@ -740,10 +736,10 @@ class UploadBrowserTests(StaticLiveServerTestCase):
 
                 page.get_by_label("全部副本场次", exact=False).check()
                 page.locator("#send-log").click()
-                expect(page.locator("#upload-status")).to_contain_text("上传完成")
-                expect(page.locator("#uploaded a")).to_have_count(1)
+                expect(page.locator("main[data-state]")).to_be_visible()
                 self.wait_for_indexes()
                 other = checks.submit(lambda: CombatLogReport.objects.exclude(pk=report.pk).get()).result()
+                expect(page).to_have_url(self.live_server_url + reverse("combat_report", args=[other.pk]))
                 self.assertEqual(other.state, "ready", other.message)
                 self.assertEqual(checks.submit(lambda: CombatLogReport.objects.filter(state="ready").count()).result(), 2)
                 self.assertCountEqual([f["name"] for f in other.summary["activity_index"]],
