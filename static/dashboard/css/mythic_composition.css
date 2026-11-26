@@ -1,3 +1,4 @@
+@scope (:root) to (.portal-header) {
 * { box-sizing: border-box }
 :root { color-scheme: light; --ink: #182f37; --muted: #526971; --line: #cedbd9; --teal: #006d60 }
 body { margin: 0; background: #f1f5f4; color: var(--ink); font: 16px/1.55 system-ui, "Microsoft YaHei", sans-serif }
@@ -49,3 +50,5 @@ textarea { width: 100%; padding: 8px; margin-top: 10px; font: .8rem monospace; r
 .build input { display: block; padding: 6px; width: 100%; border: 1px solid var(--line); border-radius: 4px }
 .history { display: inline-flex; align-items: center; gap: 10px; margin-top: 14px; color: var(--muted); font-size: .9rem }
 .history select { width: auto; margin: 0; padding: 5px }
+
+}

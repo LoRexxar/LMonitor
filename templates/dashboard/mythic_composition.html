@@ -1,9 +1,13 @@
 {% load static %}<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="zh-CN" data-dashboard-shell><head>
+{% include 'dashboard/_navigation_assets.html' %}
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>五人阵容查询 · LMonitor</title>
 <link rel="stylesheet" href="{% static 'dashboard/css/mythic_composition.css' %}">
 <script src="{% static 'dashboard/js/mythic_composition.js' %}" defer></script></head>
-<body><header><div class="wrap"><a href="{% url 'dashboard' %}">← 管理后台</a>
+<body>
+{% include 'dashboard/topbar.html' %}
+<header><div class="wrap"><a href="{% url 'dashboard' %}">← 管理后台</a>
 <h1>五人阵容查询</h1><p>查看当前赛季世界范围内符合阵容的高分限时场次。</p></div></header>
 <main class="wrap"><form id="query">{% csrf_token %}<fieldset><legend>队伍配置</legend>
 <div class="slots">{% for label, options in slots %}<label><span>{{ label }}</span><select name="slot"><option value="0">不限专精</option>{% for spec in options %}<option value="{{ spec.spec_id }}">{{ spec.label }}</option>{% endfor %}</select></label>{% endfor %}</div>

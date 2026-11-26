@@ -223,6 +223,8 @@ class LogoutView(View):
     def post(self, request):
         """处理登出请求"""
         logout(request)
+        if 'text/html' in request.headers.get('Accept', '') and request.content_type != 'application/json':
+            return redirect('/auth/login/')
         return JsonResponse({
             'status': 'success',
             'message': '已成功登出',

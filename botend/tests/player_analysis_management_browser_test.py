@@ -26,7 +26,7 @@ def main():
     style_match = re.search(r'<style>(.*?)</style>', dashboard, re.S)
     assert style_match
     shared_styles = style_match.group(1)
-    html = '''<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    html = '''<!doctype html><html data-dashboard-shell><head><script src="/static/portal/js/portal-theme.js"></script><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="ui-test-token"><style>''' + shared_styles + '''
         .dashboard-shell {display:flex} .main-content {padding:16px} body {margin:0}
         </style><link rel="stylesheet" href="/static/dashboard/css/player-analysis-management.css">
@@ -99,7 +99,7 @@ def main():
         # Load the actual router after DOMContentLoaded, avoiding unrelated
         # Dashboard widgets in this isolated component/API fixture.
         page.add_script_tag(path=str(ROOT / 'static/dashboard/js/main.js'))
-        page.evaluate('initNavigation(); initDashboardTheme();')
+        page.evaluate('initNavigation();')
         assert calls == [], calls
         page.locator('[data-section="player-analyses"] a').click()
         page.locator('[data-action="open"]').wait_for()

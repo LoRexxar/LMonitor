@@ -1,7 +1,9 @@
 {% load static %}
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-dashboard-shell>
 <head>
+{% include 'dashboard/_navigation_assets.html' %}
+
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ detail_title }} · SimC</title>
@@ -24,6 +26,8 @@
   </style>
 </head>
 <body>
+{% include 'dashboard/topbar.html' %}
+
 <main class="shell">
   <header class="top"><a href="/dashboard/#simc-workbench">← 返回 SimC 工作台</a><span class="crumb">独立详情 · 完整结果</span></header>
   <div id="simc-detail-root" data-simc-detail-kind="{{ detail_kind }}" data-simc-detail-id="{{ detail_id }}">

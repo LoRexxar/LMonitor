@@ -9,6 +9,7 @@ body {
 
 
 .portal-header {
+    font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif;
     position: sticky;
     top: 0;
     z-index: 20;
@@ -16,6 +17,11 @@ body {
     background: rgba(248, 250, 252, 0.78);
     backdrop-filter: blur(10px);
 }
+.portal-header *, .portal-header *::before, .portal-header *::after { box-sizing: border-box; }
+.portal-header a { text-decoration: none; }
+.portal-header :is(.portal-user-menu-trigger, .portal-theme-toggle) svg { width:1rem; height:1rem; }
+.portal-header :is(.portal-external-menu-chevron, .portal-user-menu-chevron) { width:.85rem; height:.85rem; }
+.portal-header .portal-user-name { max-width:11ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .portal-header-inner {
     max-width: 1200px;
@@ -1826,6 +1832,7 @@ body {
 
 html { background: var(--portal-canvas); }
 body.portal-bg {
+    margin: 0;
     color: var(--portal-text);
     background: linear-gradient(180deg, var(--portal-canvas) 0%, var(--portal-canvas-deep) 100%);
 }
@@ -2618,33 +2625,33 @@ html.portal-theme-dark .wow-skill-diff-standalone-link {
 /* Tailwind utility classes occur throughout Portal templates and API-rendered
  * fragments. Map their neutral palette to Portal tokens so dark mode never
  * leaves black or dark-slate text on charcoal surfaces. */
-html.portal-theme-dark .text-slate-950,
-html.portal-theme-dark .text-slate-900,
-html.portal-theme-dark .text-slate-800,
-html.portal-theme-dark .text-slate-700,
-html.portal-theme-dark .text-gray-950,
-html.portal-theme-dark .text-gray-900,
-html.portal-theme-dark .text-gray-800,
-html.portal-theme-dark .text-gray-700,
-html.portal-theme-dark .text-black { color: var(--portal-text) !important; }
-html.portal-theme-dark .text-slate-600,
-html.portal-theme-dark .text-slate-500,
-html.portal-theme-dark .text-gray-600,
-html.portal-theme-dark .text-gray-500 { color: var(--portal-text-secondary) !important; }
-html.portal-theme-dark .text-slate-400,
-html.portal-theme-dark .text-gray-400 { color: var(--portal-text-muted) !important; }
-html.portal-theme-dark .bg-white,
-html.portal-theme-dark .bg-white\/80,
-html.portal-theme-dark .bg-slate-50,
-html.portal-theme-dark .bg-slate-100,
-html.portal-theme-dark .bg-gray-50,
-html.portal-theme-dark .bg-gray-100 { background-color: var(--portal-surface-raised) !important; }
-html.portal-theme-dark .border-slate-50,
-html.portal-theme-dark .border-slate-100,
-html.portal-theme-dark .border-slate-200,
-html.portal-theme-dark .border-slate-200\/70,
-html.portal-theme-dark .border-gray-100,
-html.portal-theme-dark .border-gray-200 { border-color: var(--portal-border) !important; }
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-950,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-900,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-800,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-700,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-950,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-900,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-800,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-700,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-black { color: var(--portal-text) !important; }
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-600,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-500,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-600,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-500 { color: var(--portal-text-secondary) !important; }
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-slate-400,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .text-gray-400 { color: var(--portal-text-muted) !important; }
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .bg-white,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .bg-white\/80,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .bg-slate-50,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .bg-slate-100,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .bg-gray-50,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .bg-gray-100 { background-color: var(--portal-surface-raised) !important; }
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .border-slate-50,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .border-slate-100,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .border-slate-200,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .border-slate-200\/70,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .border-gray-100,
+html.portal-theme-dark:where(:not([data-dashboard-shell])) .border-gray-200 { border-color: var(--portal-border) !important; }
 
 html.portal-theme-dark .portal-news-search-input,
 html.portal-theme-dark .portal-news-tab:not(.is-active),
@@ -3287,7 +3294,7 @@ html.portal-theme-dark .portal-tool-row-badge.is-new {
     color: #ffaaa3;
 }
 
-@media (max-width: 920px) {
+@media (max-width: 1260px) {
     .portal-header-inner {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -3306,6 +3313,8 @@ html.portal-theme-dark .portal-tool-row-badge.is-new {
 
     .portal-nav-summary { justify-content: center; }
     .portal-nav-summary .portal-nav-chevron { display: none; }
+}
+@media (max-width: 920px) {
     .portal-hero-tools-inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .portal-guide-group:nth-child(3) { border-left: 0; border-top: 1px solid var(--portal-border-subtle, rgba(148, 163, 184, 0.3)); }
     .portal-guide-group:nth-child(4) { border-top: 1px solid var(--portal-border-subtle, rgba(148, 163, 184, 0.3)); }

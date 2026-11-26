@@ -3,6 +3,7 @@
 <header class="portal-header">
     <div class="portal-header-inner">
         <div class="portal-header-left">
+            {% if dashboard_sidebar %}<button id="sidebar-toggle" type="button" class="portal-pill portal-action-btn dashboard-menu-toggle" aria-label="后台导航" aria-controls="sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>{% endif %}
             <a href="/" class="portal-header-brand" aria-label="返回 WowDaily 首页">
                 <div class="portal-header-logo">
                     <svg class="portal-logo-fallback-icon w-5 h-5 text-indigo-700" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
@@ -10,7 +11,7 @@
                 </div>
                 <div class="portal-header-wordmark">
                     <strong>WowDaily</strong>
-                    <span>魔兽世界每日节奏</span>
+                    <span>{% if dashboard_section %}管理后台{% else %}魔兽世界每日节奏{% endif %}</span>
                 </div>
             </a>
         </div>
@@ -84,8 +85,9 @@
                 </details>
             </nav>
             <div class="portal-header-utilities">
+            {% if dashboard_section %}<a href="{% url 'portal_home' %}" class="portal-pill portal-action-btn portal-utility-link dashboard-home-link"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m10 5-7 7 7 7M3 12h17"/></svg><span>返回前台</span></a>{% endif %}
             {% if request.user.is_authenticated %}
-            <a href="{% url 'combat_logs' %}" class="portal-pill portal-action-btn portal-utility-link portal-log-link"{% if combat_section %} aria-current="location"{% endif %}>
+            <a href="{% url 'combat_logs' %}" aria-label="日志分析" class="portal-pill portal-action-btn portal-utility-link portal-log-link"{% if combat_section %} aria-current="location"{% endif %}>
                 <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
                 <span>日志分析</span>
             </a>
@@ -100,12 +102,12 @@
                     <p class="portal-external-menu-empty">正在读取外部链接…</p>
                 </div>
             </details>
-            <button id="portal-theme-toggle" type="button" class="portal-pill portal-action-btn portal-theme-toggle inline-flex items-center justify-center" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
+            <button id="{% if dashboard_section %}dashboard-theme-toggle{% else %}portal-theme-toggle{% endif %}" type="button" class="portal-pill portal-action-btn portal-theme-toggle inline-flex items-center justify-center" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
                 <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-moon"></use></svg>
             </button>
             {% if request.user.is_authenticated %}
             <details class="portal-user-menu">
-                <summary class="portal-pill portal-action-btn portal-user-menu-trigger" aria-label="账户菜单">
+                <summary {% if dashboard_section %}id="user-menu-button" {% endif %}class="portal-pill portal-action-btn portal-user-menu-trigger" aria-label="账户菜单">
                     <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-user"></use></svg>
                     <span class="portal-user-name">{{ request.user.username }}</span>
                     <svg class="portal-user-menu-chevron w-3.5 h-3.5" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
@@ -115,7 +117,11 @@
                     <a href="{% url 'my_character_bindings' %}" class="portal-user-menu-item"><span>我的角色</span></a>
                     <a href="/auth/bilibili/" class="portal-user-menu-item"><span>绑定 B 站账号</span></a>
                     {% can_enter_dashboard as show_dashboard %}
-                    {% if show_dashboard %}<a href="/dashboard/" class="portal-user-menu-item">
+                    {% if dashboard_section %}
+                    {% if not dashboard_sidebar and show_dashboard %}<a href="{% url 'dashboard' %}" class="portal-user-menu-item">后台首页</a>{% endif %}
+                    {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings" class="portal-user-menu-item">角色绑定管理</a>{% endif %}
+                    <a href="/auth/change-password/" class="portal-user-menu-item">修改密码</a>
+                    {% elif show_dashboard %}<a href="/dashboard/" class="portal-user-menu-item">
                         <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>
                         <span>进入后台</span>
                     </a>{% endif %}

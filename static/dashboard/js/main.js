@@ -1,5 +1,3 @@
-function initDashboardTheme() { window.DashboardSidebar.initTheme(); }
-
 function applyDashboardPagePermissions() { window.DashboardSidebar.applyPermissions(); }
 
 /**
@@ -8,7 +6,6 @@ function applyDashboardPagePermissions() { window.DashboardSidebar.applyPermissi
  */
 
 document.addEventListener('DOMContentLoaded', function() {
-    initDashboardTheme();
     applyDashboardPagePermissions();
     initSidebarGroups();
     // 初始化导航菜单点击事件
@@ -46,7 +43,6 @@ document.addEventListener('DOMContentLoaded', function() {
     initPageSizeSelector();
 
     // 初始化用户菜单
-    initUserMenu();
     initSystemAlerts();
     initSimcWorkbench();
 
@@ -8555,6 +8551,7 @@ function initSidebarToggle() {
     window.addEventListener('resize', function() {
         if (window.innerWidth >= 1024) {
             // 大屏幕时确保侧边栏和遮罩层状态正确
+            sidebarToggle.setAttribute('aria-expanded', 'false');
             sidebar.classList.remove('open');
             sidebarOverlay.classList.remove('show');
             document.body.style.overflow = '';
@@ -8584,6 +8581,7 @@ function openSidebar() {
     const sidebarOverlay = document.getElementById('sidebar-overlay');
 
     sidebar.classList.add('open');
+    document.getElementById('sidebar-toggle')?.setAttribute('aria-expanded', 'true');
     sidebarOverlay.classList.add('show');
 
     // 防止背景滚动
@@ -8598,6 +8596,7 @@ function closeSidebar() {
     const sidebarOverlay = document.getElementById('sidebar-overlay');
 
     sidebar.classList.remove('open');
+    document.getElementById('sidebar-toggle')?.setAttribute('aria-expanded', 'false');
     sidebarOverlay.classList.remove('show');
 
     // 恢复背景滚动
@@ -8808,42 +8807,6 @@ function clearSearch() {
     if (currentTableName) {
         currentPage = 1;
         fetchTableData(currentTableName, currentPage);
-    }
-}
-
-/**
- * 初始化用户菜单功能
- */
-function initUserMenu() {
-    window.DashboardSidebar.bindAccountMenu();
-    const logoutBtn = document.getElementById('logout-btn');
-    // 登出功能
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', async function(e) {
-            e.preventDefault();
-
-            try {
-                const response = await fetch('/auth/logout/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCSRFToken()
-                    }
-                });
-
-                const result = await response.json();
-
-                if (result.status === 'success') {
-                    // 登出成功，跳转到登录页面
-                    window.location.href = result.redirect_url || '/auth/login/';
-                } else {
-                    showMessage('登出失败: ' + (result.message || '未知错误'), 'error');
-                }
-            } catch (error) {
-                console.error('登出错误:', error);
-                showMessage('登出失败，请稍后重试', 'error');
-            }
-        });
     }
 }
 

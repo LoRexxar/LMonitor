@@ -154,18 +154,13 @@ test('router replaces stale section/tool/table selectors and preserves restorabl
 });
 
 test('real Dashboard theme button restores persisted dark mode and toggles accessible state',async()=>{
-    const template=fs.readFileSync(path.join(__dirname,'../../templates/dashboard/index.html'),'utf8');
-    const dom=createDOM(template.replace(/{%[\s\S]*?%}/g,''),{url:'https://example.com/dashboard/',runScripts:'outside-only'});
-    await new Promise(resolve=>dom.window.addEventListener('load',resolve,{once:true}));
-    const win=dom.window, doc=win.document, key='lmonitor-dashboard-theme';
-    const restorers=[...doc.scripts].filter(script=>script.textContent.includes(`localStorage.getItem('${key}')`));
-    assert.equal(restorers.length,1);
-    win.localStorage.setItem(key,'dark');
-    win.eval(restorers[0].textContent);
-    const mainJS=fs.readFileSync(path.join(__dirname,'../../static/dashboard/js/main.js'),'utf8');
-    assert.match(mainJS,/^\s*initDashboardTheme\(\);/m);
-    win.eval(mainJS);
-    win.initDashboardTheme();
+    const dom=createDOM('<html data-dashboard-shell><button id="dashboard-theme-toggle" type="button"></button></html>',{url:'https://example.com/dashboard/',runScripts:'outside-only'});
+    const win=dom.window, doc=win.document, key='lmonitor-portal-theme';
+    win.matchMedia=()=>({matches:false,addEventListener(){}});
+    win.fetch=async()=>({ok:true,json:async()=>({})});
+    win.localStorage.setItem('lmonitor-dashboard-theme','dark');
+    win.eval(fs.readFileSync(path.join(__dirname,'../../static/portal/js/portal-theme.js'),'utf8'));
+    await new Promise(resolve=>win.addEventListener('load',resolve,{once:true}));
     const toggle=doc.getElementById('dashboard-theme-toggle');
     assert.equal(toggle.type,'button');
     for (const mode of ['dark','light','dark']) {

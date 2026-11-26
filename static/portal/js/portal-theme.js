@@ -2,26 +2,44 @@
     const storageKey = 'lmonitor-portal-theme';
     const root = document.documentElement;
     const iconSprite = '/static/portal/icons/icons.svg';
+    const dashboard = root.hasAttribute('data-dashboard-shell');
+    const themeButton = () => document.getElementById('portal-theme-toggle') || document.getElementById('dashboard-theme-toggle');
 
     const applyTheme = (theme) => {
         const isDark = theme === 'dark';
         root.classList.toggle('portal-theme-dark', isDark);
+        if (dashboard) {
+            if (isDark) root.dataset.dashboardTheme = 'dark';
+            else delete root.dataset.dashboardTheme;
+        }
         root.style.colorScheme = isDark ? 'dark' : 'light';
 
-        const toggle = document.getElementById('portal-theme-toggle');
+        const toggle = themeButton();
         if (!toggle) return;
         toggle.setAttribute('aria-pressed', String(isDark));
         toggle.setAttribute('aria-label', isDark ? '切换为浅色模式' : '切换为深色模式');
         toggle.title = isDark ? '切换为浅色模式' : '切换为深色模式';
+        toggle.querySelector('use')?.setAttribute('href', iconSprite + (isDark ? '?v=2#icon-sun' : '#icon-moon'));
     };
 
-    const savedTheme = window.localStorage.getItem(storageKey);
     const systemScheme = window.matchMedia('(prefers-color-scheme: dark)');
-    const followsSystem = root.hasAttribute('data-system-theme');
-    applyTheme(savedTheme || (followsSystem && systemScheme.matches ? 'dark' : 'light'));
-    if (followsSystem) systemScheme.addEventListener('change', (event) => {
-        if (!window.localStorage.getItem(storageKey)) applyTheme(event.matches ? 'dark' : 'light');
+    function restoreTheme() {
+        let preference;
+        try {
+            preference = localStorage.getItem(storageKey);
+            if (!preference) {
+                preference = localStorage.getItem('lmonitor-dashboard-theme');
+                if (preference) localStorage.setItem(storageKey, preference);
+            }
+        } catch {}
+        applyTheme(preference || (systemScheme.matches ? 'dark' : 'light'));
+    }
+    restoreTheme();
+    systemScheme.addEventListener('change', restoreTheme);
+    window.addEventListener('storage', event => {
+        if (!event.key || event.key === storageKey) restoreTheme();
     });
+    window.addEventListener('pageshow', restoreTheme);
 
     const navigationDataPromise = fetch('/portal/api/navigation/', {
         headers: { Accept: 'application/json' },
@@ -278,9 +296,9 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         applyTheme(root.classList.contains('portal-theme-dark') ? 'dark' : 'light');
-        document.getElementById('portal-theme-toggle')?.addEventListener('click', () => {
+        themeButton()?.addEventListener('click', () => {
             const nextTheme = root.classList.contains('portal-theme-dark') ? 'light' : 'dark';
-            window.localStorage.setItem(storageKey, nextTheme);
+            try {window.localStorage.setItem(storageKey, nextTheme);} catch {}
             applyTheme(nextTheme);
         });
         navigationDataPromise.then(renderPrimaryNavigation);
@@ -290,11 +308,20 @@
             document.querySelectorAll('#portal-primary-nav .portal-nav-group[open]').forEach((group) => group.removeAttribute('open'));
         });
         document.addEventListener('click', (event) => {
+            if (!event.target.closest?.('.portal-user-menu')) document.querySelector('.portal-user-menu[open]')?.removeAttribute('open');
             if (!event.target.closest?.('#portal-primary-nav')) {
                 document.querySelectorAll('#portal-primary-nav .portal-nav-group[open]').forEach((group) => group.removeAttribute('open'));
             }
             if (!event.target.closest?.('#portal-external-links')) {
                 document.getElementById('portal-external-links')?.removeAttribute('open');
+            }
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            const open = document.querySelector('.portal-header details[open]:focus-within, .portal-header details[open]');
+            if (open) {
+                open.removeAttribute('open');
+                open.querySelector('summary')?.focus();
             }
         });
     });

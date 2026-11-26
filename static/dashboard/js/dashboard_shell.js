@@ -37,12 +37,14 @@
         if (!toggle || !sidebar || !overlay) return;
 
         const close = () => {
+            toggle.setAttribute('aria-expanded', 'false');
             sidebar.classList.remove('open');
             overlay.classList.remove('show');
             document.body.style.overflow = '';
         };
         toggle.addEventListener('click', () => {
             const open = !sidebar.classList.contains('open');
+            toggle.setAttribute('aria-expanded', String(open));
             sidebar.classList.toggle('open', open);
             overlay.classList.toggle('show', open);
             document.body.style.overflow = open ? 'hidden' : '';
@@ -62,49 +64,12 @@
         });
     }
 
-    function csrfToken() {
-        return (
-            document.querySelector('meta[name="csrf-token"]')?.content
-            || document.querySelector('[name=csrfmiddlewaretoken]')?.value
-            || ''
-        );
-    }
-
-    function bindUserMenu() {
-        window.DashboardSidebar.bindAccountMenu();
-        const logout = document.getElementById('logout-btn');
-        if (logout) {
-            logout.addEventListener('click', async event => {
-                event.preventDefault();
-                try {
-                    const response = await fetch('/auth/logout/', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': csrfToken(),
-                        },
-                    });
-                    const result = await response.json();
-                    if (!response.ok || result.status !== 'success') {
-                        throw new Error(result.message || '登出失败');
-                    }
-                    window.location.href = result.redirect_url || '/auth/login/';
-                } catch (error) {
-                    window.alert(error.message || '登出失败，请稍后重试');
-                }
-            });
-        }
-    }
-
     function init() {
-        window.DashboardSidebar.initTheme();
         window.DashboardSidebar.applyPermissions();
         window.DashboardSidebar.initGroups();
         bindDashboardLinks();
         bindSubmenus();
         bindMobileSidebar();
-        bindUserMenu();
         for (const editor of document.querySelectorAll('[data-scenario-editor]')) {
             const add = editor.querySelector('[data-scenario-add]');
             if (!add || add.dataset.bound) continue;
