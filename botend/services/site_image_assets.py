@@ -59,7 +59,10 @@ def _display_identity(url):
     return any(p.fullmatch(url) for p in _DISPLAY_IDENTITIES)
 
 
-_DISPLAY_IDENTITIES = tuple(map(re.compile, (
+_MDT_ROOT = r'/static/portal/mythic_planner/vendor/mdt-\d+\.\d+\.\d+/'
+_MDT_FLOOR = re.compile(_MDT_ROOT + r'maps/[a-z0-9-]{1,80}/floor-1\.webp')
+_DISPLAY_IDENTITIES = (_MDT_FLOOR,) + tuple(map(re.compile, (
+    _MDT_ROOT + r'assets/(?:arrows|circle-white|line|mdt-full|ring|triangle)\.png',
     re.escape(CDN) + r'wow_icons_oss/small/[1-9][0-9]{0,9}\.jpg',
     r'/static/(?:dashboard/combat_symbols\.svg|portal/(?:favicons/default\.svg|icons/icons\.svg|images/portal-logo\.webp))',
     r'/static/(?:wow_icons/small|portal/img/consumables)/' + SLUG + r'\.jpg',
@@ -91,6 +94,8 @@ def read_records(path):
         if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest) or not isinstance(key, str):
             raise ValueError('invalid manifest identity')
         ext = r'\.(?:jpg|png|gif|webp|ico|svg)' if _display_identity(url) else r'\.(?:jpg|png|gif|webp|ico)'
+        if _MDT_FLOOR.fullmatch(url) and key == f'mythic-planner/auto/maps/{digest}.webp':
+            continue
         if not re.fullmatch(re.escape(PREFIX + digest) + ext, key) and not _verified_named_key(url, key):
             raise ValueError('invalid manifest destination')
     return doc['images']

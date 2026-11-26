@@ -208,5 +208,7 @@ class TalentAssetDeployContractTests(SimpleTestCase):
             install = 'manage.py install_talent_db2_assets --version-key retail'
             self.assertEqual(calls.count(install), 1)
             self.assertLess(calls.index('manage.py migrate --no-input'), calls.index(install))
-            self.assertLess(calls.index(install), calls.index("manage.py collectstatic --no-input --ignore=simc_results/*"))
+            cleanup = 'manage.py clear_collected_report_copies'
+            self.assertLess(calls.index(install), calls.index(cleanup))
+            self.assertLess(calls.index(cleanup), calls.index("manage.py collectstatic --no-input --ignore=simc_results/*"))
             self.assertFalse(any('repair' in command or 'backfill_db2_talent' in command for command in calls))

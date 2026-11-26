@@ -4355,15 +4355,17 @@ class MythicPlannerDashboardTests(TestCase):
 
 class MythicPlannerPageContractTests(SimpleTestCase):
     def test_direct_route_uses_current_6220_assets(self):
-        planner = self.client.get('/portal/mythic-planner/')
+        logo = '/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png'
+        target = ('https://oss.wowdaily.cn/site-images/v1/'
+                  'bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png')
+        with mock.patch('botend.services.site_image_assets._published', return_value={logo: target}):
+            planner = self.client.get('/portal/mythic-planner/')
 
         self.assertEqual(planner.status_code, 200)
         self.assertContains(planner, 'id="mdt-source-link"')
         self.assertContains(planner, 'MythicDungeonTools（GPLv2）')
-        self.assertContains(
-            planner,
-            '/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png',
-        )
+        self.assertContains(planner, f'src="{target}"')
+        self.assertNotContains(planner, f'src="{logo}"')
 
     def test_direct_route_exists_and_portal_navigation_exposes_mdt(self):
         planner = self.client.get('/portal/mythic-planner/')

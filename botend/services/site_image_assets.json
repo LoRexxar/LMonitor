@@ -5728,6 +5728,798 @@
       "site-images/v1/68d1d14d5e648ee88e98464a70b3f8a09a597a86be340be5bbe870ecc3e386f1.jpg",
       "68d1d14d5e648ee88e98464a70b3f8a09a597a86be340be5bbe870ecc3e386f1"
     ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.1/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.10/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.11/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.15/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/assets/circle-white.png": [
+      "site-images/v1/0eb4c537f96e75bc70b928a09f09525f38d8fd4a15b30c333a9f67ffb8de01c1.png",
+      "0eb4c537f96e75bc70b928a09f09525f38d8fd4a15b30c333a9f67ffb8de01c1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/assets/mdt-full.png": [
+      "site-images/v1/854f075f6ff668d388ecf93d189dfcc50acac76b247dac0fd865b56df1fd4a6b.png",
+      "854f075f6ff668d388ecf93d189dfcc50acac76b247dac0fd865b56df1fd4a6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/assets/ring.png": [
+      "site-images/v1/05d249e369531f45afd64bd6d481037d286f129854f734f3393af3b0c31c0c77.png",
+      "05d249e369531f45afd64bd6d481037d286f129854f734f3393af3b0c31c0c77"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/assets/triangle.png": [
+      "site-images/v1/ec43a8ac561cee9c3007db801df10d228da0f8292d03f68eac2fc09220566e01.png",
+      "ec43a8ac561cee9c3007db801df10d228da0f8292d03f68eac2fc09220566e01"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.2/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.5/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/assets/arrows.png": [
+      "site-images/v1/f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b.png",
+      "f09a83bdfeceddb3ebe4d65d744c3369799185563d65fc77234f747b07e94b6b"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/assets/circle-white.png": [
+      "site-images/v1/307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5.png",
+      "307de4ac43786175fd928455f919c39e7e7239d2ebbadd787e0eaffdab1b51e5"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/assets/line.png": [
+      "site-images/v1/538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30.png",
+      "538dbc7bc6de31910bda151961886991fcaacc5e7b79487216f37a0d93dbcd30"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/assets/mdt-full.png": [
+      "site-images/v1/bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d.png",
+      "bbfec2b0a10f573207976978edcf598b78ab2ec7c0ecfc275d7e3e87b61dde6d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/assets/ring.png": [
+      "site-images/v1/2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd.png",
+      "2cbc23ba497bfe755cc20d469c201135cd6950b80663f16365b5f3ad7b9395fd"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/assets/triangle.png": [
+      "site-images/v1/6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1.png",
+      "6c235ee509856346e505a59b7c5f6fbc4424bfebc78f367a94b1d311ef17c3e1"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/algethar-academy/floor-1.webp": [
+      "mythic-planner/auto/maps/2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d.webp",
+      "2d8b7a383360bcb3715bc37eb9854d4ffbaf9c0e9e07818d1c11c6c5fcf0623d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/altar-of-fangs/floor-1.webp": [
+      "mythic-planner/auto/maps/ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6.webp",
+      "ee4ef40712ca2cf2fd3ac91924d1251e5198e8beb246837ed2c6837ebf149db6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/den-of-nalorakk/floor-1.webp": [
+      "mythic-planner/auto/maps/83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34.webp",
+      "83ec947857bb7227ef10eb58508f348d49ab6c2962e64e13d3a83901ea57ea34"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/kings-rest/floor-1.webp": [
+      "mythic-planner/auto/maps/e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d.webp",
+      "e757197029caba0966813d1618225b9961f49e3aacfedead7d492fc10107826d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/magisters-terrace/floor-1.webp": [
+      "mythic-planner/auto/maps/84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d.webp",
+      "84f52b102e79333550bce5ff50f2f20d9355d6b8c5d91171981995e82c32524d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/maisara-caverns/floor-1.webp": [
+      "mythic-planner/auto/maps/7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0.webp",
+      "7533c5327526e432f81e360ab55c71aaa4b0797f6ae917bcc500c4365f2352e0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/murder-row/floor-1.webp": [
+      "mythic-planner/auto/maps/508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e.webp",
+      "508794307a2b0054eeb924344889cd4eaf01af4fa2f3ae206d6db12c6c59e30e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/nexus-point-xenas/floor-1.webp": [
+      "mythic-planner/auto/maps/7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0.webp",
+      "7f34ef4af1c356b95ea1647b52a7244434acb7694c11424b1b76bec3fd342ba0"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/pit-of-saron/floor-1.webp": [
+      "mythic-planner/auto/maps/dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6.webp",
+      "dad9e8d2323c68e5a496e230005c79bd6ec407ae981d946b7fdf3fda9d1adeb6"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/ruby-life-pools/floor-1.webp": [
+      "mythic-planner/auto/maps/470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e.webp",
+      "470676d61b90aab2d54c613d6b28d881cba49fbe93718d9f4e4b1567beaf1c1e"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/seat-of-the-triumvirate/floor-1.webp": [
+      "mythic-planner/auto/maps/1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3.webp",
+      "1299d74139bbee88d8964bd58d497893d258edfe4a2a8ab2a713cd91254bd2d3"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/skyreach/floor-1.webp": [
+      "mythic-planner/auto/maps/1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d.webp",
+      "1c1dbe373c8f696bda39ac27936f12523eae24079c85130ed15f5ff43e30428d"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/temple-of-sethraliss/floor-1.webp": [
+      "mythic-planner/auto/maps/59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423.webp",
+      "59d2bd927119c9641fdf6e7ab2354ac26a7f65e621a9cd91cef0dfccd8dfa423"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/the-blinding-vale/floor-1.webp": [
+      "mythic-planner/auto/maps/46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7.webp",
+      "46180f2a77c34e83aec5b82ec133caf183dd748ac5976fa056d0a45cbf49eca7"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/voidscar-arena/floor-1.webp": [
+      "mythic-planner/auto/maps/b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527.webp",
+      "b1310acd629623d63f5de4cfc1f7c5400b366842b3eb91c6f0b24267fd0a6527"
+    ],
+    "/static/portal/mythic_planner/vendor/mdt-6.2.9/maps/windrunner-spire/floor-1.webp": [
+      "mythic-planner/auto/maps/6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792.webp",
+      "6f64db70c8a8c8ab0b9302d96d22371a3a9efc7b525372b905c903666c66f792"
+    ],
     "/static/wow_icons/small/ability_fomor_boss_rune_green.jpg": [
       "site-images/v1/840becd23552a483509f31994ca0475ff5e45c8e701f30af87202f96b1525acd.jpg",
       "840becd23552a483509f31994ca0475ff5e45c8e701f30af87202f96b1525acd"
