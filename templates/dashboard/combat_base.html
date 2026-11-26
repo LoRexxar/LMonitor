@@ -7,13 +7,16 @@
     <title>{% block title %}日志分析{% endblock %} · WowDaily</title>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=combat1"></script>
     <script>
+        (() => {
         const combatPageURL = new URL(location.href);
-        if (combatPageURL.searchParams.has('_clwait')) {
+        if (combatPageURL.searchParams.has('_clwait') || combatPageURL.searchParams.has('refresh')) {
             combatPageURL.searchParams.delete('_clwait');
+            combatPageURL.searchParams.delete('refresh');
             history.replaceState(history.state, '', combatPageURL);
         }
+        })();
     </script>
-    <script defer src="{% static 'dashboard/js/combat_loading.js' %}"></script>
+    <script defer src="{% static 'dashboard/js/combat_loading.js' %}?v=20261126"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20261124_log_navigation2">
     {% block assets %}{% endblock %}
 </head>

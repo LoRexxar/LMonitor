@@ -3,7 +3,7 @@
 import re
 from urllib.parse import parse_qs, urlencode, urlsplit
 
-from django.core.cache import cache
+from botend.services import combat_public_list_cache
 from django.http import Http404, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -143,10 +143,6 @@ def report_reference(value):
     return match[1], fight if fight.isdecimal() or fight == "last" else ""
 
 
-def first_page_key(user, source):
-    return f"combat-public-first-page:{user.pk}:{source.pk}"
-
-
 def public_listing(request, ctx, page, q):
     kind = q.get("kind", "character")
     name, realm, region = [q.get(k, "").strip() for k in ("name", "realm", "region")]
@@ -229,7 +225,7 @@ def home(request):
                 scope, realm = (roles.profile(identity["name"], identity["region"], identity["realm"])
                                 if identity["kind"] == "character" else (None, ""))
                 source = roles.add(request.user, identity, scope, realm)
-                cache.set(first_page_key(request.user, source), listing, timeout=45)
+                combat_public_list_cache.save(source, 1, listing)
                 return redirect(reverse("combat_logs") + "?" + urlencode({"source":source.pk}))
         elif "name" in request.GET or private and binding and not request.GET.get("settings"):
             from botend.dashboard.combat_library import library_page

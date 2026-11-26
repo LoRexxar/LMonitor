@@ -50,14 +50,18 @@ def status(user, token):
         return None
 
 
-def page_title(request):
-    if (request.method != "GET" or request.headers.get("Sec-Fetch-Dest") != "document"
+def page_title(request, public_list=False):
+    continuation = (request.headers.get("X-Combat-Navigation") == "continue" and
+                    re.fullmatch(r"[a-f0-9]{32}", request.GET.get(PARAM, "")))
+    if (request.method != "GET" or (request.headers.get("Sec-Fetch-Dest") != "document" and not continuation)
             or "text/html" not in request.headers.get("Accept", "")):
         return None
     name = request.resolver_match.url_name
-    if name == "combat_logs" and (request.GET.get("source") == "uploads" or request.GET.get("analyze")):
+    if public_list:
+        return "读取公开日志列表"
+    if name == "combat_logs" and (request.GET.get("source") != "private" and request.GET.get("channel") != "private" or request.GET.get("analyze")):
         return None
-    if name == "combat_wcl" and ("name" in request.GET or request.GET.get("channel") == "private" and "settings" not in request.GET):
+    if name == "combat_wcl" and request.GET.get("channel") == "private" and "settings" not in request.GET:
         return "读取 WCL 日志列表"
     if name in ("combat_wcl_report", "combat_wcl_workspace"):
         if request.GET.get("compare"):
@@ -72,19 +76,44 @@ def page_title(request):
 
 
 @contextmanager
-def navigation(request):
+def navigation(request, public_list=False, source=None):
     if _active_key.get():
         yield None
         return
-    title = page_title(request)
+    title = page_title(request, public_list)
     token = request.GET.get(PARAM, "")
     if title and not re.fullmatch(r"[a-f0-9]{32}", token):
         ident = uuid4()
         query = request.GET.copy()
         query[PARAM] = ident.hex
-        from botend.dashboard.combat_library import back_directory
+        from botend.dashboard.combat_library import LIST_KEYS, SOURCE_KEYS, back_directory
+        library_url = reverse("combat_logs")
+        if public_list or request.resolver_match.url_name == "combat_logs":
+            # 上游不可用时仍提供能立即打开的日志库入口。
+            library_url += "?source=uploads"
+        elif request.resolver_match.url_name == "combat_battles":
+            retained = request.GET.copy()
+            for key in list(retained):
+                if key not in (*LIST_KEYS, *SOURCE_KEYS):
+                    del retained[key]
+            if retained:
+                library_url += "?" + retained.urlencode()
+        kwargs = request.resolver_match.kwargs
+        scope = ""
+        if source:
+            scope = f"{source.name} · {source.realm} · {source.region.upper()}"
+        elif kwargs.get("code"):
+            scope = f"WCL 报告 {kwargs['code']}"
+            if kwargs.get("fight"):
+                scope += f" · 第 {kwargs['fight']} 场"
+        else:
+            count = sum(len(set(request.GET.getlist(k))) for k in ("log", "also", "private_report"))
+            if count:
+                scope = f"已选 {count} 份日志"
         yield render(request, "dashboard/combat_loading.html", {
             "loading_title": title, "continue_url": request.path + "?" + query.urlencode(),
+            "loading_scope": scope,
+            "library_url": library_url,
             "progress_url": reverse("combat_request_progress", args=[ident]),
             "directory_url": back_directory(request.GET.get("back_catalog")),
         })

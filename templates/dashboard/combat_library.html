@@ -3,7 +3,7 @@
 {% block assets %}
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}">
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}?v=20261126">
 <script defer src="{% static 'dashboard/js/combat_logs.js' %}?v=library2"></script>
 {% endblock %}
 {% block content %}
@@ -28,6 +28,8 @@
                     <div class="log-search-field"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}#search"></use></svg><input type="search" name="q" value="{{ query }}" aria-label="筛选日志名称或首领" placeholder="日志名称或首领"></div><button class="log-action" name="filter" value="1">筛选</button>
                 </div>
             </div>
+            {% if source %}<div class="public-list-sync"><span>{% if list_updated %}公开列表更新于 <time datetime="{{ list_updated|date:'c' }}">{{ list_updated|date:'m-d H:i' }}</time>{% else %}公开日志列表{% endif %}</span><button class="log-action" name="refresh" value="1">刷新列表</button></div>{% endif %}
+            {% if list_warning %}<p role="status">{{ list_warning }}</p>{% endif %}
             {% if error %}<p role="alert">{{ error }} <a href="{{ request.get_full_path }}">重新读取日志列表</a></p>{% endif %}
             {% if matches %}<p>请选择同名角色{% for realm,region,url in matches %}　<a href="{% url 'combat_wcl' %}{{ url }}">{{ region|upper }} · {{ realm }}</a>{% endfor %}</p>{% endif %}
             {% if rows %}<div class="library-columns" aria-hidden="true"><span>日志名称</span><span>来源 / 记录者</span><span>记录时间</span></div>{% endif %}

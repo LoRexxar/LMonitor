@@ -71,20 +71,8 @@
     }
 
     function bindUserMenu() {
-        const button = document.getElementById('user-menu-button');
-        const menu = document.getElementById('user-menu');
+        window.DashboardSidebar.bindAccountMenu();
         const logout = document.getElementById('logout-btn');
-        if (button && menu) {
-            button.addEventListener('click', event => {
-                event.stopPropagation();
-                menu.classList.toggle('hidden');
-            });
-            document.addEventListener('click', event => {
-                if (!button.contains(event.target) && !menu.contains(event.target)) {
-                    menu.classList.add('hidden');
-                }
-            });
-        }
         if (logout) {
             logout.addEventListener('click', async event => {
                 event.preventDefault();

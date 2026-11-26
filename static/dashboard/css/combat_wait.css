@@ -1,0 +1,14 @@
+.combat-wait .source-heading {align-items:baseline}
+.wait-scope {color:var(--secondary);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.combat-wait .wait-panel {padding:0; margin:0; background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden}
+.wait-content {display:flex; align-items:flex-start; gap:16px; padding:clamp(20px,4vw,38px)}
+.wait-icon {width:42px; height:42px; padding:9px; flex:none; color:var(--action-ink); background:var(--action-tint); border-radius:9px}
+.wait-panel h2 {font-size:clamp(17px,2vw,22px); line-height:1.45; margin:0; overflow-wrap:anywhere}
+.wait-panel p {margin:5px 0 0; color:var(--secondary); font-variant-numeric:tabular-nums}
+.wait-track {height:3px; background:var(--grid); overflow:hidden}
+.wait-panel[data-state=loading] .wait-track::after {display:block; content:''; height:100%; width:30%; background:var(--action-fill); animation:wait-travel 2.4s ease-in-out infinite alternate}
+@keyframes wait-travel {to {transform:translateX(234%)}}
+@media (prefers-reduced-motion:reduce) {.wait-panel[data-state=loading] .wait-track::after {animation:none}}
+.wait-actions {display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px clamp(20px,4vw,38px); background:var(--subtle)}
+.wait-panel [hidden] {display:none!important}
+.wait-panel[data-state=error] .wait-icon {color:var(--accent); background:var(--accent-bg)}

@@ -1,0 +1,27 @@
+.dashboard-topbar {position:relative; z-index:45; flex:none; display:flex; justify-content:space-between; align-items:center; gap:12px; min-height:58px; padding:6px clamp(12px,2.4vw,36px); background:var(--dashboard-surface,#fff); border-bottom:1px solid var(--dashboard-border,#d4dce5); color:var(--dashboard-text,#20293a); font:14px/1.4 "Inter","Segoe UI","Microsoft YaHei UI",sans-serif}
+.dashboard-topbar *, .dashboard-topbar {box-sizing:border-box}
+.dash-brand-group,.dash-brand,.dash-actions,.dashboard-topbar .dash-control {display:flex; align-items:center}
+.dash-brand-group,.dash-brand {gap:10px; min-width:0}
+.dash-brand img {border-radius:7px; flex:none}
+.dash-brand {color:inherit;text-decoration:none}
+.dash-brand strong {font-size:19px; letter-spacing:-.025em}
+.dash-brand span {border-inline-start:1px solid var(--dashboard-border);padding-inline-start:12px;color:var(--dashboard-muted,#526075);white-space:nowrap}
+.dash-actions {gap:8px}
+.dashboard-topbar .dash-control {height:38px;min-width:38px;padding:0 9px;gap:7px;justify-content:center;border-radius:6px;border:1px solid transparent;background:transparent;font:inherit;color:inherit;text-decoration:none;cursor:pointer;white-space:nowrap}
+.dashboard-topbar .dash-control:hover,.dash-account-menu>a:hover,.dash-account-menu>button:hover {background:var(--dashboard-surface-muted,#eef2f6)}
+.dashboard-topbar :focus-visible {outline:2px solid #6585dc;outline-offset:2px}
+.dashboard-topbar .dash-return {border-color:var(--dashboard-border,#ccd4df);font-weight:600}
+.dashboard-topbar svg {width:18px;height:18px;display:block;flex:none}
+.dashboard-topbar .dash-chevron {width:12px}
+.dashboard-topbar .dash-sun, [data-dashboard-theme=dark] .dashboard-topbar .dash-moon {display:none}
+[data-dashboard-theme=dark] .dashboard-topbar .dash-sun {display:block}
+.dash-account {position:relative}
+#user-menu-button span {max-width:11ch;overflow:hidden;text-overflow:ellipsis}
+.dash-account-menu {position:absolute;inset:calc(100% + 8px) 0 auto auto;width:min(235px,90vw);max-height:75vh;overflow:auto;padding:6px;border:1px solid var(--dashboard-border);border-radius:8px;background:var(--dashboard-surface);box-shadow:0 8px 22px rgb(0 0 0/.14)}
+.dash-account-menu.hidden {display:none}
+.dash-account-info {padding:8px 10px;border-bottom:1px solid var(--dashboard-border);margin-bottom:4px;overflow-wrap:anywhere}
+.dash-account-info small {display:block;color:var(--dashboard-muted,#526075)}
+.dash-account-menu>a,.dash-account-menu>button {display:block;width:100%;padding:8px 10px;border:0;border-radius:4px;text-align:left;font:inherit;color:inherit;text-decoration:none;background:transparent;cursor:pointer}
+.dashboard-topbar .dash-menu-toggle {display:none}
+@media(max-width:767px) {.dashboard-topbar .dash-menu-toggle {display:flex}.dash-brand strong,#user-menu-button span,.dash-chevron {display:none!important}.dash-brand span {padding:0;border:0}.dash-actions,.dash-brand-group {gap:3px}.dashboard-topbar {padding-inline:6px}}
+@media(min-width:768px) and (max-width:1023px) {.dashboard-topbar .dash-menu-toggle {display:flex}}

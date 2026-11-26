@@ -1,20 +1,23 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{{ loading_title }}{% endblock %}
-{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}">{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_wait.css' %}">{% endblock %}
 {% block content %}
-{% if loading_error %}
-<main class="combat-wait-page"><h1>{{ loading_title }}</h1><p role="alert">{{ loading_error }}</p>
-<div class="combat-wait-actions"><a href="{{ request.get_full_path }}">重新尝试</a><a href="{% url 'combat_logs' %}">返回日志库</a></div></main>
-{% else %}
-<main class="combat-wait-page" data-wait-page data-continue="{{ continue_url }}" data-progress="{{ progress_url }}">
-    <h1>{{ loading_title }}</h1>
-    <p data-stage role="status">正在连接分析服务…</p>
-    <p class="combat-wait-time"><span data-elapsed>已等待 0 秒</span><span data-slow hidden> · 当前请求耗时较长</span></p>
-    <div class="combat-wait-actions">
-        <button type="button" data-stop hidden>停止等待</button>
-        <a href="{{ request.get_full_path }}" data-retry hidden>重新尝试</a>
-        {% if directory_url %}<a href="{{ directory_url }}">返回战斗目录</a>{% else %}<a href="{% url 'combat_logs' %}">返回日志库</a>{% endif %}
-    </div>
-    <noscript><a href="{{ continue_url }}">继续打开分析</a></noscript>
-</main>{% endif %}
-{% endblock %}
+<main class="wrap log-library combat-wait" {% if not loading_error %}data-wait-page data-continue="{{ continue_url }}" data-progress="{{ progress_url }}" data-root="{% url 'combat_logs' %}"{% endif %}>
+    <nav class="crumb" aria-label="当前位置"><a href="{% url 'combat_logs' %}">日志分析</a><i class="crumb-separator" aria-hidden="true"></i>{% if directory_url %}<a href="{{ directory_url }}">战斗目录</a><i class="crumb-separator" aria-hidden="true"></i>{% endif %}<span aria-current="page">{{ loading_title }}</span></nav>
+    <header class="source-heading"><h1>{{ loading_title }}</h1>{% if loading_scope %}<span class="wait-scope">{{ loading_scope }}</span>{% endif %}</header>
+    <section class="wait-panel" data-state="{% if loading_error %}error{% else %}loading{% endif %}">
+        <div class="wait-content">
+            <svg class="wait-icon" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
+            <div><h2 data-stage {% if loading_error %}role="alert"{% else %}role="status"{% endif %}>{{ loading_error|default:'正在连接分析服务…' }}</h2>
+            <p class="combat-wait-time"><span data-elapsed>{% if not loading_error %}已等待 0 秒{% endif %}</span><span data-slow hidden> · 读取时间较长，可继续等待或返回</span></p>
+            <p data-connection role="status" hidden></p></div>
+        </div>
+        <div class="wait-track" aria-hidden="true"></div>
+        <div class="wait-actions">
+            {% url 'combat_logs' as default_library %}<a class="log-action" href="{% firstof directory_url library_url default_library %}">返回{% if directory_url %}战斗目录{% else %}日志库{% endif %}</a>
+            {% if not loading_error %}<button class="log-action" type="button" data-stop hidden>停止等待</button>{% endif %}
+            <a class="log-action log-primary" href="{{ request.get_full_path }}" data-retry {% if not loading_error %}hidden{% endif %}>重新尝试</a>
+        </div>
+        {% if continue_url %}<noscript><a class="log-action" href="{{ continue_url }}">继续打开分析</a></noscript>{% endif %}
+    </section>
+</main>{% endblock %}

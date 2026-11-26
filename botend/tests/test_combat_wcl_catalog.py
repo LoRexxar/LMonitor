@@ -1,4 +1,6 @@
 from unittest.mock import patch
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -21,6 +23,8 @@ def source(code, offset=0, difficulty=5, realm="死亡之翼"):
 
 class WclCatalogTests(TestCase):
     def setUp(self):
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot"))
         self.client.force_login(get_user_model().objects.create_user(username="开荒选场"))
         self.a,self.b="A"*16,"B"*16
 
@@ -41,8 +45,23 @@ class WclCatalogTests(TestCase):
         self.assertContains(added,"选择日志")
         self.assertNotContains(added,"首领对比复盘")
         self.assertEqual(read.call_count, 1)
-        self.client.get(reverse("combat_logs"), {"source":added.context["source"].pk})
+        url = reverse("combat_logs")
+        params = {"source":added.context["source"].pk}
+        browser = {"HTTP_SEC_FETCH_DEST":"document","HTTP_ACCEPT":"text/html"}
+        self.assertTemplateUsed(self.client.get(url, params, **browser), "dashboard/combat_library.html")
+        self.assertTemplateUsed(self.client.get(url, {"q":"祭坛"}, **browser), "dashboard/combat_library.html")
+        self.assertEqual(read.call_count, 1)
+        self.assertTemplateUsed(self.client.get(url, {**params, "wpage":2}, **browser), "dashboard/combat_loading.html")
+        self.client.get(url, {**params, "wpage":2})
         self.assertEqual(read.call_count, 2)
+        self.client.get(url, {**params, "wpage":2}, **browser)
+        self.assertEqual(read.call_count, 2)
+        with patch.object(wcl, "read", side_effect=wcl.WclError("暂时无法联网")):
+            fallback = self.client.get(url, {**params, "refresh":1})
+            self.assertContains(fallback, "上次成功读取")
+            self.assertContains(fallback, self.a)
+        self.client.get(url, {**params, "refresh":1})
+        self.assertEqual(read.call_count, 3)
         self.client.post(reverse("combat_wcl"),identity)
         self.assertEqual(CombatPublicSource.objects.count(),1)
         self.assertContains(self.client.get(reverse("combat_wcl")), "狂怒")

@@ -14,15 +14,41 @@
             toggle.setAttribute('aria-pressed', String(isDark));
             toggle.setAttribute('aria-label', isDark ? '切换浅色模式' : '切换深色模式');
             toggle.title = isDark ? '切换浅色模式' : '切换深色模式';
-            icon.className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-sm`;
+            if (icon.tagName === 'I') icon.className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-sm`;
         };
         render();
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            try { if (localStorage.getItem(storageKey)) return; } catch (_) {}
+            if (event.matches) root.dataset.dashboardTheme = 'dark';
+            else delete root.dataset.dashboardTheme;
+            render();
+        });
         toggle.addEventListener('click', () => {
             const isDark = root.dataset.dashboardTheme === 'dark';
             if (isDark) delete root.dataset.dashboardTheme;
             else root.dataset.dashboardTheme = 'dark';
             try { localStorage.setItem(storageKey, isDark ? 'light' : 'dark'); } catch (_) {}
             render();
+        });
+    }
+
+    function bindAccountMenu() {
+        const button = document.getElementById('user-menu-button');
+        const menu = document.getElementById('user-menu');
+        if (!button || !menu) return;
+        function show(open) {
+            menu.classList.toggle('hidden', !open);
+            button.setAttribute('aria-expanded', String(open));
+        }
+        button.addEventListener('click', () => show(menu.classList.contains('hidden')));
+        document.addEventListener('click', event => {
+            if (!menu.contains(event.target) && !button.contains(event.target)) show(false);
+        });
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !menu.classList.contains('hidden')) {
+                show(false);
+                button.focus();
+            }
         });
     }
 
@@ -172,5 +198,5 @@
         });
     }
 
-    window.DashboardSidebar = {initGroups, bindSubmenus, setOpen, reveal, initTheme, applyPermissions};
+    window.DashboardSidebar = {initGroups, bindSubmenus, setOpen, reveal, initTheme, applyPermissions, bindAccountMenu};
 })();

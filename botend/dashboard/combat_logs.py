@@ -36,13 +36,18 @@ def endpoint(*methods):
                 with combat_loading.navigation(request) as waiting:
                     if waiting is not None:
                         return waiting
-                    return view(request, *args, **kwargs)
+                    response = view(request, *args, **kwargs)
+                    if request.headers.get("X-Combat-Navigation") == "continue" and response.get("Content-Type", "").startswith("text/html"):
+                        response["X-Combat-Document"] = "1"
+                    return response
             except CombatLogReport.DoesNotExist:
                 raise Http404
             except WclError as exc:
                 if getattr(request, "combat_loading_title", None):
-                    return render(request, "dashboard/combat_loading.html", {"loading_error": str(exc),
+                    response = render(request, "dashboard/combat_loading.html", {"loading_error": str(exc),
                                   "loading_title": request.combat_loading_title}, status=exc.status)
+                    response["X-Combat-Document"] = "1"
+                    return response
                 return JsonResponse({"message": str(exc)}, status=exc.status)
             except ValidationError:
                 return JsonResponse({"message": "报告标识无效。"}, status=400)

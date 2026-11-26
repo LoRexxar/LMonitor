@@ -10,7 +10,8 @@
     <script>
         // Restore before first paint so returning dark-mode users do not see a white flash.
         try {
-            if (localStorage.getItem('lmonitor-dashboard-theme') === 'dark') {
+            const preferred = localStorage.getItem('lmonitor-dashboard-theme');
+            if (preferred === 'dark' || (!preferred && matchMedia('(prefers-color-scheme: dark)').matches)) {
                 document.documentElement.dataset.dashboardTheme = 'dark';
             }
         } catch (_) {}
@@ -28,7 +29,6 @@
     <style>
         .sidebar-transition { transition: all 0.3s ease; }
         .card-hover:hover { transform: translateY(-2px); }
-        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
         .glass-effect { backdrop-filter: blur(10px); background: rgba(255, 255, 255, 0.1); }
         .rotate-180 { transform: rotate(180deg); }
         .fa-chevron-down { transition: transform 0.3s ease; }
@@ -527,7 +527,6 @@
             --dashboard-shadow: 0 16px 34px rgba(0, 0, 0, .28);
             color-scheme: dark;
         }
-        html[data-dashboard-theme="dark"] .gradient-bg { background: linear-gradient(135deg, #242936 0%, #302b3b 100%); }
         html[data-dashboard-theme="dark"] #sidebar [class~="bg-blue-50"] { background-color: #2b3443 !important; }
         html[data-dashboard-theme="dark"] #sidebar [class~="hover:bg-blue-50"]:hover { background-color: #354156 !important; }
         html[data-dashboard-theme="dark"] #sidebar,
@@ -554,7 +553,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261125_roles" defer></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261126_topbar" defer></script>
     {% block dashboard_extra_head %}{% endblock %}
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
@@ -565,7 +564,7 @@
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261117_preview_hover" defer></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact" defer></script>
 <script src="{% static 'dashboard/js/simc_skill_query.js' %}?v=20261031_actor_page" defer></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261125_roles" defer></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261126_topbar" defer></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -623,8 +622,9 @@
     {% endif %}
     {% endif %}
     {% else %}
-    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20261118_mdt_navigation" defer></script>
+    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20261126_topbar" defer></script>
     {% endif %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/topbar.css' %}">
 </head>
 <body class="bg-gray-50 font-sans dashboard-page" data-dashboard-page="{{ page_name }}">
     <!-- 添加CSRF令牌隐藏字段 -->
@@ -658,62 +658,8 @@
         </div>
     </div>
     
-    <!-- 顶部导航栏 -->
-    <header class="gradient-bg text-white shadow-lg">
-        <div class="w-full px-6 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <!-- 汉堡菜单按钮 -->
-                    <button id="sidebar-toggle" class="lg:hidden text-white hover:text-gray-200 focus:outline-none focus:text-gray-200 transition-colors duration-200">
-                        <i class="fas fa-bars text-xl"></i>
-                    </button>
-                    <i class="fas fa-chart-line text-2xl"></i>
-                    <h1 class="text-2xl font-bold">{{ title }}</h1>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <a href="/" class="flex items-center space-x-2 px-3 py-2 rounded-lg bg-white bg-opacity-15 hover:bg-opacity-25 transition-colors duration-200">
-                        <i class="fas fa-house text-sm"></i>
-                        <span class="hidden sm:inline text-sm">回到首页</span>
-                    </a>
-                    <button id="dashboard-theme-toggle" type="button" class="dashboard-theme-toggle inline-flex items-center justify-center rounded-lg bg-white bg-opacity-15 text-white hover:bg-opacity-25 focus:outline-none focus:ring-2 focus:ring-white/70 transition-colors duration-200" aria-label="切换深色模式" aria-pressed="false" title="切换深色模式">
-                        <i id="dashboard-theme-icon" class="fas fa-moon text-sm" aria-hidden="true"></i>
-                    </button>
-                    <!-- 用户信息下拉菜单 -->
-                    <div class="relative">
-                        <button id="user-menu-button" class="flex items-center space-x-2 text-white hover:text-gray-200 focus:outline-none focus:text-gray-200 transition-colors duration-200">
-                            <div class="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
-                                <i class="fas fa-user text-sm"></i>
-                            </div>
-                            <span class="hidden sm:inline text-sm">{{ user.username }}</span>
-                            <i class="fas fa-chevron-down text-xs"></i>
-                        </button>
-                        
-                        <!-- 下拉菜单 -->
-                        <div id="user-menu" class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-2 z-50 hidden">
-                            <div class="px-4 py-2 border-b border-gray-100">
-                                <p class="text-sm font-medium text-gray-900">{{ user.username }}</p>
-                                <p class="text-xs text-gray-500">{% if user.is_superuser %}超级管理员{% elif user.is_staff %}工作人员{% else %}普通账号{% endif %}</p>
-                                <p class="text-xs text-gray-500">{{ user.email }}</p>
-                            </div>
-                            {% character_shortcuts %}
-                            <a href="{% url 'my_character_bindings' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">我的角色</a>
-                            {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">角色绑定管理</a>{% endif %}
-                            <a href="/auth/bilibili/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">绑定 B 站账号</a>
-                            <a href="/auth/change-password/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200">
-                                <i class="fas fa-key mr-2"></i>
-                                修改密码
-                            </a>
-                            <button id="logout-btn" class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors duration-200">
-                                <i class="fas fa-sign-out-alt mr-2"></i>
-                                登出
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </header>
-    
+    {% include 'dashboard/topbar.html' %}
+
     <div class="dashboard-shell flex min-h-0">
         <!-- 侧边栏遮罩层 -->
         <div id="sidebar-overlay" class="sidebar-overlay"></div>

@@ -191,12 +191,6 @@ details[open] > summary::after, #meter-toggle[aria-expanded=true] .disclosure-ma
 .source-settings .role-identity a, .source-settings .role-identity strong { color:var(--ink); font-weight:650; }
 .source-settings .role-identity small { display:block; font-size:13px; }
 .source-settings .public-role form { margin:0; }
-.combat-wait-page { width:var(--content-width); max-width:56rem; margin:auto; padding:clamp(32px,8vh,80px) 0; }
-.combat-wait-page h1 { font-size:var(--title-size); margin:0 0 12px; }
-.combat-wait-page [data-stage] { font-size:16px; color:var(--ink); }
-.combat-wait-time, #combat-pending small { color:var(--secondary); font-variant-numeric:tabular-nums; }
-.combat-wait-actions { display:flex; flex-wrap:wrap; align-items:center; gap:16px; margin-top:20px; }
-.combat-wait-actions a { color:var(--link); }
-.combat-wait-actions button { padding:7px 14px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:var(--control-radius); cursor:pointer; }
+#combat-pending small { color:var(--secondary); font-variant-numeric:tabular-nums; }
 #combat-pending:not([hidden]) { position:fixed; z-index:40; inset:auto max(12px,3vw) max(14px,env(safe-area-inset-bottom)) auto; display:grid; gap:3px; width:max-content; max-width:calc(100vw - 24px); padding:12px 18px; border:1px solid var(--line); border-radius:9px; box-shadow:var(--shadow); background:var(--surface); pointer-events:none; }
 #combat-pending small:empty { display:none; }

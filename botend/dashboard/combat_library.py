@@ -5,7 +5,7 @@ from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
-from django.core.cache import cache
+from django.utils import timezone as django_timezone
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import QueryDict
@@ -17,6 +17,7 @@ from botend.dashboard.combat_logs import STATES, endpoint
 from botend.models import CombatPublicSource, WclUserBinding
 from botend.services import combat_log_analysis as analysis
 from botend.services import combat_loading
+from botend.services import combat_public_list_cache as list_cache
 from botend.services import combat_wcl_account as wcl, combat_wcl_catalog as catalog
 
 
@@ -98,14 +99,24 @@ def library_page(request, lookup=None, *, private_binding=None):
         elif private:
             ctx["error"] = "请先绑定有权限的 WCL 账号。"
         elif lookup:
-            if source and remote_page == 1:
-                key = combat_wcl.first_page_key(request.user, source)
-                listing = cache.get(key)
-                if listing is not None:
-                    cache.delete(key)
-            if listing is None:
-                combat_loading.message("正在向 WCL 获取公开日志列表。")
-                listing = combat_wcl.public_listing(request,ctx,remote_page,lookup)
+            saved = list_cache.read(source, remote_page) if source else None
+            if saved and django_timezone.now() - saved[0] < list_cache.FRESH and not q.get("refresh"):
+                ctx["list_updated"], listing = saved
+            else:
+                with combat_loading.navigation(request, public_list=True, source=source) as waiting:
+                    if waiting is not None:
+                        return waiting
+                    combat_loading.message("正在向 WCL 获取公开日志列表。")
+                    try:
+                        listing = combat_wcl.public_listing(request,ctx,remote_page,lookup)
+                    except wcl.WclError as exc:
+                        if not saved or exc.status != 503:
+                            raise
+                        ctx["list_updated"], listing = saved
+                        ctx["list_warning"] = "WCL 暂时无法更新，当前显示上次成功读取的列表。"
+                    else:
+                        if source and listing is not None:
+                            ctx["list_updated"] = list_cache.save(source, remote_page, listing)
         if listing is not None:
             public_rows = listing["data"]
             catalog.summarize(public_rows)

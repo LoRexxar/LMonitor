@@ -1204,6 +1204,41 @@ class BossReviewBrowserTests(StaticLiveServerTestCase):
     def _make_connections_override(cls):
         return {}
 
+    def test_wait_page_handles_gateway_failure_offline_and_deadline(self):
+        from playwright.sync_api import expect, sync_playwright
+        self.client.force_login(get_user_model().objects.create_user(username="等待异常"))
+        url = self.live_server_url + reverse("combat_wcl_report", args=["A"*16])
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge")
+            try:
+                page = browser.new_page(viewport={"width":390, "height":820}, color_scheme="dark")
+                page.context.add_cookies([{"url":self.live_server_url, "name":"sessionid",
+                                           "value":self.client.cookies["sessionid"].value}])
+                page.route("**/*_clwait=*", lambda route:route.fulfill(status=504, body="Gateway timeout"))
+                page.goto(url)
+                expect(page.get_by_role("alert")).to_contain_text("服务器响应超时")
+                expect(page.locator(".portal-header")).to_be_visible()
+                expect(page.get_by_role("link",name="返回日志库")).to_be_visible()
+                page.unroute("**/*_clwait=*")
+                page.add_init_script("""{
+                    const fetchNormally = window.fetch.bind(window);
+                    window.fetch = (url, options) => String(url).includes('_clwait=')
+                        ? new Promise((resolve, reject) => options.signal.addEventListener('abort',
+                              () => reject(new DOMException('已中止', 'AbortError')), {once:true}))
+                        : fetchNormally(url, options);
+                }""")
+                page.clock.install()
+                page.get_by_role("link", name="重新读取").click()
+                expect(page.locator("[data-stop]")).to_be_visible()
+                page.clock.fast_forward(121000)
+                expect(page.get_by_role("alert")).to_contain_text("已超过 2 分钟")
+                page.get_by_role("link", name="重新读取").click()
+                expect(page.locator("[data-stop]")).to_be_visible()
+                page.context.set_offline(True)
+                expect(page.get_by_role("alert")).to_contain_text("网络连接已断开")
+            finally:
+                browser.close()
+
     def test_open_slow_wcl_report_and_retry(self):
         from threading import Event
         from playwright.sync_api import expect, sync_playwright

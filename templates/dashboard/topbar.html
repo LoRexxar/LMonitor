@@ -1,0 +1,23 @@
+{% load static character_binding_tags %}
+<header class="dashboard-topbar">
+    <div class="dash-brand-group">
+        <button id="sidebar-toggle" type="button" class="dash-control dash-menu-toggle" aria-label="后台导航" aria-controls="sidebar"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+        <a href="{% url 'dashboard' %}" class="dash-brand"><img src="{% static 'portal/images/portal-logo.webp' %}" alt="" width="30" height="30"><strong>WowDaily</strong><span>管理后台</span></a>
+    </div>
+    <nav class="dash-actions" aria-label="站点与账户">
+        <a class="dash-control dash-return" href="{% url 'portal_home' %}"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>返回前台</a>
+        <button id="dashboard-theme-toggle" class="dash-control" type="button" aria-label="切换深色模式" aria-pressed="false"><span id="dashboard-theme-icon"><svg aria-hidden="true" class="dash-moon"><use href="{% static 'portal/icons/icons.svg' %}#icon-moon"></use></svg><svg aria-hidden="true" class="dash-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></span></button>
+        <div class="dash-account">
+            <button id="user-menu-button" class="dash-control" type="button" aria-label="{{ user.username }} 的账户菜单" aria-controls="user-menu" aria-expanded="false"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-user"></use></svg><span>{{ user.username }}</span><svg class="dash-chevron" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg></button>
+            <div id="user-menu" class="dash-account-menu hidden">
+                <div class="dash-account-info"><strong>{{ user.username }}</strong><small>{% if user.is_superuser %}超级管理员{% elif user.is_staff %}工作人员{% else %}普通账号{% endif %}</small></div>
+                {% character_shortcuts %}
+                <a href="{% url 'my_character_bindings' %}">我的角色</a>
+                {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings">角色绑定管理</a>{% endif %}
+                <a href="/auth/bilibili/">绑定 B 站账号</a>
+                <a href="/auth/change-password/">修改密码</a>
+                <button id="logout-btn" type="button">退出登录</button>
+            </div>
+        </div>
+    </nav>
+</header>

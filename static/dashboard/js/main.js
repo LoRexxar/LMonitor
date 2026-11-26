@@ -8815,25 +8815,8 @@ function clearSearch() {
  * 初始化用户菜单功能
  */
 function initUserMenu() {
-    const userMenuButton = document.getElementById('user-menu-button');
-    const userMenu = document.getElementById('user-menu');
+    window.DashboardSidebar.bindAccountMenu();
     const logoutBtn = document.getElementById('logout-btn');
-
-    if (userMenuButton && userMenu) {
-        // 点击用户菜单按钮切换菜单显示
-        userMenuButton.addEventListener('click', function(e) {
-            e.stopPropagation();
-            userMenu.classList.toggle('hidden');
-        });
-
-        // 点击页面其他地方关闭菜单
-        document.addEventListener('click', function(e) {
-            if (!userMenuButton.contains(e.target) && !userMenu.contains(e.target)) {
-                userMenu.classList.add('hidden');
-            }
-        });
-    }
-
     // 登出功能
     if (logoutBtn) {
         logoutBtn.addEventListener('click', async function(e) {
