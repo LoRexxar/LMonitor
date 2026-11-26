@@ -3,8 +3,8 @@
 {% block assets %}
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}">
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}?v=20261126">
-<script defer src="{% static 'dashboard/js/combat_logs.js' %}?v=library2"></script>
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}?v=public-directory1">
+<script defer src="{% static 'dashboard/js/combat_logs.js' %}?v=library3"></script>
 {% endblock %}
 {% block content %}
 <main class="wrap log-library">
@@ -28,11 +28,16 @@
                     <div class="log-search-field"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}#search"></use></svg><input type="search" name="q" value="{{ query }}" aria-label="筛选日志名称或首领" placeholder="日志名称或首领"></div><button class="log-action" name="filter" value="1">筛选</button>
                 </div>
             </div>
-            {% if source %}<div class="public-list-sync"><span>{% if list_updated %}公开列表更新于 <time datetime="{{ list_updated|date:'c' }}">{{ list_updated|date:'m-d H:i' }}</time>{% else %}公开日志列表{% endif %}</span><button class="log-action" name="refresh" value="1">刷新列表</button></div>{% endif %}
+            {% if source %}<div class="public-list-sync"{% if sync_url %} data-sync-url="{{ sync_url }}" data-revision="{{ list_revision }}" data-source="{{ source.pk }}"{% if force_sync %} data-force{% endif %}{% endif %}>
+                <span>{% if list_updated %}已保存的公开列表 · <time datetime="{{ list_updated|date:'c' }}">{{ list_updated|date:'m-d H:i' }}</time>{% else %}公开日志列表{% endif %}</span>
+                <span role="status" data-sync-status></span>
+                <button class="log-action log-primary" type="submit" data-show-updates hidden>查看更新</button>
+                <button class="log-action" name="refresh" value="sync">刷新列表</button>
+            </div>{% endif %}
             {% if list_warning %}<p role="status">{{ list_warning }}</p>{% endif %}
             {% if error %}<p role="alert">{{ error }} <a href="{{ request.get_full_path }}">重新读取日志列表</a></p>{% endif %}
             {% if matches %}<p>请选择同名角色{% for realm,region,url in matches %}　<a href="{% url 'combat_wcl' %}{{ url }}">{{ region|upper }} · {{ realm }}</a>{% endfor %}</p>{% endif %}
-            {% if rows %}<div class="library-columns" aria-hidden="true"><span>日志名称</span><span>来源 / 记录者</span><span>记录时间</span></div>{% endif %}
+            <div data-directory-rows>{% if rows %}<div class="library-columns" aria-hidden="true"><span>日志名称</span><span>来源 / 记录者</span><span>记录时间</span></div>{% endif %}
             {% for r in rows %}
             <div class="library-row">
                 {% if r.selectable %}<label class="row-check"><input type="checkbox" data-log-choice name="{{ r.field }}" value="{{ r.value }}" aria-label="勾选 {{ r.title }} {{ r.date|date:'m-d H:i' }}"{% if r.checked %} checked{% endif %}></label>{% else %}<span></span>{% endif %}
@@ -44,8 +49,9 @@
             {% empty %}<p>{% if query %}当前页没有匹配的日志。{% else %}当前查询没有可选日志。可以上传战斗日志，或关联角色读取公开报告。{% endif %}</p>{% endfor %}
             <input type="hidden" name="page" value="{{ page.number }}"><input type="hidden" name="wpage" value="{{ remote_page }}">
             {% if page.has_other_pages %}<nav class="library-pages" aria-label="上传日志分页"><span>上传日志 · {{ page.number }} / {{ page.paginator.num_pages }}</span>{% if page.has_previous %}<button name="page" value="{{ page.previous_page_number }}">上一页</button>{% endif %}{% if page.has_next %}<button name="page" value="{{ page.next_page_number }}">下一页</button>{% endif %}</nav>{% endif %}
+            {% if saved_page.has_other_pages %}<nav class="library-pages" aria-label="本页已保存记录"><span>本页已保存 {{ saved_page.paginator.count }} 份 · {{ saved_page.number }} / {{ saved_page.paginator.num_pages }}</span>{% if saved_page.has_previous %}<button name="saved_page" value="{{ saved_page.previous_page_number }}">较新记录</button>{% endif %}{% if saved_page.has_next %}<button name="saved_page" value="{{ saved_page.next_page_number }}">更早记录</button>{% endif %}</nav>{% endif %}
             {% if remote_more or remote_page > 1 %}<nav class="library-pages" aria-label="WCL 报告分页"><span>WCL 报告 · 第 {{ remote_page }} 页</span>{% if remote_page > 1 %}<button name="wpage" value="{{ remote_page|add:'-1' }}">上一页</button>{% endif %}{% if remote_more %}<button name="wpage" value="{{ remote_page|add:'1' }}">下一页</button>{% endif %}</nav>{% endif %}
-            <div class="selection-actions"><output aria-live="polite">已选 {{ selected_count }} 份日志</output><a href="{{ clear_url }}" data-clear-selection{% if not selected_count %} hidden{% endif %}>清空选择</a><button class="log-action log-primary" name="analyze" value="battle">分析所选日志<i class="nav-arrow" aria-hidden="true"></i></button></div>
+            </div><div class="selection-actions"><output aria-live="polite">已选 {{ selected_count }} 份日志</output><a href="{{ clear_url }}" data-clear-selection{% if not selected_count %} hidden{% endif %}>清空选择</a><button class="log-action log-primary" name="analyze" value="battle">分析所选日志<i class="nav-arrow" aria-hidden="true"></i></button></div>
             {% if need_selection %}<p role="status">请先勾选要查看的日志。</p>{% endif %}
         </form>
     </section>

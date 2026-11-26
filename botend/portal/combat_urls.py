@@ -13,6 +13,7 @@ urlpatterns = [
     path('battles/', combat_library.battles, name='combat_battles'),
     path('progress/<uuid:token>/', combat_logs.request_progress, name='combat_request_progress'),
     path('wcl/', combat_wcl.home, name='combat_wcl'),
+    path('wcl/sources/<int:pk>/pages/<int:page>/refresh/', combat_library.refresh_public_page, name='combat_refresh_public_page'),
     path('wcl/workspace/', combat_wcl.report, name='combat_wcl_workspace'),
     path('wcl/connect/', combat_wcl.connect, name='combat_wcl_connect'),
     path('wcl/callback/', combat_wcl.callback, name='combat_wcl_callback'),

@@ -1,11 +1,14 @@
+from datetime import timedelta
 from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles.testing import StaticLiveServerTestCase
 from django.test import TestCase
 from django.urls import reverse
-from botend.models import CombatPublicSource, CombatPublicRolePolicy, UserCharacterBinding
+from django.utils import timezone
+from botend.models import CombatPublicReportEntry, CombatPublicReportPage, CombatPublicSource, CombatPublicRolePolicy, UserCharacterBinding
 
 from botend.services import combat_wcl_catalog as catalog
 from botend.services import combat_wcl_account as wcl
@@ -19,6 +22,74 @@ def source(code, offset=0, difficulty=5, realm="死亡之翼"):
     return dict(code=code,title="The Venomous Abyss",zone={"id":48,"name":"The Venomous Abyss"},
                 startTime=1710000000000+offset,owner={"name":"记录者"},fights=fights,
                 masterData={"actors":[dict(id=i,name=f"角色{i}",server=realm) for i in range(1,6)]})
+
+
+class PublicDirectoryBrowserTests(StaticLiveServerTestCase):
+    def test_old_report_is_interactive_during_sync_and_selection_survives_updates(self):
+        from threading import Event
+        from playwright.sync_api import expect, sync_playwright
+        from botend.dashboard import combat_wcl
+        from botend.services import combat_public_list_cache as directory
+
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot"))
+        user = get_user_model().objects.create_user("公开目录交互")
+        self.client.force_login(user)
+        role = CombatPublicSource.objects.create(user=user, kind="character", region="cn", realm="死亡之翼", name="角色")
+        old = timezone.now() - timedelta(days=90)
+        def listing(code):
+            return {"data":[source(code * 16)], "has_more_pages":False}
+        directory.save(role, 1, listing("A"), started=old)
+        ready, release = Event(), Event()
+        next_code = "B"
+        def upstream(*args):
+            ready.set()
+            release.wait(15)
+            return listing(next_code)
+        def report(codes, binding):
+            rows = [source(code) for code in codes]
+            catalog.summarize(rows)
+            return rows
+        url = self.live_server_url + reverse("combat_logs") + f"?source={role.pk}"
+        with patch.object(combat_wcl,"public_listing",side_effect=upstream), patch.object(catalog,"fetch_reports",side_effect=report), sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge")
+            try:
+                page = browser.new_page()
+                page.context.add_cookies([{"url":self.live_server_url,"name":"sessionid","value":self.client.cookies["sessionid"].value}])
+                def choice(letter):
+                    return page.locator(f'input[type=checkbox][value="{letter * 16}"]')
+                page.goto(url)
+                expect(choice("A")).to_be_visible()
+                self.assertTrue(ready.wait(5))
+                page.locator(".library-row .row-title").click()
+                expect(page.locator(".fight-picker")).to_be_visible()
+                self.assertFalse(release.is_set())
+                release.set()
+                page.goto(url)
+                expect(choice("B")).to_be_visible(timeout=12000)
+                expect(page.get_by_role("button",name="刷新列表")).to_be_enabled()
+                choice("A").check()
+                next_code = "C"
+                ready.clear()
+                release.clear()
+                page.get_by_role("button",name="刷新列表").click()
+                self.assertTrue(ready.wait(5))
+                expect(choice("A")).to_be_checked()
+                release.set()
+                expect(page.get_by_role("button",name="查看更新")).to_be_visible()
+                expect(choice("C")).to_have_count(0)
+                page.get_by_role("button",name="查看更新").click()
+                expect(choice("C")).to_be_visible()
+                expect(choice("A")).to_be_checked()
+                expect(page.get_by_role("button",name="刷新列表")).to_be_enabled()
+                next_code = "D"
+                with patch.object(directory, "COALESCE", timedelta(0)):
+                    page.goto(url)
+                    expect(choice("D")).to_be_visible()
+                expect(choice("A")).to_be_visible()
+            finally:
+                release.set()
+                browser.close()
 
 
 class WclCatalogTests(TestCase):
@@ -69,6 +140,40 @@ class WclCatalogTests(TestCase):
         self.client.force_login(get_user_model().objects.create_user(username="其他用户"))
         self.assertNotContains(self.client.get(reverse("combat_logs")),self.a)
         self.assertEqual(self.client.get(reverse("combat_logs"),{"source":added.context["source"].pk}).status_code,404)
+
+    @patch.object(wcl, "read")
+    def test_saved_public_directory_survives_age_errors_and_remote_rotation(self, read):
+        from botend.services import combat_public_list_cache as directory
+        role = CombatPublicSource.objects.create(user=get_user_model().objects.get(username="开荒选场"),
+                    kind="character", name="角色", region="cn", realm="死亡之翼")
+        url = reverse("combat_logs")
+        refresh = reverse("combat_refresh_public_page", args=[role.pk, 1])
+        old = timezone.now() - timedelta(days=90)
+        directory.save(role, 1, {"data":[source(self.a)], "has_more_pages":False}, started=old)
+        page = self.client.get(url, {"source":role.pk}, HTTP_SEC_FETCH_DEST="document", HTTP_ACCEPT="text/html")
+        self.assertContains(page, self.a)
+        self.assertContains(page, refresh)
+        read.assert_not_called()
+        read.side_effect = wcl.WclError("连接失败")
+        self.assertEqual(self.client.post(refresh).status_code, 503)
+        self.assertContains(self.client.get(url), self.a)
+        read.side_effect = None
+        read.return_value = {"characterData":{"character":{"recentReports":{
+            "data":[source(self.b,2000)], "has_more_pages":False}}}}
+        self.assertEqual(self.client.post(refresh).status_code, 200)
+        current = self.client.get(url)
+        self.assertContains(current, self.a)
+        self.assertContains(current, self.b)
+        self.assertNotIn("fights", CombatPublicReportEntry.objects.get(code=self.b).labels)
+        self.client.post(refresh)
+        self.assertEqual(read.call_count, 2)
+        directory.save(role, 1, {"data":[], "has_more_pages":False}, started=old)
+        self.assertEqual(CombatPublicReportEntry.objects.count(), 2)
+        self.client.force_login(get_user_model().objects.create_user("无权刷新"))
+        self.assertEqual(self.client.post(refresh).status_code, 404)
+        role.delete()
+        self.assertFalse(CombatPublicReportEntry.objects.exists())
+        self.assertFalse(CombatPublicReportPage.objects.exists())
 
     @patch.object(wcl, "read")
     def test_bound_roles_and_manual_sources_share_quota(self, read):

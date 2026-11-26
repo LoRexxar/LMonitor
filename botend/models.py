@@ -40,6 +40,33 @@ class CombatPublicSource(models.Model):
                                                name="combat_unique_public_source")]
 
 
+class CombatPublicReportPage(models.Model):
+    source = models.ForeignKey(CombatPublicSource, on_delete=models.CASCADE)
+    page = models.PositiveIntegerField()
+    updated_at = models.DateTimeField(null=True)
+    refresh_started = models.DateTimeField(null=True)
+    has_more = models.BooleanField(default=False)
+    codes = models.JSONField(default=list)
+    revision = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["source", "page"], name="combat_public_page_unique")]
+
+
+class CombatPublicReportEntry(models.Model):
+    """公开报告的目录摘要；取消角色关联时随来源清除。"""
+    source = models.ForeignKey(CombatPublicSource, on_delete=models.CASCADE)
+    code = models.CharField(max_length=16)
+    page = models.PositiveIntegerField()
+    started_at = models.DateTimeField()
+    observed_at = models.DateTimeField()
+    labels = models.JSONField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["source", "code"], name="combat_public_entry_unique")]
+        indexes = [models.Index(fields=["source", "page", "-started_at", "code"], name="combat_public_entry_list")]
+
+
 class CombatPublicRolePolicy(models.Model):
     """公开角色名额，全站默认值及网站账号覆盖值。"""
     scope = models.CharField(max_length=32, primary_key=True)

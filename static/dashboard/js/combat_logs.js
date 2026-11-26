@@ -11,7 +11,90 @@
         selection.addEventListener('change', refresh);
         window.addEventListener('pageshow', refresh);
         refresh();
+        const sync = selection.querySelector('[data-sync-url]');
+        if (sync) bindPublicDirectory(sync);
         if (location.hash === '#saved-collections') document.getElementById('saved-collections').open = true;
+    }
+    function bindPublicDirectory(sync) {
+        const button = sync.querySelector('[name=refresh]');
+        const apply = sync.querySelector('[data-show-updates]');
+        const status = sync.querySelector('[data-sync-status]');
+        const form = sync.closest('form');
+        let interacted = false;
+        for (const event of ['pointerdown', 'keydown', 'input', 'change']) {
+            form.addEventListener(event, e => {if (!sync.contains(e.target)) interacted = true;});
+        }
+        const canReplace = () => !interacted && !form.querySelector(
+            '[data-log-choice]:checked, input[type=hidden][data-log-choice], .library-row:hover, .library-row:focus-within');
+        let pending, poll, deadline;
+
+        function stop() {
+            clearTimeout(poll);
+            clearTimeout(deadline);
+            pending?.abort();
+            pending = null;
+            button.disabled = false;
+        }
+        async function check(force = false) {
+            if (pending) return;
+            const request = new AbortController();
+            pending = request;
+            button.disabled = true;
+            status.textContent = '正在检查更新…';
+            deadline = setTimeout(() => {
+                stop();
+                status.textContent = '检查更新超时，仍可打开已保存的报告。';
+            }, 60000);
+            async function read(polling) {
+                try {
+                    const response = await fetch(sync.dataset.syncUrl, {
+                        method:'POST', credentials:'same-origin', signal:request.signal,
+                        headers:{'X-CSRFToken':document.querySelector('[name=csrfmiddlewaretoken]').value},
+                        body:new URLSearchParams(polling ? {poll:polling} : {force:force ? '1' : '0'})
+                    });
+                    if (!response.ok || !response.headers.get('Content-Type')?.includes('application/json')) throw Error();
+                    const data = await response.json();
+                    if (request.signal.aborted) return;
+                    if (data.pending) {
+                        poll = setTimeout(() => read(data.pending), 1800);
+                        return;
+                    }
+                    let changed = data.revision !== sync.dataset.revision;
+                    if (changed && canReplace()) {
+                        const url = new URL(location.href);
+                        url.searchParams.delete('refresh');
+                        url.searchParams.set('source', sync.dataset.source);
+                        const result = await fetch(url, {signal:request.signal, credentials:'same-origin', cache:'no-store'});
+                        if (!result.ok || result.redirected) throw Error();
+                        const next = new DOMParser().parseFromString(await result.text(), 'text/html');
+                        const nextRows = next.querySelector('[data-directory-rows]');
+                        const nextSync = next.querySelector('[data-sync-url]');
+                        if (request.signal.aborted) return;
+                        if (canReplace() && nextRows && nextSync?.dataset.revision === data.revision) {
+                            form.querySelector('[data-directory-rows]').replaceWith(nextRows);
+                            sync.dataset.revision = data.revision;
+                            changed = false;
+                        }
+                    }
+                    apply.hidden = !changed;
+                    status.textContent = changed ? '目录有更新，当前列表仍可使用。' : '已是最新';
+                    if (!changed) {
+                        const time = sync.querySelector('time');
+                        time.dateTime = data.updated;
+                        time.textContent = data.label;
+                    }
+                } catch {
+                    if (request.signal.aborted) return;
+                    status.textContent = '暂时无法更新，仍可打开已保存的报告。';
+                }
+                stop();
+            }
+            read(false);
+        }
+        button.addEventListener('click', event => {event.preventDefault(); check(true);});
+        window.addEventListener('pagehide', stop);
+        window.addEventListener('pageshow', event => {if (event.persisted) check();});
+        check(sync.hasAttribute('data-force'));
     }
     function showResumeLinks() {
         for (const link of document.querySelectorAll('a[data-resume-key]')) {

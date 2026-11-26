@@ -8,13 +8,13 @@ from urllib.parse import urlencode
 from django.utils import timezone as django_timezone
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import QueryDict
+from django.http import Http404, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from botend.dashboard import combat_wcl, combat_workbench
 from botend.dashboard.combat_logs import STATES, endpoint
-from botend.models import CombatPublicSource, WclUserBinding
+from botend.models import CombatPublicReportEntry, CombatPublicReportPage, CombatPublicSource, WclUserBinding
 from botend.services import combat_log_analysis as analysis
 from botend.services import combat_loading
 from botend.services import combat_public_list_cache as list_cache
@@ -22,7 +22,7 @@ from botend.services import combat_wcl_account as wcl, combat_wcl_catalog as cat
 
 
 SOURCE_KEYS = ("log", "also", "private_report")
-LIST_KEYS = ("source","q","kind","realm","region","name","channel","page","wpage")
+LIST_KEYS = ("source","q","kind","realm","region","name","channel","page","wpage","saved_page")
 
 
 def fields(params):
@@ -38,6 +38,29 @@ def back_directory(raw):
         return ""
     params = QueryDict(raw)
     return directory_url([(k,params[k]) for k in (*LIST_KEYS,"focus") if k in params] + fields(params))
+
+
+@endpoint("POST")
+def refresh_public_page(request, pk, page):
+    source = get_object_or_404(CombatPublicSource, user=request.user, pk=pk)
+    if not 1 <= page <= 100000:
+        raise Http404
+    states = CombatPublicReportPage.objects.filter(source=source, page=page)
+    started = None if request.POST.get("poll") else list_cache.claim(source, page, request.POST.get("force") == "1")
+    if started:
+        try:
+            identity = {k:getattr(source,k) for k in ("name","kind","realm","region")}
+            listing = combat_wcl.public_listing(request, {}, page, identity)
+            list_cache.save(source, page, listing, started=started, leased=True)
+        finally:
+            states.filter(refresh_started=started).update(refresh_started=None)
+    state = get_object_or_404(states)
+    if state.refresh_started and state.refresh_started > django_timezone.now() - list_cache.LEASE:
+        return JsonResponse({"pending":state.refresh_started.isoformat()}, status=202)
+    if not state.updated_at or request.POST.get("poll", "") > state.updated_at.isoformat():
+        return JsonResponse({"message":"目录尚未更新，请重新尝试。"}, status=503)
+    return JsonResponse({"revision":state.revision, "updated":state.updated_at.isoformat(),
+                         "label":django_timezone.localtime(state.updated_at).strftime("%m-%d %H:%M")})
 
 
 def library_page(request, lookup=None, *, private_binding=None):
@@ -100,39 +123,47 @@ def library_page(request, lookup=None, *, private_binding=None):
             ctx["error"] = "请先绑定有权限的 WCL 账号。"
         elif lookup:
             saved = list_cache.read(source, remote_page) if source else None
-            if saved and django_timezone.now() - saved[0] < list_cache.FRESH and not q.get("refresh"):
-                ctx["list_updated"], listing = saved
-            else:
+            refresh = q.get("refresh")
+            refresh_in_page = saved and refresh == "1" and request.headers.get("Sec-Fetch-Dest") == "document"
+            ctx["force_sync"] = bool(refresh_in_page)
+            if not saved or (refresh and not refresh_in_page):
                 with combat_loading.navigation(request, public_list=True, source=source) as waiting:
                     if waiting is not None:
                         return waiting
                     combat_loading.message("正在向 WCL 获取公开日志列表。")
+                    started = django_timezone.now()
                     try:
                         listing = combat_wcl.public_listing(request,ctx,remote_page,lookup)
                     except wcl.WclError as exc:
                         if not saved or exc.status != 503:
                             raise
-                        ctx["list_updated"], listing = saved
                         ctx["list_warning"] = "WCL 暂时无法更新，当前显示上次成功读取的列表。"
                     else:
                         if source and listing is not None:
-                            ctx["list_updated"] = list_cache.save(source, remote_page, listing)
-        if listing is not None:
-            public_rows = listing["data"]
-            catalog.summarize(public_rows)
-            for r in public_rows:
-                key = ("private_report" if private else "also",r["code"])
-                g = r["groups"][0] if len(r["groups"])==1 else None
-                title = (g["name"]+" · "+g["difficulty"]+("开荒" if g["wipes"] and not g["dungeon"] and r["attempts"]>1 else "")) if g else r["title_label"]
-                r["url"] = directory_url(carry+[key])
-                summary = "、".join(x["name"] for x in r["groups"][:3])
-                if ctx["query"] and ctx["query"].casefold() not in (title+summary+r["title"]).casefold():
-                    continue
-                rows.append(dict(field=key[0],value=key[1],title=title,date=r["date"],
-                                 source="WCL 私有渠道" if private else "WCL 公开",
-                                 owner=(r.get("owner") or {}).get("name"),detail=f"{r['attempts']} 场 · {summary}",
-                                 url=r["url"],selectable=True))
+                            list_cache.save(source, remote_page, listing, started=started)
+                            saved = list_cache.read(source, remote_page)
+        entries = []
+        if source and saved:
+            records = CombatPublicReportEntry.objects.filter(Q(page=remote_page) | Q(code__in=saved.codes),
+                                                             source=source).order_by("-started_at","code")
+            reset_page = q.get("filter") or len(q.getlist("wpage")) > 1
+            saved_page = Paginator(records, list_cache.PAGE_SIZE).get_page(1 if reset_page else q.get("saved_page",1))
+            entries = [(e.code,e.started_at,e.labels) for e in saved_page]
+            ctx.update(list_updated=saved.updated_at, list_revision=saved.revision, saved_page=saved_page,
+                       sync_url=reverse("combat_refresh_public_page",args=[source.pk,remote_page]), listed=True,
+                       remote_more=saved.has_more or CombatPublicReportPage.objects.filter(
+                           source=source, page__gt=remote_page, updated_at__isnull=False).exists())
+        elif listing is not None:
+            entries = list_cache.summaries(listing)
             ctx.update(remote_more=listing["has_more_pages"],listed=True)
+        for code, date, labels in entries:
+            key = ("private_report" if private else "also",code)
+            url = directory_url(carry+[key])
+            public_rows.append(dict(code=code,url=url))
+            if ctx["query"].casefold() not in (labels["title"]+labels["detail"]+labels["original"]).casefold():
+                continue
+            rows.append(dict(field=key[0],value=code,title=labels["title"],date=date,owner=labels["owner"],
+                             source="WCL 私有渠道" if private else "WCL 公开",detail=labels["detail"],url=url,selectable=True))
     except (ValueError,wcl.WclError) as exc:
         ctx["error"] = str(exc)
     visible_keys = set()
