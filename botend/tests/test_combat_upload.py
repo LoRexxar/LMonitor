@@ -334,6 +334,51 @@ class UploadBrowserTests(StaticLiveServerTestCase):
             thread.join(90)
             self.assertFalse(thread.is_alive())
 
+    def test_upload_unsettled_keys_after_exit_and_at_eof(self):
+        from playwright.sync_api import expect, sync_playwright
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot", COMBAT_LOG_COLD_ROOT=root/"cold"))
+        self.client.force_login(get_user_model().objects.create_user(username="未结算钥匙"))
+        events = [
+            ('01.9308', 'CHALLENGE_MODE_START,"副本甲",2660,503,12,[]'),
+            ('02.1208', 'COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5,PROJECT_ID,1'),
+            ('05.0108', 'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4'),
+            ('06.0208', 'ZONE_CHANGE,1,"OUTSIDE",0'),
+            ('07.0208', 'SPELL_CAST_SUCCESS,OUTSIDE'),
+            ('08.9308', 'CHALLENGE_MODE_START,"副本乙",2660,503,12,[]'),
+            ('09.0108', 'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4'),
+        ]
+        data = '\n'.join(f'10/26/2026 00:15:{sec}  {event}' for sec, event in events).encode()
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge")
+            try:
+                page = browser.new_page()
+                page.context.add_cookies([dict(name="sessionid", value=self.client.cookies["sessionid"].value,
+                                               url=self.live_server_url)])
+                page.goto(self.live_server_url+reverse("combat_upload"))
+                page.locator("#source-file").set_input_files(dict(name="两把钥匙.txt",mimeType="text/plain",buffer=data))
+                rows = page.locator("#scene-list label")
+                expect(rows).to_have_count(2)
+                expect(rows.nth(0)).to_contain_text("未结算（离开副本")
+                expect(rows.nth(1)).to_contain_text("未结算（文件结束")
+                page.locator("#send-log").click()
+                expect(page.locator("#upload-status")).to_contain_text("上传完成")
+            finally:
+                browser.close()
+        self.wait_for_indexes()
+        reports = list(CombatLogReport.objects.order_by("created_at"))
+        self.assertEqual(len(reports), 2)
+        for report, duration in zip(reports, (3080, 80)):
+            self.assertEqual(report.state, "ready", report.message)
+            fight, = report.summary["activity_index"]
+            self.assertEqual(fight["result"], "未结算")
+            self.assertEqual(fight["observed_end_ms"] - fight["start_ms"], duration)
+            self.assertNotIn(b"OUTSIDE", b"".join(archive.archived_chunks(report)))
+            page = self.client.get(reverse("combat_analysis", args=[report.pk]),
+                                   {"fight": fight["id"], "wave": "all", "metric": "casts"})
+            self.assertEqual(page.context["total"], 1)
+            self.assertEqual(page.context["rate"], round(1000/duration, 2))
+
     def test_public_role_admin_control_alignment(self):
         from playwright.sync_api import expect, sync_playwright
         from botend.models import CombatPublicRolePolicy

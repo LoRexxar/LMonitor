@@ -5,8 +5,11 @@ const csv = line => Array.from(line.matchAll(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g),
 const raids = new Set(['3','4','5','6','7','9','14','15','16','17','33','151','220']);
 const dungeons = new Set(['1','2','8','23','24','150']);
 function millis(stamp) {
-    const parts = stamp.match(/^(\d+)\/(\d+)(?:\/(\d+))? (\d+):(\d+):(\d+)\.(\d+)/);
-    return parts ? Date.UTC(Number(parts[3] || 2000),+parts[1]-1,+parts[2],+parts[4],+parts[5],+parts[6],+parts[7]) : NaN;
+    // 三位毫秒后可直接接正时区，如 .2308 等同于 .230+8。
+    const parts = stamp.match(/^(\d+)\/(\d+)(?:\/(\d+))? (\d+):(\d+):(\d+)\.(\d{3})(?:([+-]?)(\d{1,2})(?::(\d{2}))?)?$/);
+    if (!parts) return NaN;
+    const minutes = (parts[8] === '-' ? -1 : 1) * (Number(parts[9] || 0)*60 + Number(parts[10] || 0));
+    return Date.UTC(Number(parts[3] || 2000),+parts[1]-1,+parts[2],+parts[4],+parts[5],+parts[6],+parts[7]) - minutes*60000;
 }
 
 async function scan(file) {
@@ -23,8 +26,12 @@ async function scan(file) {
         current = null;
         opening = false;
     }
+    function finishPartial(end, boundary) {
+        if (current) current.boundary = boundary;
+        finish(end, current?.kind === '大秘境' ? '未结算' : '部分记录');
+    }
     function begin(kind, name, id, difficulty, stamp, map) {
-        finish(start, '结束标记缺失');
+        finishPartial(start, '下一场开始');
         current = {kind, name, id, difficulty, stamp, map, start, header, context: [], candidates: new Map(people)};
         opening = kind === '大秘境';
     }
@@ -58,7 +65,7 @@ async function scan(file) {
                 current.context = [];
                 current.candidates.clear();
             } else {
-                finish(start,'结束标记缺失');
+                finishPartial(start,'日志会话切换');
                 zone = null;
             }
             opening = false;
@@ -70,14 +77,14 @@ async function scan(file) {
         } else if (kind === 'CHALLENGE_MODE_END') {
             if (current?.kind === '大秘境' && current.id === fields[1]) finish(end,fields[2] === '1' ? '已完成' : '未完成');
         } else if (kind === 'ZONE_CHANGE') {
-            if (current && current.map && current.map !== fields[1]) finish(start,current.kind === '地下城' ? '离开副本' : '结束标记缺失');
+            if (current && current.map && current.map !== fields[1]) finishPartial(start,'离开副本');
             zone = {id:fields[1], difficulty:fields[3]};
             if (!current && header && dungeons.has(fields[3]) && fields[3] !== '8')
                 begin('地下城', fields[2], fields[1], fields[3], stamp, fields[1]);
         } else if (kind === 'ENCOUNTER_START') {
             if (current?.kind === '大秘境' || current?.kind === '地下城') {
                 if ((!fields[5] || fields[5] === current.map) && dungeons.has(fields[3])) return;
-                finish(start, '结束标记缺失');
+                finishPartial(start, '下一场开始');
             }
             if (raids.has(fields[3]) || dungeons.has(fields[3]))
                 begin(raids.has(fields[3]) ? '团本首领' : '地下城首领', fields[2], fields[1], fields[3], stamp, fields[5] || zone?.id);
@@ -98,7 +105,7 @@ async function scan(file) {
         postMessage({progress: Math.min(file.size,offset+bytes.length)});
     }
     if (start < file.size) line(file.size);
-    finish(file.size, '结束标记缺失');
+    finishPartial(file.size, '文件结束');
     for (const scene of scenes) {
         const [lo,hi] = scene.header;
         scene.ranges = [scene.header, ...scene.context.filter(r=>r[1]<=scene.start).sort((a,b)=>a[0]-b[0])];

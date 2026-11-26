@@ -201,11 +201,10 @@ def build_selection(sample, params, metric, wave):
     if stop is not None and stop <= start:
         raise ValueError("结束秒数必须大于开始秒数。")
     lo = sample.get("from_ms", origin + start * 1000)
-    hi = sample.get(
-        "to_ms", origin + stop * 1000 if stop is not None else sample["end_ms"]
-    )
-    if sample["end_ms"] is not None and hi is not None:
-        hi = min(hi, sample["end_ms"])
+    observed_end = sample["end_ms"] if sample["end_ms"] is not None else sample.get("observed_end_ms")
+    hi = sample.get("to_ms", origin + stop * 1000 if stop is not None else observed_end)
+    if observed_end is not None and hi is not None:
+        hi = min(hi, observed_end)
     clauses.append("f.ms>=?")
     binds.append(lo)
     if stop is not None or "to_ms" in sample:
@@ -268,7 +267,7 @@ def build_selection(sample, params, metric, wave):
         "heal": "f.amount",
         "overheal": "f.excess",
     }.get(metric, "1")
-    known = wave["known"] if wave else sample["end_ms"] is not None
+    known = wave["known"] if wave else observed_end is not None
     span = max(0, hi - lo) if hi is not None and known else None
     return joins + " WHERE " + " AND ".join(clauses), binds, value, span, lo, hi
 

@@ -28,7 +28,8 @@
             box.type = 'checkbox'; box.checked = !manual() || selections.has(i); box.disabled = busy || !manual();
             box.onchange = () => { if (box.checked) selections.add(i); else selections.delete(i); refresh(); };
             const desc = document.createElement('small');
-            desc.textContent = [scene.stamp, scene.result, size(scene.size)].filter(Boolean).join(' · ');
+            const result = scene.boundary ? scene.result+'（'+scene.boundary+'，可分析已记录时段）' : scene.result;
+            desc.textContent = [scene.stamp, result, size(scene.size)].filter(Boolean).join(' · ');
             const level = scene.difficulty ? (scene.kind==='大秘境' ? ' +' : ' · 难度 ')+scene.difficulty : '';
             row.append(box, document.createTextNode(scene.kind+' · '+scene.name+level), desc); list.append(row);
         });

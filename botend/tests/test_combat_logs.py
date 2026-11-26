@@ -10,7 +10,7 @@ from django.urls import reverse
 
 from botend.models import CombatLogReport
 from botend.services import combat_log_archive as archive
-from botend.services.combat_log_index import build_index, iter_lines
+from botend.services.combat_log_index import STAMP, build_index, iter_lines, timestamp
 
 
 def sample():
@@ -129,8 +129,26 @@ class CombatLogTests(TestCase):
         build_index(path, self.data.splitlines(keepends=True)[:10])
         with closing(sqlite3.connect(path)) as db:
             rows = db.execute("SELECT result,end_ms FROM fight ORDER BY id").fetchall()
-        self.assertEqual([row[0] for row in rows], ["终点缺失", "失败", "终点缺失"])
+        self.assertEqual([row[0] for row in rows], ["未结算", "失败", "终点缺失"])
         self.assertIsNone(rows[2][1])
+
+    def test_unsigned_offset_and_zone_exit_bound_an_unsettled_key(self):
+        stamp = b"10/26/2026 00:15:49.270"
+        clock = lambda suffix: timestamp(STAMP.fullmatch(stamp + suffix), 2000)
+        self.assertEqual(clock(b"8"), clock(b"+8"))
+        self.assertEqual(clock(b"05:30"), clock(b"+05:30"))
+        self.assertEqual(clock(b"-4") - clock(b"8"), 12 * 3600000)
+        raw = sample().replace(b".000-4", b".0008").splitlines(keepends=True)
+        start, damage = raw[2], raw[4]
+        subzone = b'9/30/2026 18:49:05.1008  ZONE_CHANGE,2660,"room",8\n'
+        exit_zone = subzone.replace(b'2660,"room",8', b'1,"outside",0')
+        result = build_index(":memory:", [raw[0], start, damage, subzone,
+                                           damage.replace(b":04.", b":05."), exit_zone, damage])
+        fight, = result["activity_index"]
+        self.assertEqual(result["bad"], 0)
+        self.assertEqual((fight["result"], fight["end_line"], fight["end_ms"], fight["official_ms"]),
+                         ("未结算", 5, None, None))
+        self.assertEqual(fight["observed_end_ms"] - fight["start_ms"], 3000)
 
     def test_invalid_text_can_retry_with_new_attempt(self):
         self.parts = [b"x"*len(chunk) for chunk in self.parts]

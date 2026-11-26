@@ -11,7 +11,7 @@ from botend.services import combat_log_facts as facts
 from botend.services import combat_replay_activity, combat_replay_state
 
 STAMP = re.compile(
-    rb"(\d{1,2})/(\d{1,2})(?:/(\d{4}))? (\d{1,2}):(\d{2}):(\d{2})\.(\d{3})(?:([+-])(\d{1,2})(?::(\d{2}))?)?"
+    rb"(\d{1,2})/(\d{1,2})(?:/(\d{4}))? (\d{1,2}):(\d{2}):(\d{2})\.(\d{3})(?:([+-]?)(\d{1,2})(?::(\d{2}))?)?"
 )
 MAX_LINE = 2 * 1024 * 1024
 PLAYER_EVENTS = {
@@ -170,6 +170,8 @@ class ActivityIndex:
 
     def close(self, kind, line, ms, result, official_ms=None):
         if kind == "钥匙" and kind in self.active:
+            if ms is None:
+                result = "未结算"
             self.close("首领", line, None, "终点缺失")
         current = self.active.pop(kind, None)
         if current:
@@ -220,6 +222,7 @@ def build_index(path, chunks):
         writer = facts.FactWriter(db)
         sessions = []
         supported = False
+        unreadable_header_time = False
         bad = events = last_line = 0
         year, last_month = 2000, 0
         for line, offset, length, raw, session_start in session_order(chunks):
@@ -233,6 +236,7 @@ def build_index(path, chunks):
             event_type = payload.partition(b",")[0].decode("ascii", "replace")
             if (
                 event_type not in BOUNDARIES
+                and event_type != "ZONE_CHANGE"
                 and event_type not in PLAYER_EVENTS
                 and event_type not in facts.POSITION_ONLY
                 and event_type not in facts.EXTRA
@@ -241,6 +245,8 @@ def build_index(path, chunks):
             try:
                 match = STAMP.fullmatch(stamp)
                 if not match:
+                    if event_type == "COMBAT_LOG_VERSION" and re.search(rb",PROJECT_ID,1(?:,|\s*$)", payload):
+                        unreadable_header_time = True
                     raise ValueError
                 month = int(match[1])
                 if last_month == 12 and month == 1:
@@ -248,6 +254,12 @@ def build_index(path, chunks):
                 last_month = month
                 ms = timestamp(match, year)
                 row = next(csv.reader([payload.decode("utf-8").rstrip("\r\n")]))
+                if event_type == "ZONE_CHANGE":
+                    key = fights.active.get("钥匙")
+                    if key and row[1] != key[1]:
+                        writer.boundary()
+                        fights.close("钥匙", line - 1, None, "未结算")
+                    continue
                 if supported and (event_type in combat_replay_state.AURA_ACTIONS or event_type == "UNIT_DIED"):
                     writer.auras.observe(writer, fights.session, row, line, ms)
                 if event_type in BOUNDARIES:
@@ -322,6 +334,8 @@ def build_index(path, chunks):
             ):
                 bad += 1
         if not any(s["retail"] for s in sessions):
+            if unreadable_header_time:
+                raise ValueError("已找到正式服版本头，但无法识别其时间戳格式。请保留归档以便重新解析。")
             raise ValueError(
                 "未找到正式服 COMBAT_LOG_VERSION 版本头，请上传游戏生成的完整文本。"
             )
@@ -348,6 +362,11 @@ def build_index(path, chunks):
         players = dict(db.execute("SELECT guid,name FROM actor WHERE family='Player'"))
         for activity in activity_index:
             axis = "keystone" if activity["kind"] == "钥匙" else "boss"
+            if activity["end_ms"] is None and activity["start_ms"] is not None:
+                activity["observed_end_ms"] = db.execute(
+                    f"SELECT MAX(ms) FROM fact WHERE {axis}=? AND line BETWEEN ? AND ?",
+                    (activity["id"], activity["start_line"], activity["end_line"]),
+                ).fetchone()[0]
             roster = [
                 r[0]
                 for r in db.execute(
@@ -373,7 +392,7 @@ def build_index(path, chunks):
             "state_revision": 1,
             "talent_revision": 1,
             "replay_damage_revision": combat_replay_activity.DAMAGE_REVISION,
-            "boundary_revision": 1,
+            "boundary_revision": 2,
             "unknown_amounts": writer.unknown,
             "activity_index": activity_index,
             "player_catalog": players,

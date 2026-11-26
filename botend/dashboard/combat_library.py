@@ -189,7 +189,8 @@ def local_groups(reports):
                                   difficulty=(f"大秘境 +{s['level']}" if s["kind"]=="钥匙" else
                                               f"{'副本首领' if s['parent'] else '团本首领'} · 难度 {s['level']}"),
                                   pulls=[],kills=0,wipes=0,source_label="上传日志"))
-        start,end = s["start_ms"],s["end_ms"]
+        start = s["start_ms"]
+        end = s["end_ms"] if s["end_ms"] is not None else s.get("observed_end_ms")
         date = datetime(1,1,1,tzinfo=timezone.utc)+timedelta(milliseconds=start-86400000) if start and start>=86400000 else None
         seconds = int((end-start)/1000) if start is not None and end is not None else None
         kill = s["result"] in ("已完成","击杀")
@@ -199,6 +200,7 @@ def local_groups(reports):
                                                              ("sample",str(s["report"].pk)),("fight",s["id"])])
         group["pulls"].append(dict(number=0,date=date,result=s["result"],file=s["report"].filename,
                                    elapsed=f"{seconds//60}:{seconds%60:02d}" if seconds is not None else "—",
+                                   observed_only=s["end_ms"] is None and seconds is not None,
                                    url=url,kill=kill,local=True))
         group["kills"] += int(kill)
         group["wipes"] += int(s["result"] in ("未完成","未击杀","灭团"))
@@ -210,6 +212,7 @@ def local_groups(reports):
         if not g["dungeon"] and (not g["dungeon_boss"] or len(g["pulls"]) > 1):
             g["review_url"] = base+urlencode(items+[("panel","boss")])
         g["pulls"].sort(key=lambda p:(p["date"] is None,p["date"]))
+        g["unsettled"] = sum(p["result"] == "未结算" for p in g["pulls"])
         for n,p in enumerate(g["pulls"],1):
             p["number"]=n
     return list(groups.values()), skipped

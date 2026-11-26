@@ -25,7 +25,7 @@
             <section class="picker-panel" data-group="{{ g.key }}"{% if g.key != active.key %} hidden{% endif %} aria-labelledby="title-{{ g.key }}">
                 <div class="picker-panel-head">
                     <div><small>{{ g.difficulty }}</small><h2 id="title-{{ g.key }}">{{ g.name }}</h2>
-                        <p>{{ g.pulls|length }} 场战斗<span>·</span>{{ g.kills }} {% if g.dungeon %}次完成{% else %}次击杀{% endif %}{% if g.wipes %}<span>·</span>{{ g.wipes }} {% if g.dungeon %}次未完成{% else %}次灭团{% endif %}{% endif %}</p>
+                        <p>{{ g.pulls|length }} 场战斗<span>·</span>{{ g.kills }} {% if g.dungeon %}次完成{% else %}次击杀{% endif %}{% if g.wipes %}<span>·</span>{{ g.wipes }} {% if g.dungeon %}次未完成{% else %}次灭团{% endif %}{% endif %}{% if g.unsettled %}<span>·</span>{{ g.unsettled }} 次未结算{% endif %}</p>
                     </div>
                     <div class="picker-review">{% if g.combined_url and g.pulls|length > 1 %}<a href="{{ g.combined_url }}">多场分析</a>{% endif %}
                     {% if g.players_url %}<a href="{{ g.players_url }}">角色对照</a>{% endif %}
@@ -42,7 +42,7 @@
                             <td><span class="picker-outcome{% if p.kill %} success{% endif %}">{% if p.result %}{{ p.result }}{% elif p.kill %}{% if g.dungeon %}完成{% else %}击杀{% endif %}{% elif p.kill == False %}{% if g.dungeon %}未完成{% else %}灭团{% endif %}{% else %}未知{% endif %}</span></td>
                             {% if not g.dungeon and not g.dungeon_boss %}<td>{% if p.lastPhase %}P{{ p.lastPhase }}{% else %}—{% endif %}</td>
                             <td>{% if p.bossPercentage != None %}{{ p.bossPercentage|floatformat:"-2" }}%{% else %}—{% endif %}</td>{% endif %}
-                            <td>{{ p.elapsed }}</td><td><a class="picker-action" href="{{ p.url }}" aria-label="进入第 {{ p.number }} 场单场分析">单场分析 <i class="nav-arrow"></i></a></td>
+                            <td>{{ p.elapsed }}{% if p.observed_only %}<small>已记录</small>{% endif %}</td><td><a class="picker-action" href="{{ p.url }}" aria-label="进入第 {{ p.number }} 场单场分析">单场分析 <i class="nav-arrow"></i></a></td>
                         </tr>
                         {% if p.views|length > 1 %}<tr class="picker-views"><td colspan="{% if g.dungeon or g.dungeon_boss %}5{% else %}7{% endif %}"><details><summary>{{ p.views|length }} 个记录视角</summary>{% for v in p.views %}<a href="{{ v.single_url }}">{% firstof v.source_title v.owner v.code %} · #{{ v.id }}</a>{% endfor %}</details></td></tr>{% endif %}
                     {% endfor %}</tbody>

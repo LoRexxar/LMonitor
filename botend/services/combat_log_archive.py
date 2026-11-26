@@ -454,6 +454,8 @@ def read_report(report, fight_id, death_line):
             FROM fight f ORDER BY id
         """)
         ]
+        observed = {entry["id"]: entry["observed_end_ms"] for entry in report.summary.get("activity_index", [])
+                    if entry.get("observed_end_ms") is not None}
         for fight in fights:
             fight["seconds"] = None
             fight["first_death_seconds"] = None
@@ -461,9 +463,12 @@ def read_report(report, fight_id, death_line):
                 fight["official_seconds"] = fight["official_ms"] / 1000
             if fight["end_ms"] is not None and fight["start_ms"] is not None:
                 fight["seconds"] = max(0, fight["end_ms"] - fight["start_ms"]) // 1000
+            elif fight["id"] in observed and fight["start_ms"] is not None:
+                fight["observed_seconds"] = max(0, observed[fight["id"]] - fight["start_ms"]) // 1000
             if fight["first_death"] is not None:
                 fight["first_death_seconds"] = (fight["first_death"] - fight["start_ms"]) / 1000
-        result = {"fights": fights}
+        result = {"fights": fights, "legacy_partial_key": report.summary.get("boundary_revision", 0) < 2
+                  and any(f["kind"] == "钥匙" and f["start_ms"] is not None and f["end_ms"] is None for f in fights)}
         if fight_id is None:
             return result
         fight = next((f for f in fights if f["id"] == fight_id), None)
