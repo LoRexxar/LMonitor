@@ -402,7 +402,8 @@ def collect(pk, attempt):
                     heartbeat = time.monotonic()
                 yield data
 
-        result = build_index(directory(report) / f"{attempt}.sqlite3", verified_chunks())
+        result = build_index(directory(report) / f"{attempt}.sqlite3", verified_chunks(),
+                             headers_first=bool(report.upload_key and report.upload_key.version == 8))
         with transaction.atomic():
             get_user_model().objects.select_for_update().get(pk=report.owner_id)
             if report.expires_at <= timezone.now():

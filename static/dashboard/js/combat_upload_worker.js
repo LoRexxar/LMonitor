@@ -12,9 +12,9 @@ function millis(stamp) {
     return Date.UTC(Number(parts[3] || 2000),+parts[1]-1,+parts[2],+parts[4],+parts[5],+parts[6],+parts[7]) - minutes*60000;
 }
 
-async function scan(file) {
+async function scan(file, legacy) {
     const decoder = new TextDecoder(), prefix = new Uint8Array(2048), scenes = [];
-    const people = new Map();
+    const people = new Map(), blockHashes = [];
     let start = 0, used = 0, header = null, current = null, zone = null, opening = false;
     function finish(end, result) {
         if (current && current.header && end > current.start) {
@@ -64,12 +64,16 @@ async function scan(file) {
                 current.header = header;
                 current.context = [];
                 current.candidates.clear();
+                // Opening roster rows preceding this delayed header belong to the new session.
+                for (const [guid, bounds] of people) {
+                    if (legacy || bounds[0] < current.start) people.delete(guid);
+                }
             } else {
                 finishPartial(start,'日志会话切换');
                 zone = null;
+                people.clear();
             }
             opening = false;
-            people.clear();
         } else if (kind === 'COMBATANT_INFO') {
             if (fields[1]?.startsWith('Player-')) people.set(fields[1],[start,end]);
         } else if (kind === 'CHALLENGE_MODE_START') {
@@ -94,6 +98,8 @@ async function scan(file) {
     }
     for (let offset = 0; offset < file.size; offset += blockSize) {
         const bytes = new Uint8Array(await file.slice(offset, offset+blockSize).arrayBuffer());
+        // Hash the already-read blocks; no second file pass or whole-file buffer.
+        if (crypto.subtle) blockHashes.push(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
         for (let pos = 0; pos < bytes.length;) {
             const nl = bytes.indexOf(10,pos), stop = nl < 0 ? bytes.length : nl;
             const n = Math.min(stop-pos, prefix.length-used);
@@ -117,6 +123,13 @@ async function scan(file) {
         delete scene.header;
         delete scene.context;
     }
-    postMessage({scenes});
+    let sourceHash;
+    if (crypto.subtle) {
+        const hashes = new Uint8Array(blockHashes.length * 32);
+        blockHashes.forEach((hash, i) => hashes.set(hash, i * 32));
+        const digest = await crypto.subtle.digest('SHA-256', hashes);
+        sourceHash = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+    }
+    postMessage({scenes, sourceHash, unterminated: start < file.size});
 }
-self.onmessage = ({data}) => scan(data).catch(() => postMessage({error:'无法读取日志，请重新选择文件。'}));
+self.onmessage = ({data}) => scan(data.file, data.legacy).catch(() => postMessage({error:'无法读取日志，请重新选择文件。'}));

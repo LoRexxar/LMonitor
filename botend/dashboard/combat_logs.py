@@ -115,6 +115,7 @@ def uploader(request):
         "policy": archive.policy_for(request.user),
         "resume": resume if resume and resume.upload_key else None,
         "legacy_resume": resume if resume and not resume.upload_key else None,
+        "max_report_bytes": getattr(settings, "COMBAT_LOG_MAX_BYTES", 2 * 1024**3),
         "max_source_bytes": getattr(settings, "COMBAT_LOG_MAX_SOURCE_BYTES", 2 * 1024**3),
         "count": CombatLogReport.objects.filter(owner=request.user, retire_after__isnull=True, expires_at__gt=timezone.now()).count(),
     })

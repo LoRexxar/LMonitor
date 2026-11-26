@@ -334,13 +334,35 @@ class UploadBrowserTests(StaticLiveServerTestCase):
             thread.join(90)
             self.assertFalse(thread.is_alive())
 
+    def test_grouped_yearless_pulls_keep_original_calendar(self):
+        header = b'12/31 23:59:58.000  COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5,PROJECT_ID,1\n'
+        roster = b'12/31 23:59:59.000  COMBATANT_INFO,Player-1,0,71,[]\n'
+        def pull(minute):
+            return (f'1/1 00:{minute}:00.000  ENCOUNTER_START,400,"Boss",16,20,900\n'
+                    f'1/1 00:{minute}:10.000  ENCOUNTER_END,400,"Boss",16,20,1\n').encode()
+        baseline = archive.build_index(':memory:', [header, roster, pull('01'), pull('02')])
+        grouped = archive.build_index(':memory:', [header, roster, pull('01'), header, roster, pull('02')], headers_first=True)
+        starts = lambda result: [fight['start_ms'] for fight in result['activity_index']]
+        self.assertEqual(len(starts(baseline)), 2)
+        self.assertEqual(starts(grouped), starts(baseline))
+
+        # The December roster first used by the January pull is new, not a replay.
+        november = header.replace(b'12/31', b'11/30')
+        first = pull('01').replace(b'1/1 ', b'11/30 ')
+        baseline = archive.build_index(':memory:', [november, first, roster, pull('02')])
+        grouped = archive.build_index(':memory:', [november, first, november, roster, pull('02')], headers_first=True)
+        self.assertEqual(starts(grouped), starts(baseline))
+
     def test_upload_unsettled_keys_after_exit_and_at_eof(self):
         from playwright.sync_api import expect, sync_playwright
         root = Path(self.enterContext(TemporaryDirectory()))
         self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot", COMBAT_LOG_COLD_ROOT=root/"cold"))
-        self.client.force_login(get_user_model().objects.create_user(username="未结算钥匙"))
+        owner = get_user_model().objects.create_user(username="未结算钥匙")
+        CombatLogPolicy.objects.create(scope=str(owner.pk), max_reports=1)
+        self.client.force_login(owner)
         events = [
             ('01.9308', 'CHALLENGE_MODE_START,"副本甲",2660,503,12,[]'),
+            ('02.0008', 'COMBATANT_INFO,Player-1,0,71,[]'),
             ('02.1208', 'COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5,PROJECT_ID,1'),
             ('05.0108', 'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4'),
             ('06.0208', 'ZONE_CHANGE,1,"OUTSIDE",0'),
@@ -372,19 +394,25 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 expect(rows.nth(0)).to_contain_text("未结算（离开副本")
                 expect(rows.nth(1)).to_contain_text("未结算（文件结束")
                 self.assertEqual(writes, [])
+                expect(page.locator("#send-log")).to_be_enabled()
                 page.locator("#send-log").click()
                 expect(page.locator("#upload-status")).to_contain_text("上传完成")
+                expect(page.locator("#uploaded a")).to_have_count(1)
             finally:
                 browser.close()
         self.wait_for_indexes()
-        reports = list(CombatLogReport.objects.order_by("created_at"))
-        self.assertEqual(len(reports), 2)
-        for report, duration in zip(reports, (3080, 80)):
-            self.assertEqual(report.state, "ready", report.message)
-            fight, = report.summary["activity_index"]
+        report = CombatLogReport.objects.get(owner=owner)
+        self.assertEqual(report.state, "ready", report.message)
+        self.assertNotIn(b"OUTSIDE", b"".join(archive.archived_chunks(report)))
+        fights = report.summary["activity_index"]
+        self.assertEqual([fight["name"] for fight in fights], ["副本甲", "副本乙"])
+        from contextlib import closing
+        import sqlite3
+        with closing(sqlite3.connect(archive.index_path(report))) as db:
+            self.assertEqual(db.execute('SELECT src_spec FROM fact WHERE kind="SPELL_CAST_SUCCESS" ORDER BY line').fetchall(), [(71,), (71,)])
+        for fight, duration in zip(fights, (3080, 80)):
             self.assertEqual(fight["result"], "未结算")
             self.assertEqual(fight["observed_end_ms"] - fight["start_ms"], duration)
-            self.assertNotIn(b"OUTSIDE", b"".join(archive.archived_chunks(report)))
             page = self.client.get(reverse("combat_analysis", args=[report.pk]),
                                    {"fight": fight["id"], "wave": "all", "metric": "casts"})
             self.assertEqual(page.context["total"], 1)
@@ -585,34 +613,88 @@ class UploadBrowserTests(StaticLiveServerTestCase):
         self.assertNotIn(b"The Blinding Vale", contents)
         self.assertIn(b"COMBATANT_INFO", contents)
 
+    def test_resume_legacy_single_scene(self):
+        from playwright.sync_api import expect, sync_playwright
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot", COMBAT_LOG_COLD_ROOT=root/"cold"))
+        self.enterContext(patch.object(archive, "PART_SIZE", 96))
+        owner = get_user_model().objects.create_user(username="旧场次续传")
+        self.client.force_login(owner)
+        raid = (b'9/30/2026 19:10:00.000-4  ENCOUNTER_START,400,"Raid boss",16,20,900\n'
+                b'9/30/2026 19:12:00.000-4  ENCOUNTER_END,400,"Raid boss",16,20,1')
+        source = sample() + b'\n' + raid
+        # 旧浏览器保存的单场文件名、原文（版本行 + 场次区间）和已上传的第一片。
+        payload = source.splitlines(keepends=True)[0] + raid
+        old, = archive.create_batch(owner, [("9-30-2026 19-10-00.000-4 Raid boss 团本首领 16.txt",
+                                            len(payload), uuid.uuid4())])
+        archive.put_part(owner, old.pk, 0, payload[:old.part_size])
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge")
+            try:
+                page = browser.new_page()
+                page.context.add_cookies([{"name": "sessionid", "value": self.client.cookies["sessionid"].value,
+                                           "url": self.live_server_url}])
+                page.goto(self.live_server_url + reverse("combat_upload") + f"?resume={old.pk}")
+                parts = []
+                page.on("request", lambda r: parts.append(urlsplit(r.url).path) if r.method == "PUT" else None)
+                page.locator("#source-file").set_input_files({"name": "whole.txt", "mimeType": "text/plain", "buffer": source})
+                rows = page.locator("#scene-list label")
+                expect(rows).to_have_count(1)
+                expect(rows).to_contain_text("Raid boss")
+                self.assertEqual(parts, [])
+                page.locator("#send-log").click()
+                expect(page.locator("#upload-status")).to_contain_text("上传完成")
+                self.assertEqual(parts, [reverse("combat_part", args=[old.pk, i]) for i in range(1, archive.part_count(old))])
+            finally:
+                browser.close()
+        self.wait_for_indexes()
+        report = CombatLogReport.objects.get()
+        self.assertEqual((report.pk, report.state), (old.pk, "ready"))
+        self.assertEqual(b"".join(archive.archived_chunks(report)), payload)
+        self.assertEqual([f["name"] for f in report.summary["activity_index"]], ["Raid boss"])
+
     def test_select_then_upload_all(self):
         from playwright.sync_api import expect, sync_playwright
         root = Path(self.enterContext(TemporaryDirectory()))
         self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot",COMBAT_LOG_COLD_ROOT=root/"cold"))
         self.enterContext(patch.object(archive,"PART_SIZE",96))
         owner = get_user_model().objects.create_user(username="上传验收")
+        CombatLogPolicy.objects.create(scope=str(owner.pk), max_reports=2)
         self.client.force_login(owner)
-        data = sample()+b'\n'+b'\n'.join([
+        source = root / "whole.txt"
+        source.write_bytes(sample()+b'\n'+b'\n'.join([
             b'9/30/2026 19:00:00.000-4  SPELL_CAST_SUCCESS,OUTDOOR_ENTRY',
+            b'9/30/2026 19:05:00.000-4  ENCOUNTER_START,401,"Skipped boss",16,20,900',
+            b'9/30/2026 19:06:00.000-4  SPELL_CAST_SUCCESS,EXCLUDED_SCENE_SENTINEL',
+            b'9/30/2026 19:07:00.000-4  ENCOUNTER_END,401,"Skipped boss",16,20,1',
             b'9/30/2026 19:10:00.000-4  ENCOUNTER_START,400,"Raid boss",16,20,900',
             b'9/30/2026 19:12:00.000-4  ENCOUNTER_END,400,"Raid boss",16,20,1',
-            b'9/30/2026 19:20:00.000-4  SPELL_CAST_SUCCESS,OUTDOOR_ENTRY'])
+            b'9/30/2026 19:20:00.000-4  SPELL_CAST_SUCCESS,OUTDOOR_ENTRY']))
         with ThreadPoolExecutor(max_workers=1) as checks, sync_playwright() as pw:
             browser = pw.chromium.launch(channel="msedge")
             try:
                 page=browser.new_context().new_page()
                 page.context.add_cookies([{"name":"sessionid","value":self.client.cookies["sessionid"].value,"url":self.live_server_url}])
                 page.goto(self.live_server_url+reverse("combat_upload"))
+                writes = []
+                def record_write(req):
+                    if req.method not in ("GET", "HEAD", "OPTIONS"):
+                        writes.append((req.method, urlsplit(req.url).path))
+                page.context.on("request", record_write)
                 page.get_by_label("手动选择", exact=False).check()
-                page.locator("#source-file").set_input_files(dict(name="whole.txt",mimeType="text/plain",buffer=data))
-                expect(page.locator("#scene-list input")).to_have_count(2)
+                page.locator("#source-file").set_input_files(source)
+                rows = page.locator("#scene-list label")
+                expect(rows).to_have_count(3)
+                rows.filter(has_text="测试, 地城").locator("input").check()
+                rows.filter(has_text="Raid boss").locator("input").check()
+                self.assertEqual(writes, [])
                 self.assertFalse(checks.submit(CombatLogReport.objects.exists).result())
-                page.locator("#scene-list label").filter(has_text="Raid boss").locator("input").check()
-                # 上传一片后模拟网络中断，重新提交同一场不多占份数。
+                # 上传一片后模拟网络中断；两个场次共用同一笔续传记录。
                 page.route("**/parts/1/",lambda route:route.abort())
                 page.locator("#send-log").click()
                 expect(page.locator("#send-log")).to_be_enabled()
-                self.assertEqual(checks.submit(lambda: CombatLogReport.objects.get().parts.count()).result(),1)
+                interrupted = checks.submit(CombatLogReport.objects.get).result()
+                self.assertEqual(checks.submit(interrupted.parts.count).result(), 1)
                 page.unroute("**/parts/1/")
                 def pause_before_manifest(route):
                     page.locator("#stop-log").click()
@@ -621,36 +703,53 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 page.locator("#send-log").click()
                 expect(page.locator("#upload-status")).to_contain_text("上传已暂停")
                 paused = checks.submit(CombatLogReport.objects.get).result()
+                self.assertEqual(paused.pk, interrupted.pk)
                 self.assertEqual((paused.state, paused.reserved_bytes), ("paused", paused.part_size))
                 resume = page.context.new_page()
                 resume.goto(self.live_server_url + reverse("combat_upload") + f"?resume={paused.pk}")
-                resumed_parts = []
-                resume.on("request", lambda r: resumed_parts.append(urlsplit(r.url).path) if r.method == "PUT" else None)
-                resume.locator("#source-file").set_input_files(dict(name="whole.txt", mimeType="text/plain", buffer=data))
-                expect(resume.locator("#scene-list label")).to_have_count(1)
-                expect(resume.locator("#scene-list")).to_contain_text("Raid boss")
-                self.assertEqual(resumed_parts, [])
+                writes.clear()
+                resume.locator("#source-file").set_input_files(source)
+                restored = resume.locator("#scene-list label").filter(has=resume.locator("input:checked"))
+                expect(restored).to_have_count(2)
+                expect(restored.nth(0)).to_contain_text("测试, 地城")
+                expect(restored.nth(1)).to_contain_text("Raid boss")
+                expect(resume.locator("#send-log")).to_be_enabled()
+                self.assertEqual(writes, [])
                 resume.locator("#send-log").click()
                 expect(resume.locator("#upload-status")).to_contain_text("上传完成")
-                self.assertEqual(resumed_parts, [reverse("combat_part", args=[paused.pk, i])
-                                                 for i in range(1, archive.part_count(paused))])
+                self.assertEqual([path for method, path in writes if method == "PUT"],
+                                 [reverse("combat_part", args=[paused.pk, i]) for i in range(1, archive.part_count(paused))])
+                self.wait_for_indexes()
+                report = checks.submit(CombatLogReport.objects.get).result()
+                self.assertEqual((report.pk, report.state), (paused.pk, "ready"))
+                content = checks.submit(lambda: b"".join(archive.archived_chunks(report))).result()
+                self.assertIn(b'Raid boss', content)
+                self.assertIn(b'CHALLENGE_MODE_START', content)
+                self.assertNotIn(b'EXCLUDED_SCENE_SENTINEL', content)
+                self.assertNotIn(b'OUTDOOR_ENTRY', content)
+                link = resume.locator("#uploaded a")
+                expect(link).to_have_count(1)
+                self.assertEqual(urlsplit(link.get_attribute("href")).path, reverse("combat_report", args=[report.pk]))
+                link.click()
+                fights = resume.locator("tbody a[href*='fight=']")
+                expect(fights).to_have_count(4)  # 钥匙、两次内嵌首领、所选团本首领。
+                for name in ("测试, 地城", "Raid boss"):
+                    expect(resume.get_by_role("link", name=name, exact=True)).to_be_visible()
+                expect(resume.get_by_role("link", name="Skipped boss", exact=True)).to_have_count(0)
                 resume.close()
-                self.wait_for_indexes()
-                report=checks.submit(CombatLogReport.objects.get).result()
-                self.assertEqual(report.state,"ready")
-                content=checks.submit(lambda:b"".join(archive.archived_chunks(report))).result()
-                self.assertIn(b'Raid boss',content)
-                self.assertNotIn(b'OUTDOOR_ENTRY',content)
-                self.assertNotIn(b'CHALLENGE_MODE_START',content)
-                page.get_by_label("全部副本场次",exact=False).check()
+
+                page.get_by_label("全部副本场次", exact=False).check()
                 page.locator("#send-log").click()
-                expect(page.locator("#uploaded a")).to_have_count(2)
+                expect(page.locator("#upload-status")).to_contain_text("上传完成")
+                expect(page.locator("#uploaded a")).to_have_count(1)
                 self.wait_for_indexes()
-                self.assertEqual(checks.submit(lambda: CombatLogReport.objects.filter(state="ready").count()).result(),2)
-                key=checks.submit(lambda: CombatLogReport.objects.exclude(pk=report.pk).get()).result()
-                self.assertEqual(len(key.summary["activity_index"]),3)
-                content=checks.submit(lambda:b"".join(archive.archived_chunks(key))).result()
-                self.assertNotIn(b'OUTDOOR_ENTRY',content)
-                self.assertNotIn(b'Raid boss',content)
+                other = checks.submit(lambda: CombatLogReport.objects.exclude(pk=report.pk).get()).result()
+                self.assertEqual(other.state, "ready", other.message)
+                self.assertEqual(checks.submit(lambda: CombatLogReport.objects.filter(state="ready").count()).result(), 2)
+                self.assertCountEqual([f["name"] for f in other.summary["activity_index"]],
+                                      ["测试, 地城", "首领", "首领", "Skipped boss", "Raid boss"])
+                content = checks.submit(lambda: b"".join(archive.archived_chunks(other))).result()
+                self.assertIn(b'EXCLUDED_SCENE_SENTINEL', content)
+                self.assertNotIn(b'OUTDOOR_ENTRY', content)
             finally:
                 browser.close()
