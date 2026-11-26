@@ -63,6 +63,8 @@ html:has(.combat-page), .combat-page { scroll-padding-top:var(--combat-header-he
 .combat-page .portal-header button { font:inherit; cursor:pointer; }
 .combat-shell { --content-width:min(1440px, calc(100% - clamp(24px, 5vw, 64px))); background:var(--page); color:var(--ink); min-height:calc(100vh - 4rem); }
 @scope (.combat-shell) {
+.combat-location { width:var(--content-width); margin-inline:auto; padding-block:12px 0; }
+.combat-location [aria-current] { min-width:0; overflow-wrap:anywhere; }
 .analysis-scope {
     width:var(--content-width); margin:auto; display:flex; align-items:center; justify-content:space-between;
     gap:10px 24px; padding-block:10px; flex-wrap:wrap; border-bottom:1px solid var(--line); font-size:14px;

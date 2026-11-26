@@ -25,7 +25,15 @@
 <body class="portal-bg combat-page">
     {% include 'portal/_header.html' with combat_section=True %}
     <div class="combat-shell">
-        {% include 'dashboard/combat_appbar.html' %}
+        <div id="combat-navigation">
+            {% block breadcrumb %}
+            <nav class="combat-location crumb" aria-label="当前位置">
+                {% url 'combat_logs' as library_home %}<a href="{% firstof listing_url library_url library_home %}">日志库</a>
+                {% block trail %}{% endblock %}
+            </nav>
+            {% endblock %}
+            {% include 'dashboard/combat_appbar.html' %}
+        </div>
         {% block content %}{% endblock %}
         <div id="combat-pending" data-root="{% url 'combat_logs' %}" hidden><strong role="status"></strong><small data-elapsed></small></div>
     </div>

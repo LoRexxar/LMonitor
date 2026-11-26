@@ -159,8 +159,8 @@
                 location.assign(url);
                 return;
             }
-            const scope = doc.querySelector('.analysis-scope');
-            if (scope) document.querySelector('.analysis-scope')?.replaceWith(scope);
+            const navigation = doc.getElementById('combat-navigation');
+            if (navigation) document.getElementById('combat-navigation').replaceWith(navigation);
             previous.replaceWith(next);
             enhance();
             const strip = next.querySelector('.attempt-strip');

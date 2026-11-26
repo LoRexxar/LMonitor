@@ -1,8 +1,9 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}角色对照 · 日志分析{% endblock %}
-{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=targets2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_comparison.css' %}?v=delta1">{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=targets2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav"><link rel="stylesheet" href="{% static 'dashboard/css/combat_comparison.css' %}?v=delta1">{% endblock %}
+{% block trail %}{% if target_group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ change_target }}">选择副本或首领</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">角色对照</span>{% endblock %}
 {% block content %}
-<header class="page-head"><div class="wrap"><nav class="crumb" aria-label="当前位置"><a href="{% url 'combat_logs' %}">日志库</a>{% if target_group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ change_target }}">更换副本或首领</a>{% endif %}</nav>
+<header class="page-head"><div class="wrap">
 <h1>{% if fight %}{{ fight.name }}{% if fight.kind == "钥匙" %} +{{ fight.level }}{% endif %}{% else %}选择副本或首领{% endif %}</h1>{% if fight %}<p>{{ target_label }}</p>{% endif %}</div></header>
 <main class="wrap duel">
 {% if not target_group %}<section><h2>可对照的战斗</h2>

@@ -178,6 +178,7 @@ class CombatWorkbenchTests(TestCase):
         self.assertTrue(any("spell_fire_fireball.jpg" in item["icon"] for item in choices.json()["items"]))
 
     def test_selected_logs_drive_battles_replay_and_character_comparison(self):
+        from bs4 import BeautifulSoup
         from urllib.parse import urlsplit
         from django.http import QueryDict
 
@@ -186,6 +187,8 @@ class CombatWorkbenchTests(TestCase):
         logs = [str(second.pk), str(self.report.pk)]
         workspace = reverse("combat_workspace")
         library = reverse("combat_logs")
+        library_shell = BeautifulSoup(self.client.get(library).content, "html.parser").select_one(".combat-shell")
+        self.assertFalse(library_shell.select('.crumb, a[href="/"]'))
         home = self.client.get(library, {"log": logs, "analyze": "battle"}, follow=True)
         self.assertEqual(home.request["PATH_INFO"], reverse("combat_battles"))
         self.assertEqual(len(home.context["groups"][0]["pulls"]), 2)
@@ -206,6 +209,11 @@ class CombatWorkbenchTests(TestCase):
         report, fight = detail.context["report"], detail.context["selected"]["id"]
         replay = self.client.get(reverse("combat_replay", args=[report.pk, fight]),
                                  {"back": detail.context["replay_back"]})
+        shell = BeautifulSoup(replay.content, "html.parser").select_one(".combat-shell")
+        self.assertFalse(shell.select('main .crumb, a[href="/"]'))
+        trail = shell.select_one('#combat-navigation > nav[aria-label="当前位置"]')
+        self.assertEqual([a["href"] for a in trail.select("a")],
+                         [library, detail.context["directory_url"], replay.context["analysis_url"]])
         self.assertEqual(self.client.get(replay.context["analysis_url"]).context["selected"]["id"], fight)
         compare = self.client.get(replay.context["players_url"])
         self.assertEqual(compare.context["pairing"], "same")

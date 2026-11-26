@@ -1,9 +1,9 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{{ loading_title }}{% endblock %}
-{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_wait.css' %}">{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav"><link rel="stylesheet" href="{% static 'dashboard/css/combat_library.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_wait.css' %}">{% endblock %}
+{% block trail %}{% if directory_url %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url }}">战斗目录</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{{ loading_title }}</span>{% endblock %}
 {% block content %}
 <main class="wrap log-library combat-wait" {% if not loading_error %}data-wait-page data-continue="{{ continue_url }}" data-progress="{{ progress_url }}" data-root="{% url 'combat_logs' %}"{% endif %}>
-    <nav class="crumb" aria-label="当前位置"><a href="{% url 'combat_logs' %}">日志分析</a><i class="crumb-separator" aria-hidden="true"></i>{% if directory_url %}<a href="{{ directory_url }}">战斗目录</a><i class="crumb-separator" aria-hidden="true"></i>{% endif %}<span aria-current="page">{{ loading_title }}</span></nav>
     <header class="source-heading"><h1>{{ loading_title }}</h1>{% if loading_scope %}<span class="wait-scope">{{ loading_scope }}</span>{% endif %}</header>
     <section class="wait-panel" data-state="{% if loading_error %}error{% else %}loading{% endif %}">
         <div class="wait-content">

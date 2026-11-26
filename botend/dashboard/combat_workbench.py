@@ -1110,6 +1110,7 @@ def replay(request, pk, fight):
         else:
             analysis_url = reverse("combat_analysis", args=[report.pk]) + "?" + previous.urlencode()
     state = QueryDict(analysis_url.partition("?")[2], mutable=True)
+    restore_directory(scope, state)
     scope["battle_url"] = analysis_url
     link_players(scope, state)
     return render(request, "dashboard/combat_replay.html", {

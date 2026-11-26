@@ -1,8 +1,9 @@
 {% extends 'dashboard/combat_base.html' %}{% load static l10n %}
 {% block title %}上传日志 · 日志分析{% endblock %}
-{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_upload.css' %}"><script defer src="{% static 'dashboard/js/combat_upload.js' %}?v=partial2"></script>{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav"><link rel="stylesheet" href="{% static 'dashboard/css/combat_upload.css' %}"><script defer src="{% static 'dashboard/js/combat_upload.js' %}?v=partial2"></script>{% endblock %}
+{% block trail %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">上传日志</span>{% endblock %}
 {% block content %}
-<header class="page-head"><div class="wrap"><nav class="crumb"><a href="{% url 'combat_logs' %}">日志库</a><i class="crumb-separator" aria-hidden="true"></i>上传</nav><h1>上传日志</h1><p>先在本机识别战斗，确认场次后开始上传。</p></div></header>
+<header class="page-head"><div class="wrap"><h1>上传日志</h1><p>先在本机识别战斗，确认场次后开始上传。</p></div></header>
 <main class="wrap upload-page" id="importer" data-create="{% url 'combat_upload' %}" data-worker="{% static 'dashboard/js/combat_upload_worker.js' %}?v=partial2" data-user="{{ user.pk }}" data-limit="{{ policy.max_reports }}" data-max-source-bytes="{{ max_source_bytes|unlocalize }}" {% if resume %}data-resume="{% url 'combat_report' resume.pk %}" data-name="{{ resume.filename }}" data-key="{{ resume.upload_key|default:'' }}" data-size="{{ resume.size }}"{% endif %}>
 {% csrf_token %}
 {% if legacy_resume %}<p>「{{ legacy_resume.filename }}」是旧版整文件上传记录。请重新选择本地文件，按场次上传。如需释放旧记录的名额，可在<a href="{% url 'combat_report' legacy_resume.pk %}">原上传记录</a>中移除。</p>{% endif %}

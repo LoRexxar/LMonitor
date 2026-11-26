@@ -41,7 +41,7 @@ def page_key(request):
              request.user.is_staff, request.META["CSRF_COOKIE"], request.build_absolute_uri(request.path),
              get_language(), request.headers.get("X-Combat-View", ""),
              sorted((k, v) for k, v in params.lists() if k not in ("_clwait", "refresh")))
-    return "analysis-page:v2:" + hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+    return "analysis-page:v3:" + hashlib.sha256(json.dumps(parts).encode()).hexdigest()
 
 
 def scope(request, *, quick=False):
