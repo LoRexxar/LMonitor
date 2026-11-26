@@ -5,6 +5,7 @@ from fractions import Fraction
 from urllib.parse import urlencode
 
 from botend.services import combat_log_analysis as analysis
+from botend.services import combat_log_visuals as visuals
 
 METRICS = {"damage": "每秒伤害（DPS）", "heal": "每秒有效治疗（HPS）"}
 
@@ -183,6 +184,7 @@ def comparison(sources, groups, sides, metric, cohort, detail):
             "compare_error": "没有同一副本或首领且条件一致的两场记录。请检查难度、战斗结果和所选角色。"
         }
     skills = {}
+    source_icons = {}
     bars = []
     detail_amounts, detail_rates = [], []
     longest = max(w["span"] for w in winners)
@@ -198,6 +200,9 @@ def comparison(sources, groups, sides, metric, cohort, detail):
         base = sample["url"] + "&" + urlencode(params)
         factor = 60000 if detail in COUNT_METRICS else 1000
         with analysis.database(sample["report"]) as db:
+            actor = visuals.participants(db, sample["report"], sample).get(side["guid"], {})
+            winner.update(visuals.identity(actor.get("specs", ()), actor.get("class_name")))
+            source_icons.update(visuals.report_icons(db, sample["report"]))
             detail_total = 0
             for spell, name, total, hits, known in db.execute(
                 f"SELECT f.spell,a.name,SUM({value}),COUNT(*),COUNT({value})"
@@ -242,6 +247,7 @@ def comparison(sources, groups, sides, metric, cohort, detail):
                 dict(metric=metric, source=side["guid"], pets="owner", group="ability")
             ),
         )
+    visuals.decorate_spells(skills.values(), "spell", source_icons)
     for row in skills.values():
         rates = [s["rate"] if s else 0 for s in row["sides"]]
         row["diff"] = rates[1] - rates[0] if None not in rates else None

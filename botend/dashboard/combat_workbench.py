@@ -22,6 +22,7 @@ from botend.services import combat_log_actor, combat_log_mechanics, combat_log_d
 from botend.services import combat_log_benchmark, combat_public_events
 from botend.services import combat_wcl_index
 from botend.services import combat_log_analysis as analysis
+from botend.services import combat_log_visuals as visuals
 from botend.services import combat_boss_comparison as boss_compare
 from botend.services import combat_log_archive as archive
 from botend.services import combat_log_reviews as reviews
@@ -315,6 +316,20 @@ def report_navigation(params, activities, selected, ctx):
     return included
 
 
+def single_fight_url(sample, ctx, params):
+    fields = list(ctx.get("scope_fields", ()))
+    if fields:
+        path = reverse("combat_workspace")
+        fields.append(("sample", str(sample["report"].pk)))
+    else:
+        path = reverse("combat_analysis", args=[sample["report"].pk])
+    fields.append(("fight", sample["id"]))
+    for key in ("back_catalog", "origin", "duel", "metric"):
+        if params.get(key):
+            fields.append((key, params[key]))
+    return path + "?" + urlencode(fields)
+
+
 def restore_directory(ctx, params):
     if params.get("back_catalog"):
         from botend.dashboard.combat_library import back_directory
@@ -379,6 +394,7 @@ def render_analysis(request, reports, ctx, selected=None):
         chosen = []
         for sample in samples:
             key = f"{sample['report'].pk}.{sample['start_line']}"
+            sample["url"] = single_fight_url(sample, ctx, params)
             choices.append({"key": key, "sample": sample, "checked": key in wanted})
             if key in wanted:
                 chosen.append(sample)
@@ -397,7 +413,12 @@ def render_analysis(request, reports, ctx, selected=None):
         ctx["players_url"] += "&" + urlencode(comparison_scope)
     if ("book" in ctx or ctx.get("multi_scope")) and not cohort:
         ctx["overview"], ctx["excluded"] = analysis.overview(samples)
+        by_cohort = {}
+        for sample in samples:
+            sample["url"] = single_fight_url(sample, ctx, params)
+            by_cohort.setdefault(sample["cohort"], []).append(sample)
         for entry in ctx["overview"]:
+            entry["fights"] = by_cohort[entry["cohort"]]
             entry["label"] = cohorts[entry["cohort"]]
         if ctx.get("multi_scope") and ctx.get("scope_fields"):
             for entry in ctx["overview"]:
@@ -425,6 +446,8 @@ def render_analysis(request, reports, ctx, selected=None):
                 raise ValueError("请先选择同一首领的战斗。")
             ctx["data_url"] = boss_compare.link(params, panel="table", at=None, base=None, behavior=None,
                                                 batch=None, bracket=None)
+            for sample in samples:
+                sample["url"] = single_fight_url(sample, ctx, params)
             ctx.update(boss_compare.comparison(samples, params))
             return render(request, "dashboard/combat_boss_comparison.html", ctx)
         if panel not in ("table", "pivot", "events", "review", "pick"):
@@ -438,6 +461,11 @@ def render_analysis(request, reports, ctx, selected=None):
             params = params.copy()
             params["wave"] = str(ctx["active_wave"]["id"])
         ctx["replay_back"] = params.urlencode()
+        actor_links = {}
+        for player in ctx["players"]:
+            url = reverse("combat_actor", args=[ctx["report"].pk, selected, player["guid"]])
+            player["actor_url"] = url + "?" + urlencode({"back": ctx["replay_back"]})
+            actor_links[player["guid"]] = player["actor_url"]
         ctx["panel"] = panel
 
         def link(**changes):
@@ -559,8 +587,9 @@ def render_analysis(request, reports, ctx, selected=None):
         if page * 40 < count:
             ctx["next_groups"] = link(page=page + 1, term=term)
         if panel == "pick" and request.headers.get("X-Combat-View") == "choices":
+            visuals.decorate(ctx)
             return JsonResponse({
-                "items": [{"id": r["ident"], "name": r["name"], "hits": r["hits"]} for r in ctx["rows"]],
+                "items": [{"id": r["ident"], "name": r["name"], "hits": r["hits"], "icon": r.get("icon", ""), "icon_id": r.get("icon_id"), "icon_label": r.get("icon_label", "")} for r in ctx["rows"]],
                 "count": count, "previous": ctx.get("previous_groups"), "next": ctx.get("next_groups"),
             })
         headers = ctx["headers"]
@@ -568,6 +597,7 @@ def render_analysis(request, reports, ctx, selected=None):
             1, min(analysis.nonnegative(params, "colpage", 1), (len(headers) + 7) // 8)
         )
         ctx["headers"] = headers[(colpage - 1) * 8 : colpage * 8]
+        visuals.decorate(ctx)
         if colpage > 1:
             ctx["prev_cols"] = link(colpage=colpage - 1, page=page, term=term)
         if colpage * 8 < len(headers):
@@ -579,6 +609,8 @@ def render_analysis(request, reports, ctx, selected=None):
             )
         for item in ctx["rows"]:
             ident = str(item["ident"])
+            if axis in ("source", "target"):
+                item["actor_url"] = actor_links.get(ident)
             if ident not in series and len(series) < 4:
                 item["plot_url"] = link(
                     series=[*series, ident], seriesgroup=axis, page=page, term=term
@@ -640,20 +672,7 @@ def render_analysis(request, reports, ctx, selected=None):
                 )
                 preceding[item["cohort"]] = rate
                 continue
-            q = params.copy()
-            for k in ("cohort", "after", "wave", "file", "rule", "attempt"):
-                q.pop(k, None)
-            q["fight"] = item["id"]
-            if ctx.get("multi_scope") or ctx.get("book"):
-                q["sample"] = str(item["report"].pk)
-                q.setlist("log", [str(r.pk) for r in ctx["scope_logs"]])
-                item["url"] = reverse("combat_workspace") + "?" + q.urlencode()
-                continue
-            item["url"] = (
-                reverse("combat_analysis", args=[item["report"].pk])
-                + "?"
-                + q.urlencode()
-            )
+            item["url"] = single_fight_url(item, ctx, params)
         if ctx["waves"]:
             ctx["wave_fields"] = [(k,v) for k,v in ctx["hidden_query"]
                                   if k not in ("wave","start","end","anchor","occurrence","before","beyond")]
@@ -1115,6 +1134,19 @@ def actor_view(request, pk, fight, guid):
         )
     except LookupError:
         raise Http404
+    back = QueryDict(request.GET.get("back", ""), mutable=True)
+    back["fight"] = str(fight)
+    route = reverse("combat_analysis", args=[pk])
+    if back.getlist("log"):
+        if report.pk not in {r.pk for r in selected_reports(request.user, back)}:
+            raise Http404
+        back["sample"] = str(report.pk)
+        route = reverse("combat_workspace")
+    context["analysis_url"] = route + "?" + back.urlencode()
+    restore_directory(context, back)
+    if hasattr(report, "wcl_source") and not context.get("directory_url"):
+        from botend.dashboard.combat_wcl import source_directory
+        context["directory_url"] = source_directory(report)
     return render(
         request,
         "dashboard/combat_workbench.html",

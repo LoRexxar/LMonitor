@@ -7,7 +7,7 @@ from collections import defaultdict
 from django.db.models import Q
 
 from botend.journal_models import JournalEncounter, JournalState
-from botend.models import MythicDungeonEnemy, WowSpellSnapshot, WowTalentNodeMetadata
+from botend.models import MythicDungeonEnemy, MythicDungeonSpell, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
 from botend.services.combat_log_facts import DAMAGE, pull_catalog
 from botend.services.wow_skill_report_metadata import _tooltip_icon
@@ -89,6 +89,12 @@ def cast_icons(db, fight, bosses):
     source, params = _cast_spell_query(fight, bosses)
     ids = {int(s) for s, in db.execute("SELECT DISTINCT f.spell "+source, params)
            if s and len(s) <= 10 and s.isascii() and s.isdecimal() and 0 < int(s) <= 2147483647}
+    return spell_icons(ids)
+
+
+def spell_icons(spell_ids):
+    """批量查找当前页实际出现的技能，沿用回放的图标资源。"""
+    ids = {localization.number(s) for s in spell_ids} - {0}
     result = {}
     def add(sid, icon):
         if sid in result or not icon:
@@ -101,13 +107,23 @@ def cast_icons(db, fight, bosses):
     for sid, icon in WowSpellSnapshot.objects.filter(branch="wow",spell_id__in=ids).exclude(icon="").order_by(
             "-updated_at","pk").values_list("spell_id","icon"):
         add(sid, icon)
+    for sid, icon in WowTalentNodeMetadata.all_objects.filter(
+            reference_id__in=ids-result.keys(), localization_only=True, name_kind="spell",
+            talent_version__branch="retail"
+    ).exclude(icon="").order_by("-last_updated", "pk").values_list("reference_id","icon"):
+        add(sid, icon)
     missing = ids-result.keys()
     for sid, display, icon in WowTalentNodeMetadata.objects.filter(
             Q(display_spell_id__in=missing) | Q(spell_id__in=missing), talent_version__branch="retail"
     ).exclude(icon="").order_by("-talent_version__is_active","-talent_version_id","pk").values_list(
             "spell_id","display_spell_id","icon"):
-        if (display or sid) in missing:
-            add(display or sid, icon)
+        for key in (display, sid):
+            if key in missing:
+                add(key, icon)
+    for sid, icon, url in MythicDungeonSpell.objects.filter(
+            spell_id__in=ids-result.keys(), is_active=True, data_version__is_active=True
+    ).values_list("spell_id", "icon_name", "icon_url"):
+        add(sid, icon or url)
     return result
 
 

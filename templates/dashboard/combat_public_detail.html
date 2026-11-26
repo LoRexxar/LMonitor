@@ -17,7 +17,7 @@
     {% if detail == 'damage' %}<p>技能伤害包含整场记录的有效伤害。下方的榜单 DPS 直接取自 WCL 排名，两者的统计范围可能不同。</p>{% elif detail == 'heal' %}<p>有效治疗统计直接与周期治疗，护盾吸收单独结算，此处不计入。</p>{% endif %}
     {% if scale == 'rate' %}<div class="match-foot">{{ rate_label }}　A {{ detail_rate.left }}　 B {{ detail_rate.right }}　{% if not local.seconds %}本地场次缺少结束时间。{% endif %}标杆事件覆盖 {{ event_seconds|floatformat:"-2" }} 秒。</div>{% endif %}
     <div class="table-wrap"><table><thead><tr><th>技能</th><th>A · {{ local.name }}</th><th>B · {{ reference.name }}</th><th>差距</th></tr></thead>
-    <tbody>{% for row in public_rows %}<tr><th scope="row">{{ row.name }}{% if row.spell.isdecimal %}<small class="unit-id">{{ row.spell }}</small>{% endif %}</th>
+    <tbody>{% for row in public_rows %}<tr><th scope="row">{% include 'dashboard/combat_entity_icon.html' with spell=row.icon_id icon=row.icon label=row.icon_label only %}{{ row.name }}{% if row.spell.isdecimal %}<small class="unit-id">{{ row.spell }}</small>{% endif %}</th>
         <td class="lane-a">{{ row.delta.left }}{% if scale == 'share' and row.delta.left != '—' %}%{% endif %}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.0|stringformat:'f' }}%"></i></div></td>
         <td class="lane-b">{{ row.delta.right }}{% if scale == 'share' and row.delta.right != '—' %}%{% endif %}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.1|stringformat:'f' }}%"></i></div></td>
         <td>{% if scale == 'share' and row.delta.side %}<span class="comparison-gap" data-side="{{ row.delta.side }}"><b>{{ row.delta.side }} 高出 {{ row.delta.amount }} 个百分点</b></span>{% else %}{% include 'dashboard/combat_gap.html' with d=row.delta only %}{% endif %}</td>
@@ -25,7 +25,7 @@
 </section>
 {% if mechanisms %}<section class="match-details"><h2>{% if detail == 'interrupts' %}打断了哪些读条{% else %}驱散了哪些效果{% endif %}</h2>
     <div class="table-wrap"><table><thead><tr><th>机制</th><th>A · {{ local.name }}</th><th>B · {{ reference.name }}</th><th>次数差距</th></tr></thead>
-    <tbody>{% for row in mechanisms %}<tr><th scope="row">{{ row.name }}{% if row.spell.isdecimal %}<small class="unit-id">{{ row.spell }}</small>{% endif %}</th>
+    <tbody>{% for row in mechanisms %}<tr><th scope="row">{% include 'dashboard/combat_entity_icon.html' with spell=row.icon_id icon=row.icon label=row.icon_label only %}{{ row.name }}{% if row.spell.isdecimal %}<small class="unit-id">{{ row.spell }}</small>{% endif %}</th>
     <td>{{ row.delta.left }}</td><td>{{ row.delta.right }}</td><td>{% include 'dashboard/combat_gap.html' with d=row.delta only %}</td></tr>{% endfor %}</tbody></table></div>
 </section>{% endif %}
 {% else %}

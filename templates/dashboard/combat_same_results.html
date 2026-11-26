@@ -3,7 +3,7 @@
         {% include 'dashboard/combat_gap.html' with d=total_contrast a=results.0.name b=results.1.name only %}
     </div><p>相对差以较低值为基准</p></div>
     <div class="match-pair">{% for side in results %}<div class="match-side lane-{% cycle 'a' 'b' %}">
-        <div class="match-person"><span class="match-letter">{% cycle 'A' 'B' %}</span><strong>{{ side.name }}</strong></div>
+        <div class="match-person"><span class="match-letter">{% cycle 'A' 'B' %}</span><strong>{% include 'dashboard/combat_entity_icon.html' with icon=side.icon label=side.icon_label only %}{{ side.name }}</strong></div>
         <div class="match-number">{{ side.amount|floatformat:"0g"|default:"—" }}</div>
         <div class="match-track" aria-hidden="true"><i style="width:{% if forloop.first %}{{ total_contrast.widths.0|stringformat:'f' }}{% else %}{{ total_contrast.widths.1|stringformat:'f' }}{% endif %}%"></i></div>
         <small>{{ rate_label }}　{{ side.rate|floatformat:"2g"|default:"—" }}</small>
@@ -21,7 +21,7 @@
     {% if measure_links %}<nav class="duel-tabs compare-measure" aria-label="明细统计口径"><span>统计量</span>{% for key,label,url in measure_links %}<a href="{{ url }}"{% if key == measure %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</nav>{% endif %}
     <p>{% if breakdown == 'time' %}每 30 秒汇总，按开战时间列出有记录的时段。{% else %}按双方差值从大到小排列。{% endif %}</p>
     <div class="table-wrap"><table><thead><tr><th>{{ dimension_label }}</th><th>A · {{ results.0.name }}</th><th>B · {{ results.1.name }}</th><th>差距</th></tr></thead><tbody>
-    {% for row in skills %}<tr><th scope="row">{{ row.name }}{% if row.identifier %}<small class="unit-id">{{ row.identifier }}</small>{% endif %}</th><td class="lane-a">{{ row.delta.left }}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.0|stringformat:'f' }}%"></i></div></td>
+    {% for row in skills %}<tr><th scope="row">{% include 'dashboard/combat_entity_icon.html' with spell=row.icon_id icon=row.icon label=row.icon_label only %}{{ row.name }}{% if row.identifier %}<small class="unit-id">{{ row.identifier }}</small>{% endif %}</th><td class="lane-a">{{ row.delta.left }}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.0|stringformat:'f' }}%"></i></div></td>
     <td class="lane-b">{{ row.delta.right }}<div class="match-track" aria-hidden="true"><i style="width:{{ row.delta.widths.1|stringformat:'f' }}%"></i></div></td><td>{% include 'dashboard/combat_gap.html' with d=row.delta only %}</td></tr>
     {% empty %}<tr><td colspan="4">两名角色均无该指标的记录。</td></tr>{% endfor %}</tbody></table></div>
 </section>

@@ -46,6 +46,29 @@ class WclSingleTests(TestCase):
     def hit(ms, amount):
         return dict(type="damage",fight=12,timestamp=ms,sourceID=1,targetID=2,abilityGameID=5,amount=amount)
 
+    def test_wcl_combatant_build_and_source_icons(self):
+        upstream = self.upstream
+
+        def with_metadata(binding, query, variables):
+            payload = upstream(binding, query, variables)
+            if query == index.META:
+                payload["masterData"]["abilities"][0]["icon"] = "spell_arcane_blast.jpg"
+                payload["masterData"]["actors"][0]["subType"] = "Mage"
+            if query == index.EVENTS and variables["start"] == 1000:
+                payload["events"]["data"].insert(0, dict(type="combatantinfo", timestamp=1000,
+                    fight=12, sourceID=1, specID=63, talentTree=[dict(id=801, rank=2, nodeID=701, spellID=5)]))
+            return payload
+
+        with patch.object(index, "read", side_effect=with_metadata):
+            page = self.client.get(self.url, follow=True)
+            player = page.context["players"][0]
+            self.assertEqual(player["icon_label"], "法师 · 火焰")
+            actor = self.client.get(player["actor_url"])
+            self.assertContains(actor, "spell_arcane_blast.jpg")
+            self.assertEqual(actor.context["builds"][0]["items"][0]["rank"], 2)
+            skill = self.client.get(page.request["PATH_INFO"], dict(fight=12, group="ability"))
+            self.assertContains(skill, "spell_arcane_blast.jpg")
+
     def test_native_wave_metrics_and_evidence(self):
         page = self.client.get(self.url,follow=True)
         self.assertTemplateUsed(page,"dashboard/combat_explorer.html")

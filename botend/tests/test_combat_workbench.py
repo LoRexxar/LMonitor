@@ -152,6 +152,31 @@ class CombatWorkbenchTests(TestCase):
             self.assertEqual(self.client.get(url, {"chunk":0}, **fetch).json(), chunk.json())
             self.assertEqual(read.call_count, 2)
 
+    def test_observed_talent_spec_and_spell_icons_reach_workbench(self):
+        version = WowTalentVersion.objects.create(key="visual-retail", branch="retail")
+        WowTalentNodeMetadata.objects.create(talent_version=version, class_name="Mage", spec_name="Fire",
+            talent_id=701, node_id=801, name_zh="实测天赋", icon="spell_fire_flamebolt")
+        WowSpellSnapshot.objects.create(branch="wow", locale="zhCN", spell_id=11, icon="spell_fire_fireball")
+        lines = fixture(2).splitlines(keepends=True)
+        info = b"9/2/2026 18:00:01.500+8  COMBATANT_INFO,Player-1,0,63,[(701,801,2)],[(999,998,1)]\r\n"
+        lines.insert(2, info)
+        r = self.ingest(self.owner, 2, b"".join(lines))
+        sample = next(s for s in analysis.catalog([r])[0] if s["kind"] == "钥匙")
+        path = reverse("combat_analysis", args=[r.pk])
+        query = {"fight": sample["id"], "wave": "all"}
+        page = self.client.get(path, query)
+        row = next(a for a in page.context["rows"] if a["ident"] == "Player-1")
+        self.assertEqual(row["icon_label"], "法师 · 火焰")
+        actor = self.client.get(row["actor_url"])
+        self.assertContains(actor, "实测天赋")
+        self.assertContains(actor, "spell_fire_flamebolt.jpg")
+        self.assertEqual([(t["entry"], t["rank"]) for t in actor.context["builds"][0]["items"]], [(801, 2)])
+        self.assertEqual(self.client.get(actor.context["analysis_url"]).context["selected"]["id"], sample["id"])
+        self.assertContains(self.client.get(path, dict(query, group="ability")), "spell_fire_fireball.jpg")
+        self.assertContains(self.client.get(path, dict(query, panel="events")), "spell_fire_fireball.jpg")
+        choices = self.client.get(path, dict(query, panel="pick", group="ability"), HTTP_X_COMBAT_VIEW="choices")
+        self.assertTrue(any("spell_fire_fireball.jpg" in item["icon"] for item in choices.json()["items"]))
+
     def test_selected_logs_drive_battles_replay_and_character_comparison(self):
         from urllib.parse import urlsplit
         from django.http import QueryDict
@@ -167,6 +192,13 @@ class CombatWorkbenchTests(TestCase):
         self.assertFalse(CombatLogCollection.objects.exists())
         overview = self.client.get(home.context["groups"][0]["combined_url"])
         self.assertEqual(len(overview.context["comparisons"]), 2)
+        self.assertContains(overview, 'class="attempt-table" open')
+        for pull in overview.context["comparisons"]:
+            detail = self.client.get(pull["url"])
+            self.assertEqual((detail.context["report"].pk, detail.context["selected"]["id"]),
+                             (pull["report"].pk, pull["id"]))
+            self.assertURLEqual(detail.context["directory_url"], home.context["groups"][0]["focus_url"])
+            self.assertEqual(QueryDict(urlsplit(detail.context["directory_url"]).query).getlist("log"), logs)
         group_compare = self.client.get(overview.context["players_url"])
         self.assertEqual(group_compare.context["target_group"], overview.context["cohort"])
         detail = self.client.get(overview.context["comparisons"][0]["url"])

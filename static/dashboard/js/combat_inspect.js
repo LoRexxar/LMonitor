@@ -71,6 +71,21 @@
                 link.href = target;
                 link.dataset.applied = filterAxis;
                 link.textContent = row.name;
+                if (row.icon) {
+                    const image = document.createElement('img');
+                    image.className = 'combat-entity-icon';
+                    image.src = row.icon;
+                    image.alt = row.icon_label || '';
+                    image.title = image.alt;
+                    image.loading = 'lazy';
+                    image.width = image.height = 22;
+                    link.prepend(image);
+                } else if (row.icon_id) {
+                    const icon = document.createElement('combat-spell-icon');
+                    icon.dataset.spell = row.icon_id;
+                    icon.setAttribute('aria-hidden', 'true');
+                    link.prepend(icon);
+                }
                 const hint = document.createElement('small');
                 hint.textContent = row.id + ' · ' + row.hits + ' 条事件';
                 link.append(hint);

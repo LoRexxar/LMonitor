@@ -45,7 +45,7 @@
 .fight-picker .picker-table tr > :last-child { padding-right: 1.35rem; text-align: end; color: var(--secondary); }
 .fight-picker .picker-table tr:last-child > * { border-bottom: 0; }
 .picker-table a { font-family: var(--num); font-weight: 650; }
-.picker-table a::after { content: ""; position: absolute; inset: 0; }
+.picker-table th a::after { content: ""; position: absolute; inset: 0; }
 .picker-table time { white-space: nowrap; }
 .picker-table time small { display: inline; margin-right: .4rem; }
 .picker-outcome { color: var(--secondary); }
@@ -73,3 +73,7 @@
     .fight-picker .picker-table tr > :last-child { padding-right: .55rem; }
     .picker-table time small { display: block; font-size: .7rem; }
 }
+
+.picker-table .picker-action { position: relative; white-space: nowrap; }
+.fight-picker .picker-views td { text-align: start; }
+.picker-views details a { display: inline-block; margin: .35rem 1rem .2rem 0; }

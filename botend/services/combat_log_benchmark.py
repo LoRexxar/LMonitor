@@ -9,25 +9,14 @@ from django.db.models import Q
 from botend.constants.wow import DUNGEON_CN, RAID_BOSS_CN, SPEC_IDENTITY_MAP
 from botend.models import MythicDungeon, SeasonMeta, SpecDungeonRanking, SpecRaidRanking
 from botend.services import combat_log_analysis as analysis
+from botend.services import combat_log_visuals as visuals
 from botend.services import combat_log_duel as duel
 from botend.services import combat_log_localization as localization
 
 
 def participants(sample):
-    axis = "keystone" if sample["kind"] == "钥匙" else "boss"
     with analysis.database(sample["report"]) as db:
-        rows = db.execute(f"""
-            SELECT a.guid,a.name,p.spec FROM (
-                SELECT src AS actor,src_spec AS spec FROM fact WHERE {axis}=?
-                UNION SELECT dst,dst_spec FROM fact WHERE {axis}=?
-            ) p JOIN actor a ON a.id=p.actor WHERE a.family='Player' ORDER BY a.name,a.guid
-        """, (sample["id"], sample["id"]))
-        actors = {}
-        for guid, name, spec in rows:
-            actor = actors.setdefault(guid, {"guid": guid, "name": name, "specs": set()})
-            if spec in SPEC_IDENTITY_MAP:
-                actor["specs"].add(spec)
-    return actors
+        return visuals.participants(db, sample["report"], sample)
 
 
 def performance(sample, actor, metric):
@@ -92,6 +81,7 @@ def public_comparison(sample, actor, public, detail, scale):
         elif scale == "rate":
             values = [rate(v, s) for v, s in zip(values, seconds)]
         rows.append(dict(name=name, spell=spell, delta=duel.contrast(*values)))
+    visuals.decorate_spells(rows, "spell")
     rows.sort(key=lambda r: (r["delta"]["gap"] is None, -(r["delta"]["gap"] or 0), r["name"], r["spell"]))
     return dict(public_matrix={k: duel.contrast(*v) for k, v in totals.items()}, public_rows=rows, mechanisms=mechanisms,
                 event_seconds=public["seconds"], detail_rate=duel.contrast(*map(rate, totals[detail], seconds)))
@@ -133,9 +123,11 @@ def pair_performance(sample, actors, metric, breakdown, measure):
                     row = details.setdefault(ident, dict(id=ident, name=label, values=[0, 0], hits=[0, 0]))
                     row["values"][i], row["hits"][i] = verified, hits
             matrix[key] = dict(values=totals, delta=duel.contrast(*totals))
+        if breakdown == "ability":
+            visuals.decorate_spells(details.values(), "id", visuals.report_icons(db, sample["report"]))
     selected = matrix[metric]["values"]
     factor = 60 if metric in duel.COUNT_METRICS else 1
-    sides = [dict(name=a["name"], seconds=seconds, amount=v,
+    sides = [dict(name=a["name"], **visuals.identity(a["specs"], a.get("class_name")), seconds=seconds, amount=v,
                   rate=v * factor / seconds if seconds and v is not None else None)
              for a, v in zip(actors, selected)]
     label_counts = Counter(row["name"] for row in details.values())

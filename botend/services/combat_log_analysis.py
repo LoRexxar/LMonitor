@@ -9,6 +9,7 @@ from botend.services.combat_log_archive import index_path
 from botend.services.combat_log_facts import DAMAGE, HEAL, VERSION, pull_catalog
 from botend.services import combat_log_localization as localization
 from botend.services.combat_log_index import event_label
+from botend.services import combat_log_visuals as visuals
 
 
 def database(report):
@@ -307,6 +308,8 @@ def run(samples, params, *, single=False, first_wave=False):
     unknown = total = duration = 0
     duration_known = True
     events, waves, mechanisms, players = [], [], [], []
+    actor_specs = defaultdict(set)
+    actor_classes, report_icons = {}, {}
     wave = None
     after = nonnegative(params, "after", 0)
     anchor = nonnegative(params, "anchor")
@@ -421,23 +424,22 @@ def run(samples, params, *, single=False, first_wave=False):
                     else None,
                 )
             )
-            if single:
-                players = [
-                    dict(r)
-                    for r in db.execute(
-                        "SELECT guid,name FROM actor WHERE family='Player' "
-                        f"AND id IN (SELECT src FROM fact WHERE {axis}=? UNION SELECT dst FROM fact WHERE {axis}=?) "
-                        "ORDER BY name",
-                        (sample["id"], sample["id"]),
-                    )
-                ]
+            report_icons.update(visuals.report_icons(db, report))
+            if single or group in ("source", "target") or (panel == "pivot" and cross in ("source", "target")) or panel == "events":
+                roster = visuals.participants(db, report, sample)
+                for guid, actor in roster.items():
+                    actor_specs[guid].update(actor["specs"])
+                    if actor.get("class_name"):
+                        actor_classes[guid] = actor["class_name"]
+                if single:
+                    players = [dict(actor, **visuals.identity(actor["specs"], actor.get("class_name"))) for actor in roster.values()]
             if (
                 (panel == "events" or single)
                 and len(events) < 51
                 and event_skip < matched_hits + hits
             ):
                 for r in db.execute(
-                    f"SELECT f.line,f.ms,f.kind,s.name source,t.name target,a.name spell,{value} value "
+                    f"SELECT f.line,f.ms,f.kind,s.name source,t.name target,a.name spell,f.spell spell_id,s.guid source_guid,t.guid target_guid,f.src_spec source_spec,f.dst_spec target_spec,{value} value "
                     + sql
                     + " AND f.line>? ORDER BY f.line LIMIT ? OFFSET ?",
                     [*args, after, 51 - len(events), max(0, event_skip - matched_hits)],
@@ -559,6 +561,7 @@ def run(samples, params, *, single=False, first_wave=False):
         waves=waves,
         active_wave=wave,
         players=players,
+        actor_specs=actor_specs, actor_classes=actor_classes, report_icons=report_icons,
         events=events[:50],
         next_line=events[49]["line"] if len(events) > 50 else None,
         excluded=skipped,

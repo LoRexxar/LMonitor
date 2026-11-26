@@ -1,6 +1,8 @@
 """正式服事件事实、敌方读条机会和钥匙内的交战波次。"""
 
+import json
 import math
+import re
 
 from botend.constants.wow import SPEC_ROLE, specialization_catalog
 from botend.services import combat_replay_state
@@ -87,6 +89,8 @@ CREATE TABLE fact(line INTEGER PRIMARY KEY, ms INTEGER, boss INTEGER, keystone I
 CREATE TABLE spec(id INTEGER PRIMARY KEY,label TEXT,role TEXT);
 CREATE TABLE wave(id INTEGER PRIMARY KEY, keystone INTEGER, first_line INTEGER, last_line INTEGER,
                   start_ms INTEGER, end_ms INTEGER);
+CREATE TABLE combatant_build(session INTEGER, guid TEXT, line INTEGER, spec INTEGER, entries TEXT,
+                             PRIMARY KEY(session,guid,line)) WITHOUT ROWID;
 CREATE TABLE opportunity(line INTEGER PRIMARY KEY, boss INTEGER, keystone INTEGER, wave INTEGER,
                          enemy INTEGER, spell TEXT, outcome TEXT, response_line INTEGER);
 CREATE TABLE sample(line INTEGER PRIMARY KEY, actor INTEGER, ms INTEGER, hp INTEGER, maximum INTEGER,
@@ -261,12 +265,24 @@ class FactWriter:
                 actor = src if row[start] == row[1] else dst
                 self.db.execute("INSERT INTO replay_hp VALUES (?,?,?,?,?)", (line, actor, ms, hp, maximum))
 
-    def write(self, row, line, ms, offset, length, active, session, *, measured=None):
+    def record_build(self, session, guid, line, spec, entries):
+        self.db.execute("INSERT OR REPLACE INTO combatant_build VALUES (?,?,?,?,?)",
+                        (session, guid, line, spec, json.dumps(entries, separators=(",", ":"))))
+
+    def write(self, row, line, ms, offset, length, active, session, *, measured=None, session_id=1):
         if row[0] == "COMBATANT_INFO":
             boundary = next((i for i, v in enumerate(row[3:], 3) if v.startswith(("(", "["))), None)
             if boundary and row[boundary - 1].isdigit():
                 ident = int(row[boundary - 1])
                 self.specs[row[1]] = ident if ident in self.known_specs else 0
+                # 正式服天赋是第一个列表，后面还有装备和光环等其他列表。
+                if row[boundary].startswith("[") and row[1].startswith("Player-"):
+                    stop = next((i for i in range(boundary, len(row)) if "]" in row[i]), None)
+                    if stop is not None:
+                        field = ",".join(row[boundary:stop+1]).partition("]")[0][1:]
+                        triples = re.findall(r"\((\d{1,10}),(\d{1,10}),(\d{1,3})\)", field)
+                        entries = [[int(entry), int(rank), int(node), 0] for node, entry, rank in triples if int(rank)]
+                        self.record_build(session_id, row[1], line, self.specs[row[1]], entries)
             return
         if len(row) < 9:
             return

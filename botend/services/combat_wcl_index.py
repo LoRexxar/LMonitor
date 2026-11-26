@@ -25,7 +25,7 @@ from botend.services import combat_log_index, combat_replay_activity, combat_rep
 META = """query($code:String!,$ids:[Int]!){reportData{report(code:$code){
     code title startTime zone{id name}
     fights(fightIDs:$ids){FIELDS friendlyPlayers dungeonPulls{id name startTime endTime encounterID kill}}
-    masterData{actors{id gameID name type petOwner} abilities{gameID name}}
+    masterData{actors{id gameID name type subType petOwner} abilities{gameID name icon}}
 }}}""".replace("FIELDS", wcl.FIGHT_FIELDS)
 EVENTS = """query($code:String!,$ids:[Int]!,$start:Float!,$end:Float!){reportData{report(code:$code){
     events(fightIDs:$ids,startTime:$start,endTime:$end,includeResources:true,limit:10000){data nextPageTimestamp}
@@ -115,6 +115,10 @@ def pull_windows(db, fight, base):
     db.execute("UPDATE opportunity SET (boss,wave)=(SELECT boss,wave FROM fact WHERE fact.line=opportunity.line)")
 
 
+def wcl_integer(value):
+    return value if type(value) is int and 0 < value < 2**32 else 0
+
+
 def build(db, raw, fight, stream):
     db.executescript(combat_log_index.SCHEMA)
     db.execute("CREATE TABLE wcl_event(line INTEGER PRIMARY KEY,payload BLOB)")
@@ -133,6 +137,12 @@ def build(db, raw, fight, stream):
             guid = f"{family}-0-0-0-0-{a.get('gameID') or 0}-{ident or 0}.{instance or 1}"
         return guid, a.get("name") or "未知单位"
 
+    db.execute("CREATE TABLE wcl_class(guid TEXT PRIMARY KEY, class_name TEXT)")
+    db.executemany("INSERT OR IGNORE INTO wcl_class VALUES (?,?)", (
+        (unit(a["id"])[0], a["subType"]) for a in actors.values() if a.get("type") == "Player" and a.get("subType")))
+    db.execute("CREATE TABLE wcl_icon(spell INTEGER PRIMARY KEY, icon TEXT)")
+    db.executemany("INSERT OR IGNORE INTO wcl_icon VALUES (?,?)", (
+        (s["gameID"], s["icon"]) for s in master["abilities"] if s.get("icon")))
     kind = "钥匙" if fight["dungeon"] else "首领"
     active = {kind:(fight["id"],)}
     session = {"advanced":False,"format":"WCL"}
@@ -142,6 +152,11 @@ def build(db, raw, fight, stream):
         src, source = unit(e.get("sourceID"),e.get("sourceInstance"))
         dst, target = unit(e.get("targetID"),e.get("targetInstance"))
         if typ == "combatantinfo":
+            if isinstance(e.get("talentTree"), list):
+                entries = [[t["id"], t["rank"], wcl_integer(t.get("nodeID")), wcl_integer(t.get("spellID"))] for t in e["talentTree"]
+                           if isinstance(t, dict) and type(t.get("id")) is int and 0 < t["id"] < 2**32
+                           and type(t.get("rank")) is int and 0 < t["rank"] < 256]
+                writer.record_build(1, src, last+1, e.get("specID") or 0, entries)
             if e.get("specID") in writer.known_specs:
                 writer.specs[src] = e["specID"]
             continue
@@ -202,8 +217,11 @@ def index_key(user, binding, code, fid):
 
 def current(path):
     try:
-        return path.stat().st_mtime > time.time() - TTL
-    except FileNotFoundError:
+        if path.stat().st_mtime <= time.time() - TTL:
+            return False
+        with closing(sqlite3.connect(path.as_uri()+"?mode=ro", uri=True)) as db:
+            return db.execute("PRAGMA user_version").fetchone()[0] == 2
+    except (FileNotFoundError, sqlite3.DatabaseError):
         return False
 
 
@@ -241,8 +259,9 @@ def write_index(user, binding, code, fid, path):
         with closing(sqlite3.connect(staging)) as db:
             build(db,raw,fight,events(binding,variables,fight))
             meta = dict(user=user.pk, account=binding.wcl_id if binding else None, code=code, fight=fid, focus=fight["key"],
-                        title=raw["title_label"], revision=str(uuid.uuid4()),
+                        title=raw["title_label"], talent_revision=1, revision=str(uuid.uuid4()),
                         replay_damage_revision=combat_replay_activity.DAMAGE_REVISION)
+            db.execute("PRAGMA user_version=2")
             db.execute("CREATE TABLE wcl_source(meta TEXT)")
             db.execute("INSERT INTO wcl_source VALUES (?)",(json.dumps(meta),))
             db.commit()
@@ -274,5 +293,5 @@ def resolve(user, key):
     return SimpleNamespace(pk=key, published=meta["revision"], filename=meta["title"], digest=str(key),
                            wcl_source=meta, wcl_index=path, owner_id=None,
                            summary={"index_version":facts.VERSION,"sessions":[{"build":"WCL","format":"WCL","advanced":False}],
-                                    "position_revision":3,"state_revision":1,
+                                    "position_revision":3,"state_revision":1,"talent_revision":meta.get("talent_revision"),
                                     "replay_damage_revision":meta.get("replay_damage_revision")})

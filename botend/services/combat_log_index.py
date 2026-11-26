@@ -254,7 +254,7 @@ def build_index(path, chunks):
                     writer.boundary()
                 elif supported and (fights.active or event_type == "COMBATANT_INFO"):
                     writer.write(
-                        row, line, ms, offset, length, fights.active, sessions[-1]
+                        row, line, ms, offset, length, fights.active, sessions[-1], session_id=fights.session
                     )
                 if event_type == "COMBAT_LOG_VERSION":
                     writer.auras.active.clear()
@@ -371,6 +371,7 @@ def build_index(path, chunks):
             "index_version": facts.VERSION,
             "position_revision": 3,
             "state_revision": 1,
+            "talent_revision": 1,
             "replay_damage_revision": combat_replay_activity.DAMAGE_REVISION,
             "boundary_revision": 1,
             "unknown_amounts": writer.unknown,

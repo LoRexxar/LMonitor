@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_boss.css' %}">
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_wcl_picker.css' %}">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_wcl_picker.css' %}?v=views2">
 {% endblock %}
 {% block content %}<main class="wrap boss-review"><nav class="crumb" aria-label="当前位置"><a href="{{ listing_url }}">选择日志</a><i class="crumb-separator" aria-hidden="true"></i><span>战斗目录</span></nav>
 {% if error %}<p role="alert">{{ error }} <a href="{{ request.get_full_path }}">重新读取战斗目录</a></p>{% else %}{% include 'dashboard/combat_wcl_picker.html' %}{% endif %}

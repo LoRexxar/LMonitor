@@ -373,6 +373,8 @@ def report(request, code=None):
             g["focus_url"] = directory(g["key"])
             for p in g["pulls"]:
                 p["url"] = single_url(p["code"],p["id"],private,origin,q.get("back_catalog"))
+                for view in p["views"]:
+                    view["single_url"] = single_url(view["code"],view["id"],private,origin,q.get("back_catalog"))
         ref = q.get("pull")
         if q.get("fight"):
             fid = q["fight"]

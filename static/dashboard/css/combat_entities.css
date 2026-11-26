@@ -1,0 +1,25 @@
+.combat-entity-icon {
+    display: inline-block;
+    inline-size: 1.375rem;
+    block-size: 1.375rem;
+    margin-inline-end: .45rem;
+    vertical-align: middle;
+    border-radius: .25rem;
+    object-fit: cover;
+}
+.combat-talents ul {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr));
+    gap: .35rem 1.2rem;
+    padding: 0;
+    list-style: none;
+}
+.combat-talents li { display: flex; align-items: center; min-height: 2rem; }
+.combat-talents li small { margin-inline-start: auto; padding-inline-start: .5rem; white-space: nowrap; }
+.ranked-list .build-link, .pivot-grid .build-link { display: block; width: fit-content; font-size: .78rem; margin-block-start: .2rem; }
+.roster-switch .choices h2 { font-size: .95rem; margin: .35rem 0; }
+.roster-switch .fight-choice small { display: block; margin-inline-start: 1.85rem; font-size: .76rem; }
+.combat-attempt-option { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; }
+.combat-attempt-option > a { flex-shrink: 0; }
+combat-spell-icon:defined:not([hidden]) { display: inline-block; width: 1.375rem; height: 1.375rem; vertical-align: middle; margin-inline-end: .45rem; }
+combat-spell-icon .combat-entity-icon { display: block; margin: 0; }

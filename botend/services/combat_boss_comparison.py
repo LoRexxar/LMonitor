@@ -9,6 +9,7 @@ from django.core.paginator import Paginator
 from django.urls import reverse
 
 from botend.services import combat_log_analysis as analysis
+from botend.services import combat_log_visuals as visuals
 from botend.services import combat_log_localization as localization
 from botend.services.combat_log_facts import DAMAGE
 from botend.services.combat_replay_activity import boss_groups
@@ -117,8 +118,8 @@ def read_attempt(s, metric, at, player, sync):
             if anchor:
                 s["sync_label"] = "各场首次玩家死亡" if sync == "first-death" else anchor[0]
                 s["sync_sec"] = anchor[2]["sec"]
-        roster = dict(db.execute(f"""SELECT a.guid,a.name FROM actor a WHERE a.family='Player' AND id IN (
-            SELECT f.src FROM fact f WHERE {scope} UNION SELECT f.dst FROM fact f WHERE {scope})""", bounds*2))
+        s["roster"] = visuals.participants(db, s["report"], s)
+        roster = {guid: actor["name"] for guid, actor in s["roster"].items()}
         start = origin if center is None else max(origin, origin+center-5000)
         stop = s["observed_end"] if center is None else min(s["observed_end"], origin+center+5000)
         if sync and center is None:
@@ -285,7 +286,8 @@ def comparison(samples, params):
                 gaps.append(abs(delta))
             cells.append(dict(value=person[1] if person else None, delta=f"{delta:+}" if delta else "",
                               url=reverse("combat_actor", args=[s["report"].pk, s["id"], guid]) if person else ""))
-        players.append(dict(name=names[guid], guid=guid, cells=cells, gap=max(gaps, default=-1),
+        specs = {spec for sample in shown for spec in sample["roster"].get(guid, {}).get("specs", ())}
+        players.append(dict(name=names[guid], guid=guid, **visuals.identity(specs), cells=cells, gap=max(gaps, default=-1),
                             url=link(params, player=guid)+"#player-skills"))
     players.sort(key=lambda row: -row["gap"])
     skills = []
@@ -300,6 +302,9 @@ def comparison(samples, params):
         gap = max((abs(n-counts[0]) for n in counts if n is not None and counts[0] is not None), default=-1)
         skills.append(dict(name=next(v[0] for v in observed if v), spell=spell, cells=cells, gap=gap,
                            total=sum(v for v in counts if v)))
+    icons = visuals.spell_icons([s["spell"] for s in skills])
+    for skill in skills:
+        skill["icon"] = icons.get(localization.number(skill["spell"]))
     skills.sort(key=lambda r:(-r["gap"], -r["total"], r["spell"]))
     anchors = []
     for key in dict.fromkeys(k for s in shown for k in s["anchors"]):

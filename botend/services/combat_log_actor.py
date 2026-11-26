@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 
+from botend.services import combat_log_visuals as visuals
 from botend.services.combat_log_analysis import database
 from botend.services.combat_log_index import event_label
 
@@ -18,12 +19,17 @@ def inspect(report, fight_id, guid, after):
             [*bounds, actor["id"], actor["id"]],
         ).fetchone():
             raise LookupError
+        actor = dict(actor)
+        participant = visuals.participants(db, report, fight).get(guid, {})
+        actor.update(visuals.identity(participant.get("specs", ()), participant.get("class_name")))
+        source_icons = visuals.report_icons(db, report)
+        builds = visuals.talents(db, report, fight, actor)
         origin = fight["start_ms"]
         casts = [
             dict(r, kind_label=event_label(r["kind"]), sec=round((r["ms"] - origin) / 1000, 3))
             for r in db.execute(
                 """
-            SELECT f.line,f.ms,f.kind,a.name spell,t.name target FROM fact f JOIN ability a ON a.id=f.spell
+            SELECT f.line,f.ms,f.kind,f.spell spell_id,a.name spell,t.name target FROM fact f JOIN ability a ON a.id=f.spell
             JOIN actor t ON t.id=f.dst WHERE f.line BETWEEN ? AND ? AND f.src=? AND f.line>?
             AND f.kind IN ('SPELL_CAST_START','SPELL_CAST_SUCCESS','SPELL_CAST_FAILED','SPELL_INTERRUPT','SPELL_DISPEL')
             ORDER BY f.line LIMIT 81""",
@@ -79,8 +85,13 @@ def inspect(report, fight_id, guid, after):
             scale = min(360 / max(1, x1 - x0), 144 / max(1, y1 - y0))
             for p in points:
                 p.update(cx=round(10 + (p["x"] - x0) * scale, 2), cy=round(154 - (p["y"] - y0) * scale, 2))
+    icons = source_icons | visuals.spell_icons([c["spell_id"] for c in casts] + [a["spell"] for a in auras.values()])
+    for c in casts:
+        c["icon"] = icons.get(visuals.localization.number(c["spell_id"]))
+    for a in auras.values():
+        a["icon"] = icons.get(visuals.localization.number(a["spell"]))
     return dict(
-        actor=actor,
+        builds=builds, actor=actor,
         fight=fight,
         casts=casts[:80],
         cursor=casts[79]["line"] if len(casts) > 80 else None,

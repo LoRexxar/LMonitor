@@ -251,6 +251,9 @@ def battles(request):
                     g["review_url"] = combat_wcl.workspace_url(matching,private,group=g["key"],selection=1)
                 g.update(key=field+"-"+g["key"],source_label="WCL 私有渠道" if private else "WCL 公开")
                 for p in g["pulls"]:
+                    for view in p["views"]:
+                        view["single_url"] = combat_wcl.single_url(view["code"], view["id"], private, "")
+                        view["source_title"] = titles[view["code"]]
                     if pick and any(v["ref"] == f"{codes[0]}.{pick}" for v in p["views"]):
                         picked_ref, picked_group = p["ref"], g["key"]
                     minutes,seconds=divmod(int(p["duration"]),60)
@@ -269,6 +272,8 @@ def battles(request):
                 g[key] += "&"+back
         for pull in g["pulls"]:
             pull["url"] += ("&" if "?" in pull["url"] else "?")+back
+            for view in pull.get("views", ()):
+                view["single_url"] += ("&" if "?" in view["single_url"] else "?")+back
     active = next((g for g in groups if g["key"]==(q.get("focus") or picked_group)),groups[0] if groups else None)
     return render(request,"dashboard/combat_battles.html",dict(groups=groups,active=active,report_count=report_count,
                   shared_directory=True,listing_url=library_url,picked=picked_ref,skipped=skipped,pull_count=sum(len(g["pulls"]) for g in groups)))
