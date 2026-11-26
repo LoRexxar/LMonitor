@@ -1,8 +1,11 @@
 """回放中的玩家施法和有效伤害，统一使用战斗起点与日志行边界。"""
 
+import csv
 import json
 import re
 from collections import defaultdict
+from functools import lru_cache
+from pathlib import Path
 
 from django.db.models import Q
 
@@ -14,6 +17,7 @@ from botend.services.published_wow_icons import published_wow_icon_url
 from botend.services.site_image_assets import published_image_url
 from botend.services.wow_skill_report_metadata import _tooltip_icon
 from botend.templatetags.wow_tags import wow_icon_oss_url
+from botend.wow.talents.versioning import TalentVersionResolver
 
 CHUNK_MS = 30000
 CAST_WINDOW_MS = 15000
@@ -94,16 +98,36 @@ def cast_icons(db, fight, bosses):
     return spell_icons(ids)
 
 
-def spell_icons(spell_ids):
+@lru_cache(maxsize=2)
+def _file_icon_names(path, revision):
+    # A current build can refresh its CSV in place.
+    with path.open(encoding='utf-8-sig') as source:
+        return {row['FileDataID']: row['IconName'] for row in csv.DictReader(source)
+                if re.fullmatch(r'[A-Za-z0-9_-]{1,160}', row['IconName'] or '')}
+
+
+def spell_icons(spell_ids, source_icons=None):
     """批量查找当前页实际出现的技能，沿用回放的图标资源。"""
     ids = {localization.number(s) for s in spell_ids} - {0}
-    result = {}
+    result = {sid: source_icons[sid] for sid in ids if source_icons and source_icons.get(sid)}
+    if ids == result.keys():
+        return result
+    files, original_urls = {}, {}
     def add(sid, icon):
         if sid in result or not icon:
             return
-        if icon.startswith(('https://','/static/')):
-            result[sid] = icon
-        elif re.fullmatch(r'[a-zA-Z0-9_-]+',icon):
+        file_icon = re.fullmatch(r'https://assets-ng\.maxroll\.gg/wow/icons/([1-9][0-9]{0,9})\.webp', icon)
+        if file_icon:
+            # This number identifies an image, never a spell or a basename.
+            files.setdefault(sid, file_icon[1])
+            original_urls.setdefault(sid, icon)
+        elif icon.startswith(('https://','/static/')):
+            mapped = published_wow_icon_url(published_image_url(icon))
+            if mapped.startswith(('/static/', 'https://oss.wowdaily.cn/')):
+                result[sid] = mapped
+            else:
+                original_urls.setdefault(sid, icon)
+        elif re.fullmatch(r'[a-zA-Z0-9_-]+',icon) and not icon.isdecimal():
             result[sid] = wow_icon_oss_url(icon)
 
     for sid, icon in WowSpellSnapshot.objects.filter(branch="wow",spell_id__in=ids).exclude(icon="").order_by(
@@ -126,7 +150,19 @@ def spell_icons(spell_ids):
             spell_id__in=ids-result.keys(), is_active=True, data_version__is_active=True
     ).values_list("spell_id", "icon_name", "icon_url"):
         add(sid, icon or url)
-    return result
+    unresolved = files.keys() - result.keys()
+    if unresolved:
+        version = TalentVersionResolver.get_default()
+        if version and version.source_dir:
+            try:
+                path = Path(version.source_dir) / 'file_data_icon_cache.csv'
+                st = path.stat()
+                names = _file_icon_names(path, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size))
+            except (OSError, KeyError, UnicodeError, csv.Error):
+                names = {}
+            for sid in unresolved:
+                add(sid, names.get(files[sid]))
+    return original_urls | result
 
 
 def missing_cast_icon(db, fight, sid, bosses):
