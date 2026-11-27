@@ -215,6 +215,56 @@ class CombatWorkbenchTests(TestCase):
         self.assertEqual([(r["seconds"], r["window_seconds"], r["percent"]) for r in result["coverage"]],
                          [(2, 6, 33.33), (2, 10, 20)])
 
+    def test_damage_metrics_and_buff_debuff_self_perspective(self):
+        rows = fixture(2).decode().splitlines(True)
+        buff_row = rows[8].replace("DEBUFF", "BUFF").replace(',55,"光环"', ',77,"自增益"').replace("Creature-1", "Player-1")
+        debuff_at_death = rows[8].replace("18:00:09.000", "18:00:13.000")
+        raw = "".join([*rows[:9], buff_row, *rows[9:13], debuff_at_death, *rows[13:]]).encode()
+        report = self.ingest(self.owner, 2, raw)
+        path = reverse("combat_analysis", args=[report.pk])
+
+        # 1. Damage table exposes hits, average, max_val, DPS and renders dedicated headers
+        dmg_page = self.client.get(path, {"fight": 1, "metric": "damage", "source": "Player-1", "group": "ability"})
+        self.assertContains(dmg_page, "打击次数")
+        self.assertContains(dmg_page, "平均每击")
+        self.assertContains(dmg_page, "最高单击")
+        dmg_row = dmg_page.context["rows"][0]
+        self.assertGreater(dmg_row["hits"], 0)
+        self.assertIsNotNone(dmg_row["avg"])
+        self.assertIsNotNone(dmg_row["max_val"])
+
+        # 2. Switching from damage (source=Player-1) to Buff / Debuff maps source -> target (self-received)
+        tabs = {key: url for _label, url, _active, key in dmg_page.context["metric_tabs"]}
+        self.assertIn("target=Player-1", tabs["auras"])
+        self.assertNotIn("source=Player-1", tabs["auras"])
+        self.assertIn("target=Player-1", tabs["debuffs"])
+
+        # 3. Buff vs Debuff are strictly separated and expose trigger count (applications) & source_label
+        buff_page = self.client.get(path, {"fight": 1, "metric": "auras", "wave": "-2", "target": "Player-1"})
+        self.assertEqual([r["spell"] for r in buff_page.context["coverage"]], ["77"])
+        self.assertEqual(buff_page.context["coverage"][0]["applications"], 1)
+        self.assertEqual(buff_page.context["aura_perspective"]["mode"], "self")
+
+        debuff_page = self.client.get(path, {"fight": 1, "metric": "debuffs", "wave": "-2", "target": "Player-1"})
+        self.assertContains(debuff_page, "Debuff 覆盖率")
+        self.assertEqual([r["spell"] for r in debuff_page.context["coverage"]], ["55"])
+        self.assertEqual(debuff_page.context["coverage"][0]["applications"], 2)
+        self.assertEqual(debuff_page.context["aura_perspective"]["mode"], "self")
+
+        # 4. Deaths view renders WCL-style death cards with killing blow and active state instead of a generic group table
+        death_page = self.client.get(path, {"fight": 1, "metric": "deaths", "wave": "-2"})
+        self.assertContains(death_page, "逐次死亡复盘")
+        self.assertContains(death_page, "致死原因")
+        self.assertNotContains(death_page, "贡献明细")
+        self.assertEqual(len(death_page.context["deaths"]), 1)
+        death = death_page.context["deaths"][0]
+        self.assertEqual(death["guid"], "Player-1")
+        self.assertIsNotNone(death["killing_blow"])
+        self.assertEqual(death["killing_blow"]["spell"], "爆炸")
+        self.assertGreater(death["recent_damage"], 0)
+        self.assertEqual([a["spell"] for a in death["active_buffs"]], ["77"])
+        self.assertEqual([a["spell"] for a in death["active_debuffs"]], ["55"])
+
     def test_missing_icons_resolve_only_recorded_ids_of_readable_report(self):
         from botend.services.combat_replay_activity import spell_icons
         self.assertTrue(spell_icons([53])[53].endswith("/ability_backstab.jpg"))

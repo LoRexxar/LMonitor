@@ -181,6 +181,7 @@ METRICS = {
     "deaths": "死亡",
     "dispels": "成功驱散",
     "auras": "Buff",
+    "debuffs": "Debuff",
     "enemycasts": "NPC 读条",
     "events": "全部索引事件",
 }
@@ -242,7 +243,7 @@ def build_selection(sample, params, metric, wave):
         binds.extend(bounds)
         lo = max(lo, wave["start_ms"])
         hi = min(hi, wave["end_ms"]) if hi is not None else wave["end_ms"]
-    family = "t" if metric in ("taken", "deaths", "auras") else "s"
+    family = "t" if metric in ("taken", "deaths", "auras", "debuffs") else "s"
     pets = params.get("pets", "players")
     if pets not in ("players", "separate", "owner"):
         raise ValueError("未知的召唤物归属方式。")
@@ -277,14 +278,16 @@ def build_selection(sample, params, metric, wave):
         "deaths": ["UNIT_DIED"],
         "dispels": ["SPELL_DISPEL"],
         "auras": ["SPELL_AURA_APPLIED"],
+        "debuffs": ["SPELL_AURA_APPLIED"],
         "enemycasts": ["SPELL_CAST_START"],
         "events": [],
     }[metric]
     if kinds:
         clauses.append("f.kind IN (" + ",".join("?" for _ in kinds) + ")")
         binds.extend(kinds)
-    if metric == "auras":
-        clauses.append("f.aura_type='BUFF'" if sample["report"].summary.get("state_revision") else "0")
+    if metric in ("auras", "debuffs"):
+        aura_cat = "DEBUFF" if metric == "debuffs" else "BUFF"
+        clauses.append(f"f.aura_type='{aura_cat}'" if sample["report"].summary.get("state_revision") else "0")
     for dim, (column, _) in DIMENSIONS.items():
         if params.get(dim):
             clauses.append(column + "=?")
@@ -300,15 +303,18 @@ def build_selection(sample, params, metric, wave):
     return joins + " WHERE " + " AND ".join(clauses), binds, value, span, lo, hi
 
 
-def aura_coverage(db, sample, params, start, end, *, include_debuffs=False):
-    """按目标和技能合并实测状态区间，保留选区左侧已生效的 Buff。"""
+def aura_coverage(db, sample, params, start, end, *, include_debuffs=False, category=None):
+    """按目标和技能合并实测状态区间，保留选区左侧已生效的 Buff/Debuff 并统计触发次数。"""
     if end <= start:
         return []
     axis = "keystone" if sample["kind"] == "钥匙" else "boss"
     conditions = ["u.session=?", "u.line<=?", "u.ms<?",
                   "(u.end_ms IS NULL OR u.end_ms>?)"]
     args = [sample["session"], sample["end_line"], end, start]
-    if not include_debuffs:
+    if category in ("BUFF", "DEBUFF"):
+        conditions.append("u.category=?")
+        args.append(category)
+    elif not include_debuffs:
         conditions.append("u.category='BUFF'")
     side = params.get("side", "players")
     if side == "players":
@@ -341,30 +347,174 @@ def aura_coverage(db, sample, params, start, end, *, include_debuffs=False):
     """, [sample["id"], sample["id"], *roster_args, *args])
     result = []
     previous = None
-    for guid, target, spell, name, category, begin, finish, line, source, source_name in rows:
+    for guid, target, spell, name, cat, begin, finish, line, source, source_name in rows:
         stop = min(finish if finish is not None else end, end)
         if stop <= max(begin, start):
             continue
-        key = (guid, spell, category)
+        key = (guid, spell, cat)
         if key != previous:
             previous, covered_until = key, start
-            item = dict(target=target, guid=guid, spell=spell, name=name, covered_ms=0, category=category,
-                        first=line, sources={},
-                        window_ms=end-start, filename=sample["report"].filename, fight=sample["id"])
+            item = dict(target=target, guid=guid, spell=spell, name=name, covered_ms=0, category=cat,
+                        first=line, sources={}, applications=0,
+                        window_ms=end - start, filename=sample["report"].filename, fight=sample["id"])
             result.append(item)
         item["sources"][source] = source_name
+        item["applications"] += 1
         item["covered_ms"] += max(0, stop - max(begin, covered_until))
         covered_until = max(covered_until, stop)
     for item in result:
-        item.update(percent=round(100 * item["covered_ms"] / item["window_ms"], 2),
-                    seconds=item["covered_ms"] / 1000, window_seconds=item["window_ms"] / 1000)
+        source_names = [n for n in item["sources"].values() if n]
+        if not source_names:
+            source_label = "—"
+        elif len(source_names) == 1:
+            source_label = source_names[0]
+        else:
+            source_label = f"{source_names[0]} 等 {len(source_names)} 个来源"
+        item.update(
+            percent=round(100 * item["covered_ms"] / item["window_ms"], 2),
+            seconds=item["covered_ms"] / 1000,
+            window_seconds=item["window_ms"] / 1000,
+            avg_seconds=round((item["covered_ms"] / 1000) / max(1, item["applications"]), 2),
+            source_label=source_label,
+        )
     return result
+
+
+def _fmt_clock(seconds):
+    total = max(0, int(round(seconds)))
+    minutes, secs = divmod(total, 60)
+    return f"{minutes}:{secs:02d}"
+
+
+def death_records(db, sample, params, sql, args, reference, origin, wave, limit=60):
+    """为每次死亡构建 WCL 风格的致死原因、死前关键承伤/治疗与死亡瞬间状态。"""
+    report = sample["report"]
+    axis = "keystone" if sample["kind"] == "钥匙" else "boss"
+    has_state = bool(report.summary.get("state_revision"))
+    dmg_marks = ",".join("?" for _ in DAMAGE)
+    heal_marks = ",".join("?" for _ in HEAL)
+    dmg_kinds = tuple(sorted(DAMAGE))
+    heal_kinds = tuple(sorted(HEAL))
+    combat_kinds = dmg_kinds + heal_kinds
+    combat_marks = ",".join("?" for _ in combat_kinds)
+
+    death_rows = list(db.execute(
+        "SELECT f.line, f.ms, f.dst, t.guid, t.name, f.dst_spec "
+        + sql
+        + " ORDER BY f.ms, f.line LIMIT ?",
+        [*args, limit],
+    ))
+    records = []
+    for d in death_rows:
+        d_line, d_ms, dst_id = d["line"], d["ms"], d["dst"]
+        win_start = d_ms - 10000
+        # 死前 10 秒的伤害与治疗明细（最多取最后 6 条）
+        recent_rows = list(db.execute(
+            f"SELECT f.line, f.ms, f.kind, s.name source, a.name spell, f.spell spell_id, "
+            f"f.amount, f.excess, f.hp, f.max_hp "
+            f"FROM fact f JOIN actor s ON s.id=f.src JOIN ability a ON a.id=f.spell "
+            f"WHERE f.{axis}=? AND f.dst=? AND f.ms BETWEEN ? AND ? AND f.line<=? "
+            f"AND f.kind IN ({combat_marks}) "
+            f"ORDER BY f.ms DESC, f.line DESC LIMIT 24",
+            [sample["id"], dst_id, win_start, d_ms, d_line, *combat_kinds],
+        ))
+        killing_blow = None
+        recent_damage = 0
+        recent_heal = 0
+        last_hp = None
+        last_max_hp = None
+        timeline = []
+        for ev in recent_rows:
+            is_dmg = ev["kind"] in DAMAGE
+            amt = ev["amount"] or 0
+            if is_dmg:
+                recent_damage += amt
+                if killing_blow is None:
+                    killing_blow = {
+                        "spell": ev["spell"],
+                        "spell_id": ev["spell_id"],
+                        "source": ev["source"],
+                        "amount": ev["amount"],
+                        "excess": ev["excess"],
+                        "rel_seconds": round((ev["ms"] - d_ms) / 1000, 2),
+                        "url": evidence_url(report, ev["line"]),
+                    }
+            else:
+                recent_heal += amt
+            if last_hp is None and ev["hp"] is not None and ev["max_hp"]:
+                last_hp, last_max_hp = ev["hp"], ev["max_hp"]
+            if len(timeline) < 6:
+                timeline.append({
+                    "rel_seconds": round((ev["ms"] - d_ms) / 1000, 2),
+                    "is_damage": is_dmg,
+                    "source": ev["source"],
+                    "spell": ev["spell"],
+                    "spell_id": ev["spell_id"],
+                    "amount": ev["amount"],
+                    "excess": ev["excess"],
+                    "hp": ev["hp"],
+                    "max_hp": ev["max_hp"],
+                    "url": evidence_url(report, ev["line"]),
+                })
+        timeline.reverse()
+
+        # 死亡瞬间生效的 Buff 与 Debuff
+        active_buffs, active_debuffs = [], []
+        if has_state:
+            seen_auras = set()
+            for a_row in db.execute(
+                "SELECT u.spell, a.name, u.category, s.name source "
+                "FROM replay_aura u JOIN ability a ON a.id=u.spell JOIN actor s ON s.id=u.src "
+                "WHERE u.session=? AND u.dst=? AND u.ms<=? AND (u.end_ms IS NULL OR u.end_ms>=?) "
+                "ORDER BY u.ms DESC",
+                [sample["session"], dst_id, d_ms, d_ms],
+            ):
+                key = (a_row["category"], a_row["spell"])
+                if key in seen_auras:
+                    continue
+                seen_auras.add(key)
+                aura_item = {"spell": a_row["spell"], "name": a_row["name"], "source": a_row["source"]}
+                if a_row["category"] == "DEBUFF":
+                    if len(active_debuffs) < 8:
+                        active_debuffs.append(aura_item)
+                elif len(active_buffs) < 8:
+                    active_buffs.append(aura_item)
+
+        rel_sec = round((d_ms - reference) / 1000, 2)
+        fight_for_review = -wave["id"] if wave and wave["id"] < 0 else sample["id"]
+        records.append({
+            "line": d_line,
+            "ms": d_ms,
+            "seconds": rel_sec,
+            "clock": _fmt_clock(rel_sec),
+            "guid": d["guid"],
+            "player": d["name"],
+            "spec": d["dst_spec"],
+            "filename": report.filename,
+            "fight": sample["id"],
+            "killing_blow": killing_blow,
+            "recent_damage": recent_damage,
+            "recent_heal": recent_heal,
+            "last_hp": last_hp,
+            "last_max_hp": last_max_hp,
+            "last_hp_pct": round(100 * last_hp / last_max_hp, 1) if last_hp is not None and last_max_hp else None,
+            "active_buffs": active_buffs,
+            "active_debuffs": active_debuffs,
+            "timeline": timeline,
+            "evidence_url": evidence_url(report, d_line),
+            "replay_url": reverse("combat_replay", args=[report.pk, sample["id"]])
+            + "?" + urlencode({"t": max(0, d_ms - origin - 3000)}),
+            "review_url": reverse("combat_review", args=[report.pk, fight_for_review, "death", d_line])
+            if params.get("side", "players") == "players"
+            else None,
+        })
+    return records
 
 
 def run(samples, params, *, single=False, first_wave=False):
     metric = params.get("metric", "damage")
     group = params.get("group") or (
-        "target" if metric in ("taken", "deaths", "auras") else "source"
+        "target" if metric in ("taken", "deaths", "auras", "debuffs") else "source"
     )
     if metric not in METRICS or group not in GROUPS:
         raise ValueError("未知的指标或分组。")
@@ -397,6 +547,7 @@ def run(samples, params, *, single=False, first_wave=False):
     duration_known = True
     events, waves, mechanisms, players = [], [], [], []
     coverage, coverage_unavailable = [], []
+    deaths = []
     actor_specs = defaultdict(set)
     actor_classes, report_icons = {}, {}
     wave = None
@@ -444,34 +595,48 @@ def run(samples, params, *, single=False, first_wave=False):
                 sample, params, metric, wave
             )
             coverage_picker = panel == "pick" and group in ("ability", "target", "source")
-            if metric == "auras" and (panel == "table" or coverage_picker):
+            if metric in ("auras", "debuffs") and (panel == "table" or coverage_picker):
                 if not report.summary.get("state_revision") or window_end is None:
                     coverage_unavailable.append(f"{report.filename} #{sample['id']}")
                 else:
-                    active = aura_coverage(db, sample, params, window_start, window_end)
+                    aura_cat = "DEBUFF" if metric == "debuffs" else "BUFF"
+                    active = aura_coverage(db, sample, params, window_start, window_end, category=aura_cat)
                     if coverage_picker:
                         for buff in active:
                             choices = (buff["sources"].items() if group == "source" else
                                        [(buff["guid"], buff["target"])] if group == "target" else
                                        [(buff["spell"], buff["name"])])
                             for ident, name in choices:
-                                groups.setdefault(ident, dict(ident=ident, name=name, value=0, hits=0, unknown=0))
+                                groups.setdefault(ident, dict(ident=ident, name=name, value=0, hits=0, unknown=0, known=0, min_val=None, max_val=None, excess=0))
                     else:
                         coverage.extend(active)
+            if metric == "deaths" and panel == "table" and len(deaths) < 60:
+                deaths.extend(
+                    death_records(
+                        db, sample, params, sql, args, reference, origin, wave, limit=60 - len(deaths)
+                    )
+                )
             rows = db.execute(
                 f"SELECT {dim} ident, min({label}) name, sum({value}) value, count(*) hits, "
-                f"count({value}) known " + sql + f" GROUP BY {dim}",
+                f"count({value}) known, min({value}) min_val, max({value}) max_val, "
+                f"sum(COALESCE(f.excess, 0)) excess " + sql + f" GROUP BY {dim}",
                 args,
             )
             subtotal = missing = hits = 0
             for r in rows:
                 item = groups.setdefault(
                     r["ident"],
-                    dict(ident=r["ident"], name=r["name"], value=0, hits=0, unknown=0),
+                    dict(ident=r["ident"], name=r["name"], value=0, hits=0, unknown=0, known=0, min_val=None, max_val=None, excess=0),
                 )
                 item["value"] += r["value"] or 0
                 item["hits"] += r["hits"]
+                item["known"] += r["known"]
                 item["unknown"] += r["hits"] - r["known"]
+                item["excess"] += r["excess"] or 0
+                if r["min_val"] is not None:
+                    item["min_val"] = r["min_val"] if item["min_val"] is None else min(item["min_val"], r["min_val"])
+                if r["max_val"] is not None:
+                    item["max_val"] = r["max_val"] if item["max_val"] is None else max(item["max_val"], r["max_val"])
                 subtotal += r["value"] or 0
                 hits += r["hits"]
                 missing += r["hits"] - r["known"]
@@ -599,6 +764,20 @@ def run(samples, params, *, single=False, first_wave=False):
     ranked = sorted(groups.values(), key=lambda r: (-r["value"], r["ident"]))
     for row in ranked:
         row["share"] = round(row["value"] * 100 / total, 1) if total else 0
+        known_hits = row.get("known") or 0
+        row["avg"] = round(row["value"] / known_hits, 1) if known_hits else None
+        row["rate"] = (
+            round(row["value"] * 1000 / duration, 1)
+            if duration_known and duration and not row["unknown"]
+            else None
+        )
+        row["cpm"] = (
+            round(row["hits"] * 60000 / duration, 1)
+            if duration_known and duration
+            else None
+        )
+        raw_total = row["value"] + (row.get("excess") or 0)
+        row["excess_pct"] = round((row.get("excess") or 0) * 100 / raw_total, 1) if raw_total > 0 else 0.0
     # 保留无事件的时间间隔；长战斗合并相邻桶以限制图形宽度。
     step = 10
     if buckets:
@@ -659,6 +838,7 @@ def run(samples, params, *, single=False, first_wave=False):
         if duration_known and duration and not unknown
         else None,
         rows=ranked,
+        deaths=deaths,
         coverage=coverage,
         coverage_unavailable=coverage_unavailable,
         trend=trend,

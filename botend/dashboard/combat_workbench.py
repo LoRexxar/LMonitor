@@ -501,15 +501,29 @@ def render_analysis(request, reports, ctx, selected=None):
 
         axis = ctx["group"]
         ctx["metric_label"] = analysis.METRICS[ctx["metric"]]
+        _source_metrics = {"damage", "heal", "overheal", "casts", "interrupts", "dispels"}
+        _aura_metrics = {"auras", "debuffs"}
+
+        def _metric_tab_url(target_metric):
+            extra = {}
+            if ctx["metric"] in _source_metrics and target_metric in _aura_metrics:
+                if params.get("source") and not params.get("target"):
+                    extra = {"source": None, "target": params["source"], "group": None}
+            elif ctx["metric"] in _aura_metrics and target_metric in _source_metrics:
+                if params.get("target") and not params.get("source"):
+                    extra = {"target": None, "source": params["target"], "group": None}
+            return link(
+                metric=target_metric,
+                cross=None,
+                panel="table" if panel == "pick" else panel,
+                group=extra.pop("group", params.get("group")),
+                **extra,
+            )
+
         ctx["metric_tabs"] = [
             (
                 name,
-                link(
-                    metric=key,
-                    cross=None,
-                    panel="table" if panel == "pick" else panel,
-                    group=params.get("group"),
-                ),
+                _metric_tab_url(key),
                 key == ctx["metric"],
                 key,
             )
@@ -585,17 +599,64 @@ def render_analysis(request, reports, ctx, selected=None):
             for key, name in analysis.GROUPS.items()
         ]
         term = params.get("term", "").strip().casefold()
-        coverage_table = ctx["metric"] == "auras" and panel == "table"
+        is_aura_metric = ctx["metric"] in ("auras", "debuffs")
+        ctx["is_aura_metric"] = is_aura_metric
+        ctx["aura_kind_label"] = "Debuff" if ctx["metric"] == "debuffs" else "Buff"
+        coverage_table = is_aura_metric and panel == "table"
+        deaths_table = ctx["metric"] == "deaths" and panel == "table"
+        ctx["deaths_table"] = deaths_table
+        if deaths_table:
+            if term:
+                ctx["deaths"] = [
+                    d for d in ctx["deaths"]
+                    if any(
+                        term in str(v).casefold()
+                        for v in (
+                            d["player"], d["filename"],
+                            (d["killing_blow"] or {}).get("spell", ""),
+                            (d["killing_blow"] or {}).get("source", ""),
+                            *(a["name"] for a in d["active_buffs"]),
+                            *(a["name"] for a in d["active_debuffs"]),
+                        )
+                    )
+                ]
+            for idx, d in enumerate(ctx["deaths"], 1):
+                d["order"] = idx
+                d["target_url"] = link(target=d["guid"])
+                d["actor_url"] = actor_links.get(str(d["guid"]))
+                specs = {d["spec"]} if d.get("spec") else set()
+                ident_vis = analysis.visuals.identity(specs, ctx["actor_classes"].get(d["guid"]))
+                d["icon"] = ident_vis.get("icon", "")
+                d["icon_label"] = ident_vis.get("icon_label", "")
+                if d.get("killing_blow"):
+                    d["killing_blow"]["ability_url"] = link(metric="taken", ability=d["killing_blow"]["spell_id"], target=d["guid"])
         if coverage_table:
             ctx["buff_spell_count"] = len({r["spell"] for r in ctx["coverage"]})
+            ctx["coverage_total_apps"] = sum(r.get("applications", 0) for r in ctx["coverage"])
             if len(ctx["comparisons"]) == 1:
                 attempt = ctx["comparisons"][0]
                 if attempt["window_end"] is not None:
                     ctx["buff_window_seconds"] = max(0, attempt["window_end"] - attempt["window_start"]) / 1000
-            ctx["coverage"].sort(key=lambda r: (-r["percent"], r["target"], r["name"], r["fight"]))
+            ctx["coverage"].sort(key=lambda r: (-r["percent"], -r.get("applications", 0), r["target"], r["name"], r["fight"]))
             if term:
                 ctx["coverage"] = [r for r in ctx["coverage"] if any(
-                    term in str(r[key]).casefold() for key in ("name", "target", "spell", "filename"))]
+                    term in str(r[key]).casefold() for key in ("name", "target", "spell", "filename", "source_label"))]
+            if params.get("target") and not params.get("source"):
+                ctx["aura_perspective"] = {
+                    "mode": "self",
+                    "self_url": link(),
+                    "applied_url": link(source=params["target"], target=None),
+                }
+            elif params.get("source") and not params.get("target"):
+                ctx["aura_perspective"] = {
+                    "mode": "applied",
+                    "self_url": link(target=params["source"], source=None),
+                    "applied_url": link(),
+                }
+            ctx["aura_switch_tabs"] = [
+                ("Buff（增益）", link(metric="auras"), ctx["metric"] == "auras"),
+                ("Debuff（减益）", link(metric="debuffs"), ctx["metric"] == "debuffs"),
+            ]
         if term:
             ctx["rows"] = [
                 r
@@ -604,11 +665,12 @@ def render_analysis(request, reports, ctx, selected=None):
                 or term in str(r["ident"]).casefold()
             ]
         page = max(1, analysis.nonnegative(params, "page", 1))
-        count = len(ctx["coverage"] if coverage_table else ctx["rows"])
+        count = len(ctx["coverage"] if coverage_table else ctx["deaths"] if deaths_table else ctx["rows"])
         ctx["groups_count"] = count
         page = min(page, max(1, (count + 39) // 40))
         ctx["rows"] = ctx["rows"][(page - 1) * 40 : page * 40]
         ctx["coverage"] = ctx["coverage"][(page - 1) * 40 : page * 40]
+        ctx["deaths"] = ctx["deaths"][(page - 1) * 40 : page * 40]
         for row in ctx["coverage"]:
             row["target_url"] = link(target=row["guid"])
             row["ability_url"] = link(ability=row["spell"])

@@ -42,9 +42,9 @@
     <div class="analysis-results">
 <nav class="filter-strip" aria-label="筛选战斗数据"><strong>数据筛选</strong>{% for axis,name,url,active in pickers %}<span class="filter-pair"><a data-dimension="{{ axis }}" data-label="{{ name }}" href="{{ url }}">{{ name }}{% if active %}<b>{{ active.0 }}</b>{% else %}<i class="disclosure-mark" aria-hidden="true"></i>{% endif %}</a>{% if active %}<a class="clear-dimension" href="{{ active.1 }}" aria-label="移除{{ name }}筛选">×</a>{% endif %}</span>{% endfor %}</nav>{% for name,value,url in chips %}<a class="chip" href="{{ url }}" title="移除此条件">{{ name }} · {{ value }} ×</a>{% endfor %}
 
-<div class="data"><div class="overview"><div class="numbers">{% if metric == "auras" and panel == "table" %}<div>{% if comparisons|length == 1 %}统计区间（秒）<strong>{{ buff_window_seconds|floatformat:"-3"|default:"—" }}</strong>{% else %}纳入场次<strong>{{ comparisons|length }}</strong>{% endif %}</div><div>生效 Buff 种数<strong>{{ buff_spell_count }}</strong></div><div>Buff 施加次数<strong>{{ total|floatformat:"0g" }}</strong></div>{% else %}<div>{% if metric == "damage" %}总伤害{% elif metric == "heal" %}有效治疗量{% elif metric == "auras" %}Buff 施加次数{% else %}{{ metric_label }}总量{% endif %}<strong>{{ total|floatformat:"0g" }}</strong></div><div>{% if metric == "damage" %}秒伤（DPS）{% elif metric == "heal" %}每秒治疗（HPS）{% else %}每秒均值{% endif %}<strong>{% if rate != None %}{{ rate|floatformat:"-2g" }}{% else %}—{% endif %}</strong></div><div>匹配事件<strong>{{ matched_hits|floatformat:"0g" }}</strong></div>{% endif %}</div>
-{% if metric == "auras" and not trend and full_time_url %}<a href="{{ full_time_url }}">恢复完整时段</a>{% endif %}{% if unknown %}<p>{{ unknown }} 条事件的数值未知，总量只计已识别数值。</p>{% endif %}
-{% if trend %}<section class="timeline"><div class="heading"><h2>{% if metric == "auras" %}Buff 施加时间{% else %}时间分布{% endif %}</h2>{% if full_time_url %}<a href="{{ full_time_url }}">恢复完整时段</a>{% endif %}<output class="bar-reading" hidden></output><small>{% if request.GET.anchor %}按读条对齐{% else %}点击或拖选区间{% endif %} · 每格 {{ step }} 秒</small></div>
+<div class="data"><div class="overview"><div class="numbers">{% if is_aura_metric and panel == "table" %}<div>{% if comparisons|length == 1 %}统计区间（秒）<strong>{{ buff_window_seconds|floatformat:"-3"|default:"—" }}</strong>{% else %}纳入场次<strong>{{ comparisons|length }}</strong>{% endif %}</div><div>生效 {{ aura_kind_label }} 种数<strong>{{ buff_spell_count }}</strong></div><div>{{ aura_kind_label }} 触发次数<strong>{{ coverage_total_apps|floatformat:"0g" }}</strong></div>{% else %}<div>{% if metric == "damage" %}总伤害{% elif metric == "taken" %}总承伤{% elif metric == "heal" %}有效治疗量{% elif metric == "overheal" %}过量治疗量{% elif is_aura_metric %}{{ aura_kind_label }} 施加次数{% else %}{{ metric_label }}总量{% endif %}<strong>{{ total|floatformat:"0g" }}</strong></div><div>{% if metric == "damage" %}秒伤（DPS）{% elif metric == "taken" %}每秒承伤（DTPS）{% elif metric == "heal" %}每秒治疗（HPS）{% else %}每秒均值{% endif %}<strong>{% if rate != None %}{{ rate|floatformat:"-2g" }}{% else %}—{% endif %}</strong></div><div>{% if metric == "damage" %}总打击次数{% elif metric == "taken" %}总受击次数{% elif metric == "heal" or metric == "overheal" %}总治疗跳数{% else %}匹配事件{% endif %}<strong>{{ matched_hits|floatformat:"0g" }}</strong></div>{% endif %}</div>
+{% if is_aura_metric and not trend and full_time_url %}<a href="{{ full_time_url }}">恢复完整时段</a>{% endif %}{% if unknown %}<p>{{ unknown }} 条事件的数值未知，总量只计已识别数值。</p>{% endif %}
+{% if trend %}<section class="timeline"><div class="heading"><h2>{% if is_aura_metric %}{{ aura_kind_label }} 触发时间{% else %}时间分布{% endif %}</h2>{% if full_time_url %}<a href="{{ full_time_url }}">恢复完整时段</a>{% endif %}<output class="bar-reading" hidden></output><small>{% if request.GET.anchor %}按读条对齐{% else %}点击或拖选区间{% endif %} · 每格 {{ step }} 秒</small></div>
 <div class="graph-body"><div class="scale" aria-label="纵轴"><span>{{ plot_peak|floatformat:"0g" }}</span><span>0</span></div><div class="plot" data-step="{{ step }}">{% for b in trend %}{% if b.url %}<a href="{{ b.url }}" data-time="{{ b.seconds }}" data-value="{{ b.value }}" aria-label="{{ b.seconds }} 秒，{{ b.value }}" title="{{ b.seconds }} 秒 · {{ b.value }}">{% else %}<span data-time="{{ b.seconds }}" data-value="{{ b.value }}" title="{{ b.seconds }} 秒 · {{ b.value }}">{% endif %}<i style="height:{{ b.percent|stringformat:'f' }}%"></i>{% if b.url %}</a>{% else %}</span>{% endif %}{% endfor %}</div>
 </div><div class="axis" data-first="{{ trend.0.seconds }}" data-last="{{ plot_end }}"><span>{{ trend.0.seconds }} 秒</span><span>{{ plot_end }} 秒</span></div></section>{% endif %}
 </div>{% if curves %}<section class="curve-card"><div class="heading"><h2>分组趋势对比</h2><small>每 {{ step }} 秒 · 共同纵轴 0–{{ curve_peak }}</small></div>
@@ -53,25 +53,93 @@
 <div class="results"><nav class="panels" aria-label="结果视图">{% for label,url,active in panel_tabs %}<a {% if active %}aria-current="page"{% endif %} href="{{ url }}">{{ label }}</a>{% endfor %}</nav>
 {% if panel == 'events' %}<section><h2>匹配的事件</h2><div class="scroll"><table><thead><tr>{% if book or multi_scope or combined %}<th>场次</th>{% endif %}<th>秒</th><th>来源 → 目标</th><th>技能 / 事件</th><th>值</th><th>原文</th></tr></thead><tbody>
 {% for e in events %}<tr>{% if book or multi_scope or combined %}<td>{{ e.filename }} #{{ e.sample }}</td>{% endif %}<td>{{ e.seconds }}</td><td>{% include 'dashboard/combat_entity_icon.html' with icon=e.source_identity.icon label=e.source_identity.icon_label only %}{{ e.source }} → {% include 'dashboard/combat_entity_icon.html' with icon=e.target_identity.icon label=e.target_identity.icon_label only %}{{ e.target }}</td><td>{% include 'dashboard/combat_entity_icon.html' with spell=e.spell_id icon=e.icon label=e.icon_label only %}{{ e.spell }}<small title="{{ e.kind }}">{{ e.kind_label }}</small></td><td>{{ e.value|default_if_none:"未知" }}</td><td><a href="{{ e.url }}" data-evidence>#{{ e.line }}</a> · <a href="{{ e.replay_url }}{% if selected and report %}&amp;back={{ replay_back|urlencode }}{% endif %}">回放此刻</a>{% if e.review_url %} · <a href="{{ e.review_url }}">死亡复盘</a>{% endif %}</td></tr>{% empty %}<tr><td colspan="6">此范围内没有匹配的事件。</td></tr>{% endfor %}</tbody></table></div>{% if prev_events %}<a href="{{ prev_events }}">上一页事件</a>{% endif %} {% if next_events %}<a href="{{ next_events }}">下一页事件</a>{% endif %}</section>
-{% elif metric == 'auras' and panel == 'table' %}
+{% elif deaths_table %}
+<section aria-labelledby="deaths-timeline-title">
+<div class="heading"><h2 id="deaths-timeline-title">逐次死亡复盘</h2>
+<span class="group-count">{{ groups_count }} 次死亡</span>
+<form class="search" method="get">{% for k,v in hidden_query %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input name="term" type="search" aria-label="查找角色、致死技能或状态" placeholder="查找角色、致死技能或状态" value="{{ request.GET.term }}"><button aria-label="查找"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#search"></use></svg></button></form></div>
+<p class="axis">按发生时间列出每次死亡的致死一击、死前 10 秒承伤/治疗与死亡瞬间生效的 Buff/Debuff 状态。</p>
+<div class="death-list">
+{% for d in deaths %}
+<article class="death-card">
+    <div class="death-card-head">
+        <div class="death-who">
+            <span class="death-index">#{{ d.order }}</span>
+            <span class="death-clock" title="开战后 {{ d.seconds }} 秒">{{ d.clock }}</span>
+            <a class="death-player" href="{{ d.target_url }}">{% include 'dashboard/combat_entity_icon.html' with icon=d.icon label=d.icon_label only %}{{ d.player }}</a>
+            {% if not selected %}<small>{{ d.filename }} · #{{ d.fight }}</small>{% endif %}
+        </div>
+        <div class="death-links">
+            <a href="{{ d.replay_url }}{% if selected and report %}&amp;back={{ replay_back|urlencode }}{% endif %}">回放前 3 秒</a>
+            {% if d.review_url %}<a href="{{ d.review_url }}">完整死前 10 秒</a>{% endif %}
+            <a href="{{ d.evidence_url }}" data-evidence>原文 #{{ d.line }}</a>
+        </div>
+    </div>
+    <div class="death-summary">
+        <div class="death-cause">
+            <span class="death-label">致死原因</span>
+            {% if d.killing_blow %}
+            <strong><a href="{{ d.killing_blow.ability_url }}">{% include 'dashboard/combat_entity_icon.html' with spell=d.killing_blow.spell_id only %}{{ d.killing_blow.spell }}</a></strong>
+            <span class="death-meta">来自 {{ d.killing_blow.source }} · 伤害 {{ d.killing_blow.amount|floatformat:"0g"|default:"未知" }}{% if d.killing_blow.excess %}（过量 {{ d.killing_blow.excess|floatformat:"0g" }}）{% endif %}</span>
+            {% else %}
+            <span class="death-meta">死前 10 秒未记录到直接致死伤害事件</span>
+            {% endif %}
+        </div>
+        <div class="death-vitals">
+            <span>死前 10s 承伤 <b>{{ d.recent_damage|floatformat:"0g" }}</b></span>
+            <span>死前 10s 治疗 <b>{{ d.recent_heal|floatformat:"0g" }}</b></span>
+            {% if d.last_hp != None %}<span>最后血量 <b>{{ d.last_hp|floatformat:"0g" }} / {{ d.last_max_hp|floatformat:"0g" }}（{{ d.last_hp_pct }}%）</b></span>{% endif %}
+        </div>
+    </div>
+    {% if d.active_buffs or d.active_debuffs %}
+    <div class="death-states">
+        {% if d.active_buffs %}<div class="death-aura-group"><span class="death-label">死亡时 Buff</span>{% for a in d.active_buffs %}<span class="death-pill is-buff" title="来源：{{ a.source }}">{% include 'dashboard/combat_entity_icon.html' with spell=a.spell only %}{{ a.name }}</span>{% endfor %}</div>{% endif %}
+        {% if d.active_debuffs %}<div class="death-aura-group"><span class="death-label">死亡时 Debuff</span>{% for a in d.active_debuffs %}<span class="death-pill is-debuff" title="来源：{{ a.source }}">{% include 'dashboard/combat_entity_icon.html' with spell=a.spell only %}{{ a.name }}</span>{% endfor %}</div>{% endif %}
+    </div>
+    {% endif %}
+    {% if d.timeline %}
+    <details class="death-timeline"><summary>死前最后 {{ d.timeline|length }} 条承伤与治疗明细</summary>
+        <ul>{% for ev in d.timeline %}<li class="{% if ev.is_damage %}is-dmg{% else %}is-heal{% endif %}">
+            <span class="dt-time">{{ ev.rel_seconds|floatformat:"-2" }}s</span>
+            <span class="dt-spell">{% include 'dashboard/combat_entity_icon.html' with spell=ev.spell_id only %}{{ ev.spell }}</span>
+            <span class="dt-src">{{ ev.source }}</span>
+            <strong class="dt-amt">{% if ev.is_damage %}-{% else %}+{% endif %}{{ ev.amount|floatformat:"0g"|default:"未知" }}{% if ev.excess %}<small>（过量 {{ ev.excess|floatformat:"0g" }}）</small>{% endif %}</strong>
+            {% if ev.hp != None %}<span class="dt-hp">血量 {{ ev.hp|floatformat:"0g" }}</span>{% endif %}
+            <a href="{{ ev.url }}" data-evidence>#</a>
+        </li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+</article>
+{% empty %}<p class="axis">当前范围内没有观测到死亡记录。</p>{% endfor %}
+</div>
+<nav class="pages">{% if previous_groups %}<a href="{{ previous_groups }}">上一页</a>{% endif %}{% if next_groups %}<a href="{{ next_groups }}">下一页</a>{% endif %}</nav></section>
+{% elif is_aura_metric and panel == 'table' %}
 <section aria-labelledby="buff-coverage-title">
-<div class="heading"><h2 id="buff-coverage-title">Buff 覆盖率</h2>
-<form class="search" method="get">{% for k,v in hidden_query %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input name="term" type="search" aria-label="查找 Buff、角色或技能编号" placeholder="查找 Buff、角色或编号" value="{{ request.GET.term }}"><button>查找</button></form></div>
-<p>每个目标单独统计。覆盖率为 Buff 在所选时段内生效的秒数除以该时段的秒数，同一 Buff 的重叠时间只计一次。</p>
+<div class="heading"><h2 id="buff-coverage-title">{{ aura_kind_label }} 覆盖率</h2>
+<span class="group-count">{{ groups_count }} 项</span>
+<form class="search" method="get">{% for k,v in hidden_query %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input name="term" type="search" aria-label="查找 {{ aura_kind_label }}、角色、来源或编号" placeholder="查找名称、角色或来源" value="{{ request.GET.term }}"><button aria-label="查找"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#search"></use></svg></button></form></div>
+<nav class="axes" aria-label="状态类型与视角">
+<b>类型</b>{% for label,url,active in aura_switch_tabs %}<a href="{{ url }}"{% if active %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
+{% if aura_perspective %}<b>视角</b><a href="{{ aura_perspective.self_url }}"{% if aura_perspective.mode == 'self' %} aria-current="true"{% endif %}>自身获得</a><a href="{{ aura_perspective.applied_url }}"{% if aura_perspective.mode == 'applied' %} aria-current="true"{% endif %}>对外施加</a>{% endif %}
+</nav>
+<p class="axis">{% if aura_perspective.mode == 'applied' %}当前展示该单位对外施加的 {{ aura_kind_label }}。{% else %}默认按持有者统计自身获得的 {{ aura_kind_label }} 覆盖率（重叠区间不重复计入）。{% endif %}</p>
 {% if coverage_unavailable %}<p>以下场次缺少状态索引或时间边界，无法计算覆盖率：{{ coverage_unavailable|join:"、" }}。</p>{% endif %}
-<div class="scroll"><table class="ranked-list"><thead><tr>{% if not selected %}<th>来源日志 · 场次</th>{% endif %}<th>Buff</th><th>目标</th><th>覆盖率</th><th>覆盖秒数</th><th>区间秒数</th></tr></thead>
+<div class="scroll"><table class="ranked-list"><thead><tr>{% if not selected %}<th>来源日志 · 场次</th>{% endif %}<th>{{ aura_kind_label }}</th><th>持有者</th><th>覆盖率</th><th>触发次数</th><th>覆盖秒数</th><th>单次均长</th><th>施加来源</th></tr></thead>
 <tbody>{% for r in coverage %}<tr>{% if not selected %}<td>{{ r.filename }} · #{{ r.fight }}</td>{% endif %}
 <td><a href="{{ r.ability_url }}" title="技能 #{{ r.spell }}">{% include 'dashboard/combat_entity_icon.html' with spell=r.spell icon=r.icon only %}{{ r.name }}</a></td>
-<td data-label="目标"><a href="{{ r.target_url }}">{{ r.target }}</a></td>
+<td data-label="持有者"><a href="{{ r.target_url }}">{{ r.target }}</a></td>
 <td data-label="覆盖率"><div class="share"><div class="share-track"><i style="width:{{ r.percent|stringformat:'f' }}%"></i></div><span>{{ r.percent|floatformat:"-2" }}%</span></div></td>
-<td data-label="覆盖秒数">{{ r.seconds|floatformat:"-3" }}</td><td data-label="区间秒数">{{ r.window_seconds|floatformat:"-3" }}</td></tr>
-{% empty %}<tr><td colspan="6">当前区间和筛选条件下没有观测到生效的 Buff。</td></tr>{% endfor %}</tbody></table></div>
+<td data-label="触发次数">{{ r.applications|floatformat:"0g" }}</td>
+<td data-label="覆盖秒数">{{ r.seconds|floatformat:"-2" }}s</td>
+<td data-label="单次均长">{{ r.avg_seconds|floatformat:"-2" }}s</td>
+<td data-label="施加来源">{{ r.source_label }}</td></tr>
+{% empty %}<tr><td colspan="8">当前区间和筛选条件下没有观测到生效的 {{ aura_kind_label }}。</td></tr>{% endfor %}</tbody></table></div>
 <nav class="pages">{% if previous_groups %}<a href="{{ previous_groups }}">上一页</a>{% endif %}{% if next_groups %}<a href="{{ next_groups }}">下一页</a>{% endif %}</nav></section>
 {% else %}<section><div class="heading"><h2>{% if panel == 'pick' %}选择筛选值{% elif panel == 'pivot' %}交叉表{% else %}贡献明细{% endif %}</h2><span class="group-count">{{ groups_count }} 组</span><form class="search" method="get">{% for k,v in hidden_query %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input name="term" type="search" aria-label="搜索分组" placeholder="查找名称或编号" value="{{ request.GET.term }}"><button aria-label="查找"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#search"></use></svg></button></form></div>
 <nav class="axes" aria-label="行维度"><b>按行</b>{% for label,url,active in dimension_tabs %}<a href="{{ url }}" {% if active %}aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}</nav>
 {% if panel == 'pivot' %}<nav class="axes" aria-label="列维度"><b>按列</b>{% for label,url,active in column_tabs %}<a href="{{ url }}" {% if active %}aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}</nav>{% endif %}
 
-<div class="scroll"><table class="{% if panel == 'pivot' %}pivot-grid{% else %}ranked-list{% endif %}"><thead><tr><th>分组</th>{% if panel == 'pivot' %}{% for h in headers %}<th title="{{ h.ident }}">{% include 'dashboard/combat_entity_icon.html' with spell=h.icon_id icon=h.icon label=h.icon_label only %}{{ h.name }}</th>{% endfor %}{% else %}<th>占比</th><th>总量</th><th>事件数</th><th>趋势对比</th>{% endif %}</tr></thead><tbody>{% for r in rows %}<tr><td><a href="{{ r.url }}" title="{{ r.ident }}">{% include 'dashboard/combat_entity_icon.html' with spell=r.icon_id icon=r.icon label=r.icon_label only %}{{ r.name }}</a>{% if r.actor_url %} <a class="build-link" href="{{ r.actor_url }}">角色与天赋</a>{% endif %}</td>{% if panel == 'pivot' %}{% for cell in r.cells %}<td>{% if cell %}<a href="{{ cell.url }}" title="{{ cell.hits }} 条事件，{{ cell.unknown }} 条数值未知">{{ cell.value|floatformat:"0g" }}{% if cell.unknown %}*{% endif %}</a>{% else %}—{% endif %}</td>{% endfor %}{% else %}<td data-label="占比"><div class="share"><div class="share-track"><i style="width:{{ r.share|stringformat:'f' }}%"></i></div><span>{{ r.share }}%</span></div></td><td data-label="总量">{{ r.value|floatformat:"0g" }}{% if r.unknown %}*{% endif %}</td><td data-label="事件数">{{ r.hits|floatformat:"0g" }}</td><td>{% if r.plot_url %}<a href="{{ r.plot_url }}" aria-label="将 {{ r.name }} 加入趋势对比" class="plot-action"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#chart"></use></svg>对比</a>{% else %}—{% endif %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="9">没有匹配分组。</td></tr>{% endfor %}</tbody></table></div>
+<div class="scroll"><table class="{% if panel == 'pivot' %}pivot-grid{% else %}ranked-list{% endif %}"><thead><tr><th>分组</th>{% if panel == 'pivot' %}{% for h in headers %}<th title="{{ h.ident }}">{% include 'dashboard/combat_entity_icon.html' with spell=h.icon_id icon=h.icon label=h.icon_label only %}{{ h.name }}</th>{% endfor %}{% elif metric == 'damage' %}<th>占比</th><th>总伤害</th><th>秒伤 (DPS)</th><th>打击次数</th><th>平均每击</th><th>最高单击</th><th>趋势</th>{% elif metric == 'taken' %}<th>占比</th><th>总承伤</th><th>每秒承伤</th><th>受击次数</th><th>平均受击</th><th>最高单击</th><th>趋势</th>{% elif metric == 'heal' %}<th>占比</th><th>有效治疗</th><th>每秒治疗 (HPS)</th><th>过量%</th><th>治疗次数</th><th>平均每跳</th><th>趋势</th>{% elif metric == 'overheal' %}<th>占比</th><th>过量治疗</th><th>过量%</th><th>触发次数</th><th>平均过量</th><th>趋势</th>{% else %}<th>占比</th><th>触发次数</th><th>频率 (次/分)</th><th>趋势</th>{% endif %}</tr></thead><tbody>{% for r in rows %}<tr><td><a href="{{ r.url }}" title="{{ r.ident }}">{% include 'dashboard/combat_entity_icon.html' with spell=r.icon_id icon=r.icon label=r.icon_label only %}{{ r.name }}</a>{% if r.actor_url %} <a class="build-link" href="{{ r.actor_url }}">角色与天赋</a>{% endif %}</td>{% if panel == 'pivot' %}{% for cell in r.cells %}<td>{% if cell %}<a href="{{ cell.url }}" title="{{ cell.hits }} 条事件，{{ cell.unknown }} 条数值未知">{{ cell.value|floatformat:"0g" }}{% if cell.unknown %}*{% endif %}</a>{% else %}—{% endif %}</td>{% endfor %}{% elif metric == 'damage' or metric == 'taken' %}<td data-label="占比"><div class="share"><div class="share-track"><i style="width:{{ r.share|stringformat:'f' }}%"></i></div><span>{{ r.share }}%</span></div></td><td data-label="总量">{{ r.value|floatformat:"0g" }}{% if r.unknown %}*{% endif %}</td><td data-label="每秒">{{ r.rate|floatformat:"-1g"|default:"—" }}</td><td data-label="次数">{{ r.hits|floatformat:"0g" }}</td><td data-label="平均">{{ r.avg|floatformat:"-1g"|default:"—" }}</td><td data-label="最高">{{ r.max_val|floatformat:"0g"|default:"—" }}</td><td>{% if r.plot_url %}<a href="{{ r.plot_url }}" aria-label="将 {{ r.name }} 加入趋势对比" class="plot-action"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#chart"></use></svg>对比</a>{% else %}—{% endif %}</td>{% elif metric == 'heal' %}<td data-label="占比"><div class="share"><div class="share-track"><i style="width:{{ r.share|stringformat:'f' }}%"></i></div><span>{{ r.share }}%</span></div></td><td data-label="有效治疗">{{ r.value|floatformat:"0g" }}{% if r.unknown %}*{% endif %}</td><td data-label="HPS">{{ r.rate|floatformat:"-1g"|default:"—" }}</td><td data-label="过量%">{{ r.excess_pct|floatformat:"-1" }}%</td><td data-label="次数">{{ r.hits|floatformat:"0g" }}</td><td data-label="平均">{{ r.avg|floatformat:"-1g"|default:"—" }}</td><td>{% if r.plot_url %}<a href="{{ r.plot_url }}" aria-label="将 {{ r.name }} 加入趋势对比" class="plot-action"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#chart"></use></svg>对比</a>{% else %}—{% endif %}</td>{% elif metric == 'overheal' %}<td data-label="占比"><div class="share"><div class="share-track"><i style="width:{{ r.share|stringformat:'f' }}%"></i></div><span>{{ r.share }}%</span></div></td><td data-label="过量治疗">{{ r.value|floatformat:"0g" }}{% if r.unknown %}*{% endif %}</td><td data-label="过量%">{{ r.excess_pct|floatformat:"-1" }}%</td><td data-label="次数">{{ r.hits|floatformat:"0g" }}</td><td data-label="平均">{{ r.avg|floatformat:"-1g"|default:"—" }}</td><td>{% if r.plot_url %}<a href="{{ r.plot_url }}" aria-label="将 {{ r.name }} 加入趋势对比" class="plot-action"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#chart"></use></svg>对比</a>{% else %}—{% endif %}</td>{% else %}<td data-label="占比"><div class="share"><div class="share-track"><i style="width:{{ r.share|stringformat:'f' }}%"></i></div><span>{{ r.share }}%</span></div></td><td data-label="次数">{{ r.hits|floatformat:"0g" }}</td><td data-label="次/分">{{ r.cpm|floatformat:"-1"|default:"—" }}</td><td>{% if r.plot_url %}<a href="{{ r.plot_url }}" aria-label="将 {{ r.name }} 加入趋势对比" class="plot-action"><svg class="icon" aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}?v=controls2#chart"></use></svg>对比</a>{% else %}—{% endif %}</td>{% endif %}</tr>{% empty %}<tr><td colspan="9">没有匹配分组。</td></tr>{% endfor %}</tbody></table></div>
 <nav class="pages">{% if previous_groups %}<a href="{{ previous_groups }}">上一页分组</a>{% endif %}{% if next_groups %}<a href="{{ next_groups }}">下一页分组</a>{% endif %}{% if prev_cols %}<a href="{{ prev_cols }}">上一页列</a>{% endif %}{% if next_cols %}<a href="{{ next_cols }}">下一页列</a>{% endif %}</nav></section>{% endif %}
 </div>{% if skipped or excluded %}<details><summary>已排除的样本</summary>{% for s in skipped %}<p>{{ s }}</p>{% endfor %}{% for s in excluded %}<p>{{ s }}</p>{% endfor %}</details>{% endif %}
 </div></div></div></div></main>

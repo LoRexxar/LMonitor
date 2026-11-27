@@ -11,6 +11,7 @@
   <symbol id="deaths" viewBox="0 0 24 24"><path d="M5 13a8 8 0 1 1 14 0l-2 2v4H7v-4z M8 11h1m6 0h1m-5 5v3m3-3v3" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="dispels" viewBox="0 0 24 24"><path d="M4 20l10-10m-3-2 5 5m2-10v4m-2-2h4M5 6v4m-2-2h4" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="auras" viewBox="0 0 24 24"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="debuffs" viewBox="0 0 24 24"><path d="M12 3 21 19H3z M12 9v4m0 3.5h.01" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="enemycasts" viewBox="0 0 24 24"><path d="M5 3h14M5 21h14M7 4v3l5 5 5-5V4M7 20v-3l5-5 5 5v3" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="events" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h1m-1 6h1m-1 6h1" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="filter" viewBox="0 0 24 24"><path d="M3 7h8m4 0h6M3 17h3m4 0h11 M11 4h4v6h-4z M6 14h4v6H6z" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/></symbol>
