@@ -244,3 +244,92 @@ class PlayerObservationTemplateTests(SimpleTestCase):
 
 def _render_observation(observation):
     return render_to_string('portal/spec_detail/_player_observation.html', {'observation': observation})
+
+
+class ConfirmedObservationDisplayTests(SimpleTestCase):
+    def test_only_confirmed_labels_and_their_frozen_evidence_are_public(self):
+        from copy import deepcopy
+        from django.template.loader import render_to_string
+        strong = {'level': 'strong', 'confidence': '高', 'label': '证据充分'}
+        confirmed = {'code': 'joint_progress', 'label': '行为线索', 'value': '确定的共同提高成绩',
+                     'supported': True, 'evidence_strength': strong, 'reason': '确定标签原始依据',
+                     'evidence': [{'text': '确定证据 A & B < C', 'url': 'https://example.com/proof'}]}
+        uncertain = {'code': 'carrying', 'label': '尚未确定的标签', 'value': '未达门槛的协助事件',
+                     'supported': True, 'carrying_event_only': True,
+                     'evidence_strength': {'level': 'partial', 'confidence': '中'},
+                     'reason': '不应公开的候选理由', 'evidence': []}
+        view = {'status': 'ready', 'source_kind': 'ai', 'has_supported_judgements': True,
+                'display_judgements': [confirmed, uncertain],
+                'carrying_frequency': {'supported': False, 'verified_runs': 5, 'observed_runs': 20},
+                'label_reviews': [
+                    {'code': 'joint_progress', 'label': '确定的共同提高成绩', 'strength': strong,
+                     'reason': '确定标签核验依据', 'counter_evidence': [{'text': '确定标签的完整反证'}]},
+                    {'code': 'carrying', 'label': '尚未确定的标签', 'status': 'partial'}],
+                'investigation': {'triggered': True, 'summary': '未确定的综合推测',
+                                  'hypotheses': [{'label': '未确定候选解释', 'assessment': 'possible'}]}}
+        before = deepcopy(view)
+        for status in ('ready', 'stale'):
+            with self.subTest(status=status):
+                html = render_to_string('portal/spec_detail/_player_observation.html',
+                                        {'observation': {**view, 'status': status}})
+                for text in ('确定的共同提高成绩', '确定标签原始依据', '确定标签核验依据',
+                             '确定标签的完整反证', 'A &amp; B &lt; C', 'https://example.com/proof'):
+                    self.assertIn(text, html)
+                for text in ('尚未确定的标签', '未达门槛的协助事件', '不应公开的候选理由',
+                             '未确定的综合推测', '未确定候选解释', 'data-player-investigation',
+                             'data-carrying-frequency', '查看全部标签的核验进度'):
+                    self.assertNotIn(text, html)
+        only_uncertain = {**view, 'display_judgements': [uncertain]}
+        self.assertNotIn('id="player-observation"', render_to_string(
+            'portal/spec_detail/_player_observation.html', {'observation': only_uncertain}))
+        self.assertEqual(view, before, 'display filtering must not rewrite the source DTO or evidence')
+
+
+class PublishedObservationReasonMarkupTests(SimpleTestCase):
+    def render(self, **changes):
+        from datetime import datetime, timezone
+        from django.template.loader import render_to_string
+        observation = dict(status='stale', source_kind='ai', analysis_id=730,
+            publication_current=False, stale_reason='source_changed',
+            generated_at=datetime(2026, 10, 28, 14, 16, 1, tzinfo=timezone.utc),
+            has_supported_judgements=True, display_judgements=[dict(code='joint_progress',
+                supported=True, label='行为线索', value='共同提高成绩线索', reason='原发布的冻结分析理由',
+                evidence=[dict(id='run:123', text='同一发布的冻结证据',
+                    run_url='https://raider.io/mythic-plus-runs/season-mn-2/123-example')])])
+        observation.update(changes)
+        return render_to_string('portal/spec_detail/_player_observation.html', {'observation': observation})
+
+    def test_changed_source_keeps_frozen_reason_and_identifies_historical_analysis(self):
+        html = self.render()
+        for value in ('原发布的冻结分析理由', '同一发布的冻结证据', '资料已更新', '上次已发布分析', '待重新检查',
+                'data-analysis-id="730"', 'data-publication-current="false"', '2026-10-28T'):
+            self.assertIn(value, html)
+        self.assertIn('<details', html)
+        self.assertIn('https://raider.io/mythic-plus-runs/season-mn-2/123-example', html)
+        self.assertNotIn('data-publication-current="true"', html)
+
+    def test_current_publication_is_not_called_historical(self):
+        html = self.render(status='ready', publication_current=True, stale_reason='')
+        self.assertIn('data-publication-current="true"', html)
+        self.assertIn('原发布的冻结分析理由', html)
+        self.assertNotIn('资料已更新', html)
+
+    def test_hidden_rejected_and_no_history_remain_absent(self):
+        for changes in ({'status': 'pending'}, {'status': 'hidden'}, {'is_published': False},
+                {'review_status': 'rejected'}, {'has_supported_judgements': False, 'display_judgements': []}):
+            with self.subTest(changes=changes):
+                self.assertNotIn('id="player-observation"', self.render(**changes))
+
+    def test_other_stale_reasons_keep_existing_failure_notice(self):
+        html = self.render(stale_reason='source_failed')
+        self.assertIn('已过期', html)
+        self.assertNotIn('资料已更新', html)
+
+    def test_reason_and_evidence_are_escaped_at_the_existing_template_boundary(self):
+        html = self.render(display_judgements=[dict(code='joint_progress', supported=True, label='行为线索',
+            value='共同提高成绩线索', reason='<script>bad()</script>',
+            evidence=[dict(text='A & B < C', run_url='javascript:alert(1)')])])
+        self.assertIn('&lt;script&gt;bad()&lt;/script&gt;', html)
+        self.assertIn('A &amp; B &lt; C', html)
+        self.assertNotIn('<script>', html)
+        self.assertNotIn('href="javascript:', html)
