@@ -59,6 +59,7 @@ docs/
 /task_plan.md
 /findings.md
 /progress.md
+.agent_collab/
 
 # 大秘境 PTR Tooltip 本地采集清单与快照（禁止上传）
 /tools/LMonitorMythicTooltipCollector/LMonitorMythicTooltipManifest.lua

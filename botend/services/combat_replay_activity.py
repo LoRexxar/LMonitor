@@ -331,8 +331,19 @@ def checkpoints(db, fight, end, revision):
 
 
 def pulls(db, fight, end):
-    rows = pull_catalog(db,dict(fight,end_ms=end))
-    return sorted(({k:p[k] for k in ("id","t","end","label","caption")} for p in rows), key=lambda p:p["t"])
+    result = []
+    for pull in pull_catalog(db, dict(fight, end_ms=end)):
+        actors = [row[0] for row in db.execute(
+            """SELECT DISTINCT a.id FROM fact f
+            JOIN actor a ON a.id IN (f.src,f.dst,f.credited) AND a.family='Player'
+            WHERE f.keystone=? AND f.ms BETWEEN ? AND ? AND f.line BETWEEN ? AND ?
+            ORDER BY a.id""",
+            (fight["id"], pull["start_ms"], pull["end_ms"], pull["first_line"], pull["last_line"]),
+        )]
+        summary = {key: pull[key] for key in ("id", "t", "end", "label", "caption")}
+        summary["actors"] = actors
+        result.append(summary)
+    return sorted(result, key=lambda p:p["t"])
 
 
 def read_casts(db, fight, start, end, bosses):

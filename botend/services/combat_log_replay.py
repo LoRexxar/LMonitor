@@ -98,6 +98,9 @@ def read(report, fight_id, chunk=None, *, event_page=None, query="", kind="", su
             if subject is not None:
                 return fight, read_subject(db, report, fight, subject, start, min(end, start+CHUNK_MS))
             lo, hi = max(origin, start - GAP_MS), min(end, start + CHUNK_MS + GAP_MS)
+            event_start, event_end = max(origin, start-5000), min(end, start+CHUNK_MS-1)
+            if kind:
+                return fight, {"events": _events(db, report, fight, event_start, event_end, kind=kind)}
             current_index = report.summary.get("position_revision", 0) >= 2
             facing = "s.facing" if current_index else "NULL"
             by_time = "INDEXED BY sample_time" if current_index else ""
@@ -113,7 +116,7 @@ def read(report, fight_id, chunk=None, *, event_page=None, query="", kind="", su
                 (*lines, lo, hi, origin, BUCKET_MS, origin),
             )
             points = [tuple(r) for r in rows]
-            events = _events(db, report, fight, max(origin, start-5000), min(end, start+CHUNK_MS-1))
+            events = _events(db, report, fight, event_start, event_end)
             vitals = []
             if report.summary.get("state_revision"):
                 vitals = [tuple(r) for r in db.execute(

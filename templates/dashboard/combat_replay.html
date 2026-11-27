@@ -1,19 +1,19 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{{ fight.name }} · 战斗回放{% endblock %}
 {% block assets %}
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_replay.css' %}?v=hierarchy1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2"><script defer src="{% static 'dashboard/js/combat_replay_state.js' %}"></script><script defer src="{% static 'dashboard/js/combat_replay_cast_axis.js' %}?v=oss-images2"></script><script defer src="{% static 'dashboard/js/combat_replay_activity.js' %}?v=controls2"></script><script defer src="{% static 'dashboard/js/combat_replay.js' %}?v=map-images1"></script>
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=event-timeline"><link rel="stylesheet" href="{% static 'dashboard/css/combat_replay.css' %}?v=wide-map"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2"><script defer src="{% static 'dashboard/js/combat_replay_state.js' %}"></script><script defer src="{% static 'dashboard/js/combat_replay_cast_axis.js' %}?v=follow-input"></script><script defer src="{% static 'dashboard/js/combat_replay_activity.js' %}?v=wave-roster"></script><script defer src="{% static 'dashboard/js/combat_replay.js' %}?v=map-timeline"></script>
 {% endblock %}
 {% block trail %}{% url 'combat_report' report.pk as report_directory %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url|default:report_directory }}">{{ report.filename }}</a><i class="crumb-separator" aria-hidden="true"></i><a href="{{ analysis_url }}">单场分析</a><i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">战斗回放</span>{% endblock %}
 {% block content %}
 <main class="replay-wrap">
 <header class="replay-head"><div><h1>{{ fight.name }}</h1><p>{% if fight.kind == '钥匙' %}大秘境 {{ fight.level_label }}{% elif fight.dungeon_detail %}{{ fight.dungeon_detail }} · {{ fight.dungeon_name }} {{ fight.level_label|default:'层数未记录' }}{% else %}{{ fight.kind }} · 难度 {{ fight.level }}{% endif %} · {{ fight.result }}</p></div>{% if replay.pulls %}<form class="wave-picker" action="{% if replay_wave_fields %}{% url 'combat_workspace' %}{% else %}{% url 'combat_analysis' report.pk %}{% endif %}" method="get">{% for name,value in replay_wave_fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}<input type="hidden" name="fight" value="{{ fight.id }}">
 <label for="replay-wave">分析波次</label><select id="replay-wave" name="wave"><option value="all">整把钥匙</option>
-{% for p in replay.pulls %}<option value="{{ p.id }}">{{ p.caption }}</option>{% endfor %}</select><button type="submit">进入分析</button></form>{% else %}<a href="{{ analysis_url }}">返回战斗分析</a>{% endif %}</header>
+{% for p in replay.pulls %}<option value="{{ p.id }}">{{ p.caption }}</option>{% endfor %}</select><button id="replay-wave-jump" type="button" disabled>跳到波次起点</button><button type="submit">进入分析</button></form>{% else %}<a href="{{ analysis_url }}">返回战斗分析</a>{% endif %}{% if replay.actors or replay.maps %}<button id="aside-toggle" type="button" aria-expanded="true" aria-controls="replay-aside">收起右侧面板</button>{% endif %}</header>
 {% if not report.summary.state_revision or not report.summary.position_revision or legacy_format20 %}<div class="legacy">{% if legacy_format20 %}重建索引后可读取格式 20 的位置。{% elif not report.summary.position_revision %}旧索引仅包含玩家位置。{% endif %}{% if not report.summary.state_revision %}从原文补建后可查看增益、减益和层数。{% endif %}{% if report.owner_id == user.pk %}<form method="post" action="{% url 'combat_rebuild' report.pk %}">{% csrf_token %}<button>从归档补建回放索引</button></form>{% endif %}</div>{% endif %}
 {% if replay.actors or replay.maps %}
 <div class="replay-layout"><div class="player-shell{% if not replay.maps %} no-map{% endif %}">{% if not replay.maps %}<p class="replay-note">本场没有可播放的坐标，可在时间轴查看单位状态与战斗事件。</p>{% endif %}
 {% if replay.maps %}<div class="view-mode" role="group" aria-label="回放视图"><button type="button" id="with-map" aria-pressed="true">地图与状态</button><button type="button" id="state-only" aria-pressed="false">专注单位状态</button></div>{% endif %}
-<div class="map-toolbar"><span>俯视战场</span><label>地图 <select id="floor"><option value="">自动跟随</option>{% for map in replay.maps %}<option value="{{ map.id }}">{% if map.terrain %}{{ map.terrain.name }} · {% endif %}地图 {{ map.id }}</option>{% endfor %}</select></label><label>底图 <select id="map-mode"><option value="terrain">自动选图</option><option value="native">客户端原图</option><option value="grid">坐标网格</option></select></label><button id="reset-view" type="button">复位视野</button><label>视野 <select id="zoom"><option value="battle">交战区域</option><option value="1">全图</option><option value="2">2 倍</option><option value="4">4 倍</option><option value="8">8 倍</option></select></label></div>
+<div class="map-toolbar"><span>俯视战场</span><label>地图 <select id="floor"><option value="">自动跟随</option>{% for map in replay.maps %}<option value="{{ map.id }}">{% if map.terrain %}{{ map.terrain.name }} · {% endif %}地图 {{ map.id }}</option>{% endfor %}</select></label><label>底图 <select id="map-mode"><option value="terrain">自动选图</option><option value="native">客户端原图</option><option value="grid">坐标网格</option></select></label><button id="reset-view" type="button">复位视野</button><label>视野 <select id="zoom"><option value="battle">交战区域</option><option value="1">全图</option><option value="2">2 倍</option><option value="4">4 倍</option><option value="8">8 倍</option><option id="zoom-custom" value="custom" hidden>自定义</option></select></label><div class="map-zoom" role="group" aria-label="地图缩放"><button id="zoom-out" type="button" aria-label="缩小地图">−</button><button id="zoom-in" type="button" aria-label="放大地图">+</button><button id="focus-players" type="button">聚焦玩家</button></div></div>
 <div class="replay-stage"><canvas id="arena" role="img" aria-label="参战单位在当前地图上的位置，点选图标可查看单位"></canvas>
 <section class="damage-meter" aria-labelledby="meter-title">
 <header class="meter-head"><h2 id="meter-title">伤害榜</h2>
@@ -41,7 +41,7 @@
 <div id="team-health" aria-label="选择玩家查看状态"></div>
 <div id="subject-states"></div></section>
 <p id="load-state" role="status"></p><button id="retry" hidden>重试此时段</button><noscript>播放回放需要启用 JavaScript。</noscript></div>
-<aside class="replay-aside" aria-label="同步回放面板">
+<aside class="replay-aside" id="replay-aside" aria-label="同步回放面板">
 <div class="replay-tabs" role="tablist" aria-label="回放详情" hidden>
 <button type="button" role="tab" id="tab-casts" aria-controls="replay-activity" aria-selected="true">玩家施法</button>
 <button type="button" role="tab" id="tab-units" aria-controls="replay-units" aria-selected="false">观察单位</button>
@@ -51,7 +51,7 @@
 <details class="activity-picker" open><summary>选择施法单位 <span id="activity-count"></span></summary>
 <input type="search" id="activity-search" aria-label="查找玩家、专精或首领" placeholder="查找玩家、专精或首领">
 <div class="activity-actions"><button type="button" id="activity-all">全选</button><button type="button" id="activity-none">清空</button></div>
-<div id="activity-players"></div><p class="activity-caption" id="no-players" hidden>没有匹配的单位。</p></details>
+<div id="activity-bosses" aria-label="首领"></div><div id="activity-players" aria-label="玩家"></div><p class="activity-caption" id="no-players" hidden>没有匹配的单位。</p></details>
 <div class="axis-tools"><div class="cast-mode" role="group" aria-label="施法展示方式"><button type="button" id="casts-icons" aria-pressed="true">图标</button><button type="button" id="casts-text" aria-pressed="false">文字</button></div><button type="button" id="cast-follow" aria-pressed="true">跟随回放</button></div>
 <div class="cast-options"><label><input type="checkbox" id="activity-attempts"> 读条与失败</label><label><input type="checkbox" id="cast-targets"> 技能目标</label></div>
 <div id="cast-scroll" tabindex="0" role="region" aria-label="全场玩家施法时间轴" aria-describedby="cast-help"><div id="cast-sheet" data-mode="icons">
@@ -62,15 +62,16 @@
 <label for="compare">对照玩家 B</label><select id="compare" disabled><option value="">单人观察</option>{% for a in replay.actors %}{% if a.family == 'Player' %}<option value="{{ a.id }}">{{ a.name }} #{{ a.id }}</option>{% endif %}{% endfor %}</select><p class="spatial-reading" id="pair-reading" hidden></p>
 <div class="spatial-reading" id="pair-floors" hidden><button type="button" id="floor-a">查看 A 所在层</button><button type="button" id="floor-b">查看 B 所在层</button></div><div class="spatial-reading" id="floor-roster" aria-label="当前位置可见的玩家"></div>
 <label class="spatial-reading"><input type="checkbox" id="npcs" checked> 显示非玩家单位</label><label class="spatial-reading"><input type="checkbox" id="effects" checked> 标出读条、打断和死亡</label>
-</section><section id="replay-events" aria-labelledby="tab-events"><h2>事件定位</h2><label for="death">跳到玩家死亡</label><select id="death"><option value="">选择死亡记录（{{ replay.deaths|length }}）</option></select>
+</section><section id="replay-events" aria-labelledby="tab-events"><h2>战斗事件</h2><label for="death">跳到玩家死亡</label><select id="death"><option value="">选择死亡记录（{{ replay.deaths|length }}）</option></select>
+<div class="recent-events-head"><h3 id="recent-events-title">最近 5 秒</h3><label for="recent-kind" class="sr-only">筛选近期事件</label><select id="recent-kind" aria-controls="event-list"><option value="">读条、打断与死亡</option><option value="DAMAGE">伤害</option><option value="HEAL">治疗</option><option value="UNIT_DIED">死亡</option><option value="SPELL_CAST_START">敌方读条</option><option value="SPELL_INTERRUPT">打断</option><option value="SPELL_DISPEL">驱散</option>{% if report.summary.state_revision %}<option value="BUFF">增益</option><option value="DEBUFF">减益</option>{% endif %}</select></div>
+<ul class="replay-events" id="event-list" aria-labelledby="recent-events-title"></ul><p class="activity-caption" id="recent-overflow" hidden>此处展示最新 60 条，可在全场查找中翻页。</p><button type="button" id="recent-retry" hidden>重新加载近期事件</button>
 <details id="event-finder"><summary>查找全场事件</summary>
 <form id="event-search"><label for="event-kind">事件类型</label><select id="event-kind"><option value="">读条、打断与死亡</option><option value="DAMAGE">承伤事件</option><option value="HEAL">治疗事件</option>{% if report.summary.state_revision %}<option value="BUFF">增益变化</option><option value="DEBUFF">减益变化</option>{% endif %}<option value="SPELL_DISPEL">驱散</option><option value="SPELL_CAST_START">敌方读条</option><option value="SPELL_INTERRUPT">打断</option><option value="UNIT_DIED">玩家死亡</option></select>
 <label for="event-query">技能名、技能 ID 或单位名</label><div class="query-row"><input id="event-query" type="search" maxlength="100"><button type="submit">查找</button></div></form>
 <p role="status" id="finder-state"></p><ul class="replay-events" id="found-events"></ul>
 <div class="finder-pages" hidden><button type="button" id="prev-events">上一页</button><span id="event-page"></span><button type="button" id="next-events">下一页</button></div></details>
-<h3>最近 5 秒</h3><ul class="replay-events" id="event-list"></ul>
 </section></aside></div>
-<p class="replay-note">底图与角色使用同一世界坐标，北向朝上。放大后镜头跟随观察单位。拖动可平移镜头。拖动时间轴可前后预览，松开后停在所选时刻。用方向键前后移动 1 秒，按住 Shift 可微调 0.25 秒。短间隔采样之间平滑移动，缺少新位置的单位会淡出。{% if not fight.end_ms %}本场缺少结束记录，回放止于最后一次观测。{% endif %}</p>
+<p class="replay-note">底图与角色使用同一世界坐标，北向朝上。滚轮围绕指针缩放，拖动地图可平移镜头。拖动时间轴可前后预览，松开后停在所选时刻。用方向键前后移动 1 秒，按住 Shift 可微调 0.25 秒。短间隔采样之间平滑移动，缺少新位置的单位会淡出。{% if not fight.end_ms %}本场缺少结束记录，回放止于最后一次观测。{% endif %}</p>
 {{ replay|json_script:"replay-data" }}
 {% else %}<section><h2>本场没有可播放的坐标</h2><p>{% if not fight.start_line %}日志缺少这场战斗的开始记录。{% else %}当前索引未记录有效位置。需要在游戏中开启高级战斗日志，并在战斗时记录。{% endif %}</p><a href="{{ analysis_url }}">查看本场事件</a></section>{% endif %}
 </main>

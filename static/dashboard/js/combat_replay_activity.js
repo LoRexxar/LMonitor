@@ -47,16 +47,34 @@ window.createReplayActivity = function ({data, actors, badge, precise, redraw, j
     }
     const buckets = damageSeries(data.damage_buckets);
     const wavePicker = byId('replay-wave');
-    let manualWave = false;
-    if (wavePicker) wavePicker.addEventListener('change', () => { manualWave = true; });
+    const waveJump = byId('replay-wave-jump');
+    const pulls = new Map(data.pulls.map(p => [String(p.id),p]));
+    let picked = pulls.get(query.get('wave')) || null;
+    let rosterPull = null, waveActors = null;
+    if (wavePicker) {
+        wavePicker.value = picked ? String(picked.id) : 'all';
+        waveJump.disabled = !picked;
+        waveJump.onclick = () => jump(picked.t);
+        wavePicker.addEventListener('change', () => {
+            picked = pulls.get(wavePicker.value) || null;
+            waveJump.disabled = !picked;
+            if (!picked) {
+                usePull = false;
+                updateScopeButtons();
+            }
+            lastPaint = -Infinity;
+            redraw();
+        });
+    }
     function currentPull(t) {
         const candidate = data.pulls[upper(data.pulls,t)-1];
         return candidate && t <= candidate.end ? candidate : null;
     }
 
     function updateCount() {
-        const count = selected.size + bosses.filter(b => !mutedBosses.has(b.guid)).length;
-        byId('activity-count').textContent = count + ' / ' + (players.length + bosses.length);
+        const eligible = players.filter(p => !waveActors || waveActors.has(p.id));
+        const count = eligible.filter(p => selected.has(p.id)).length;
+        byId('activity-count').textContent = (rosterPull?.label || '全场') + ' · ' + count + ' / ' + eligible.length;
     }
     function changed() {
         version++;
@@ -91,17 +109,15 @@ window.createReplayActivity = function ({data, actors, badge, precise, redraw, j
     function syncBosses(t) {
         const candidate = bossWindows[upper(bossWindows,t)-1];
         const next = candidate && t <= candidate.end ? candidate : null;
-        if (next === currentWindow) return;
+        if (next === currentWindow) return false;
         currentWindow = next;
         for (const b of bosses) {
             inputs.get(b.id).closest('label').remove();
             inputs.delete(b.id);
         }
         bosses = (next?.actors || []).map(id => actors.get(id)).filter(Boolean);
-        byId('activity-players').prepend(...bosses.map(makeChoice));
-        version++;
-        filterPlayers();
-        updateCount();
+        byId('activity-bosses').append(...bosses.map(makeChoice));
+        return true;
     }
     const search = byId('activity-search');
     function filterPlayers() {
@@ -110,7 +126,8 @@ window.createReplayActivity = function ({data, actors, badge, precise, redraw, j
         for (const [id,input] of inputs) {
             const p = actors.get(id);
             const role = p.family !== 'Player' ? '首领 boss' : p.role === 'tank' ? '坦克 T' : '';
-            const visible = [p.name,p.spec,role].join(' ').toLowerCase().includes(term);
+            const inScope = p.family !== 'Player' || !waveActors || waveActors.has(id);
+            const visible = inScope && [p.name,p.spec,role].join(' ').toLowerCase().includes(term);
             input.closest('label').hidden = !visible;
             if (visible) matches++;
         }
@@ -240,21 +257,27 @@ window.createReplayActivity = function ({data, actors, badge, precise, redraw, j
     return {
         prepare,
         follow:axis.follow,
+        currentPull,
         update(time, chunk, playing) {
             const now = performance.now();
             const t = Math.floor(time);
-            if (wavePicker && !manualWave && document.activeElement !== wavePicker) {
-                const value = String(currentPull(t)?.id ?? 'all');
-                if (wavePicker.value !== value) wavePicker.value = value;
+            const pull = picked || (usePull ? currentPull(t) : null);
+            const bossesChanged = syncBosses(t);
+            if (pull !== rosterPull || bossesChanged) {
+                rosterPull = pull;
+                waveActors = pull ? new Set(pull.actors) : null;
+                version++;
+                filterPlayers();
+                updateCount();
             }
-            syncBosses(t);
-            axis.update(t,version,bosses,mutedBosses);
+            axis.update(t,version,bosses,mutedBosses,waveActors);
             if (playing && chunk === lastChunk && now-lastPaint < 80) return;
             lastChunk = chunk;
             lastPaint = now;
             renderDamage(t,chunk);
         },
         share(params) {
+            if (picked) params.set('wave',picked.id);
             if (damagePlayers === selected) params.set('casters', players.filter(p => selected.has(p.id)).map(p => p.guid).join(','));
             if (mutedBosses.size) params.set('bossOff', [...mutedBosses].join(','));
             if (attempts.checked) params.set('attempts','1');

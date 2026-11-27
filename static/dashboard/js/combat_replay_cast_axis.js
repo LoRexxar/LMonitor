@@ -10,7 +10,7 @@ window.createReplayCastAxis = function ({data, players, selected, badge, precise
     const phases = {SPELL_CAST_START:'读条', SPELL_CAST_SUCCESS:'释放', SPELL_CAST_FAILED:'失败'};
     const pxPerMs = 0.048, padding = 16, bucketMs = 2000;
     const y = t => padding + t * pxPerMs;
-    let time = 0, following = true, expectedTop = 0, frame = 0;
+    let time = 0, following = true, frame = 0;
     let layoutKey = '', windowKey = '', revision = 0, selectionRevision = -1;
     let roster = [];
     let mode = query.get('castView') === 'text' ? 'text' : 'icons';
@@ -22,11 +22,18 @@ window.createReplayCastAxis = function ({data, players, selected, badge, precise
     }
     function follow(enable = true) {
         following = enable;
-        expectedTop = scroll.scrollTop;
         followButton.setAttribute('aria-pressed', String(enable));
         followButton.textContent = enable ? '跟随回放' : '回到当前时间';
     }
     followButton.onclick = () => { follow(!following); paint(); };
+    const pauseFollow = () => { if (following) follow(false); };
+    scroll.addEventListener('wheel', pauseFollow, {passive:true});
+    scroll.addEventListener('pointerdown', pauseFollow);
+    scroll.addEventListener('touchstart', pauseFollow, {passive:true});
+    scroll.addEventListener('keydown', event => {
+        if (['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key) &&
+            !(event.key === ' ' && event.target.closest('button'))) pauseFollow();
+    });
     scroll.addEventListener('scroll', () => {
         queuePaint();
     });
@@ -187,12 +194,9 @@ window.createReplayCastAxis = function ({data, players, selected, badge, precise
     }
     function paint() {
         if (!scroll.clientHeight) return;
-        // 滚动事件可能晚于数据刷新，先接纳用户的位置，再决定是否移动时间轴。
-        if (following && Math.abs(scroll.scrollTop - expectedTop) > 1) follow(false);
         if (following) {
-            const dest = y(time) - (scroll.clientHeight - head.offsetHeight)*0.45;
+            const dest = y(time) - (scroll.clientHeight - head.offsetHeight)*0.4;
             scroll.scrollTop = Math.max(0,dest);
-            expectedTop = scroll.scrollTop;
         }
         cursor.style.top = y(time) + 'px';
         cursor.firstElementChild.textContent = precise(time);
@@ -231,10 +235,11 @@ window.createReplayCastAxis = function ({data, players, selected, badge, precise
     }
     return {
         prime, follow,
-        update(t, version, bosses, mutedBosses) {
+        update(t, version, bosses, mutedBosses, waveActors) {
             time = t;
             if (selectionRevision !== version) {
-                roster = [...bosses.filter(b => !mutedBosses.has(b.guid)), ...players.filter(p => selected.has(p.id))];
+                roster = [...bosses.filter(b => !mutedBosses.has(b.guid)),
+                    ...players.filter(p => selected.has(p.id) && (!waveActors || waveActors.has(p.id)))];
                 buildLanes(roster);
                 selectionRevision = version;
             }

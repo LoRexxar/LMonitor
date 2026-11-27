@@ -58,6 +58,24 @@ section > h2:first-child, form h2 { margin-top: 0; }
 main p { overflow-wrap: anywhere; }
 small { display: block; margin-top: 4px; }
 .table-wrap { overflow: auto; border-radius: var(--radius-sm); }
+.combat-event-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 999px;
+    color: var(--event-ink, var(--secondary)); background: var(--event-bg, var(--subtle));
+    font-size: 12px; font-weight: 650; line-height: 1.35; white-space: nowrap;
+}
+.combat-event-badge[data-tone="damage"] { --event-ink: var(--danger); --event-bg: var(--danger-bg); }
+.combat-event-badge[data-tone="heal"] { --event-ink: var(--success); --event-bg: var(--success-bg); }
+.combat-event-badge[data-tone="cast"] { --event-ink: var(--accent); --event-bg: var(--accent-bg); }
+.combat-event-badge:is([data-tone="buff"], [data-tone="interrupt"]) { --event-ink: var(--action-ink); --event-bg: var(--action-tint); }
+.combat-event-badge[data-tone="dispel"] { --event-ink: color-mix(in srgb, var(--ink) 55%, #9b46d2); --event-bg: color-mix(in srgb, var(--surface) 85%, #9b46d2); }
+.combat-event-badge[data-tone="debuff"] { --event-ink: color-mix(in srgb, var(--ink) 55%, #e45727); --event-bg: color-mix(in srgb, var(--surface) 85%, #e45727); }
+.combat-event-badge[data-tone="death"] { --event-ink: #fff; --event-bg: #8d1836; }
+.combat-shell .combat-event-death { background: var(--danger-bg); }
+.review-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.review-summary > div { flex: 1 0 130px; padding: 10px 12px; background: var(--subtle); border: 1px solid var(--grid); border-radius: var(--radius-sm); }
+.review-summary dt { color: var(--secondary); font-size: 12px; }
+.review-summary dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; font-weight: 650; }
+.review-timeline tbody td:first-child { font-family: var(--num); font-variant-numeric: tabular-nums; white-space: nowrap; }
 table { width: 100%; border-spacing: 0; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 td, th { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--grid); }
 th { font-size: 12px; color: var(--secondary); background: var(--subtle); font-weight: 620; border-bottom-color: var(--line); }

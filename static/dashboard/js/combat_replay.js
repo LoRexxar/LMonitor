@@ -2,11 +2,51 @@
     const publishedImageUrl = window.publishedImageUrl || (() => '');
     const setIcon = window.setPublishedWowImage || ((img, src) => { const url = window.publishedImageUrl?.(src); if (url) img.src = url; });
     const $ = id => document.getElementById(id);
+    const eventLabels = {
+        DAMAGE:['damage','伤害'], HEAL:['heal','治疗'], UNIT_DIED:['death','死亡'],
+        SPELL_CAST_START:['cast','读条'], SPELL_INTERRUPT:['interrupt','打断'], SPELL_DISPEL:['dispel','驱散'],
+        BUFF:['buff','增益'], DEBUFF:['debuff','减益'], 完成:['cast','完成'], 失败:['cast','失败'],
+        打断:['interrupt','打断'], 未知:['neutral','未知']
+    };
+    const damageKinds = new Set(['SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','RANGE_DAMAGE','SWING_DAMAGE',
+        'ENVIRONMENTAL_DAMAGE','DAMAGE_SHIELD','DAMAGE_SPLIT']);
+    const healKinds = new Set(['SPELL_HEAL','SPELL_PERIODIC_HEAL']);
+    function eventType(kind, aura) {
+        if (aura) return aura;
+        if (damageKinds.has(kind)) return 'DAMAGE';
+        if (healKinds.has(kind)) return 'HEAL';
+        return kind;
+    }
+    function eventBadge(badge, type) {
+        const [tone,label] = Object.hasOwn(eventLabels,type) ? eventLabels[type] : ['neutral',badge.textContent || '事件'];
+        badge.dataset.tone = tone;
+        badge.textContent = label;
+    }
+    const reviewData = $('review-timeline-data');
+    if (reviewData) {
+        const packet = JSON.parse(reviewData.textContent);
+        const totals = {DAMAGE:0, HEAL:0}, unknown = new Set();
+        const rows = document.querySelectorAll('.review-timeline tbody tr');
+        for (const [i,event] of packet.items.entries()) {
+            const type = eventType(event.outcome || event.kind);
+            eventBadge(rows[i].querySelector('.combat-event-badge'),type);
+            if (Object.hasOwn(totals,type)) {
+                if (event.amount == null) unknown.add(type);
+                else totals[type] += event.amount;
+            }
+        }
+        if (packet.counts) $('review-event-total').textContent = Object.values(packet.counts).reduce((a,b) => a+b,0);
+        else for (const type of Object.keys(totals)) {
+            $(type === 'DAMAGE' ? 'review-damage-total' : 'review-heal-total').textContent =
+                (unknown.has(type) ? '≥ ' : '') + totals[type].toLocaleString('zh-CN');
+        }
+    }
     if (!$('replay-data')) return;
     const data = JSON.parse($('replay-data').textContent);
     const canvas = $('arena'), ctx = canvas.getContext('2d');
     const clock = $('clock'), actorSelect = $('actor'), floorSelect = $('floor');
     const compareSelect = $('compare');
+    const zoomSelect = $('zoom'), customZoomOption = $('zoom-custom');
     const tabs = Array.from(document.querySelectorAll('.replay-tabs [role=tab]'));
     const replayQuery = new URLSearchParams(location.search);
     function selectTab(active) {
@@ -34,6 +74,7 @@
     selectTab(tabs.find(tab => tab.id === 'tab-' + replayQuery.get('tab')) || tabs[0]);
     tabs[0].parentElement.hidden = false;
     document.querySelector('a[href="#replay-activity"]').addEventListener('click', () => {
+        setAside(true);
         tabs[0].click();
         tabs[0].focus({preventScroll:true});
     });
@@ -49,6 +90,7 @@
     let prefetch = -1, loop = null;
     let scrubPointer = null, scrubTarget = null, scrubFrame = 0, lastScrub = 0;
     let hits = [], camera = null, eventKey = '', drag = null;
+    let customZoom = null;
     const layers = {};
     const layerControls = [...document.querySelectorAll('[data-layer]')];
     const preferenceKey = 'combat-replay.display.v1';
@@ -274,17 +316,28 @@
     }
     function eventItem(e) {
         const li = document.createElement('li'), jump = document.createElement('button'), raw = document.createElement('a');
+        const timestamp = document.createElement('time'), summary = document.createElement('div');
+        const badge = document.createElement('span'), description = document.createElement('p');
+        const actions = document.createElement('div');
         const action = {SPELL_AURA_APPLIED:'获得',SPELL_AURA_REFRESH:'刷新',SPELL_AURA_APPLIED_DOSE:'叠层',
             SPELL_AURA_REMOVED_DOSE:'减层',SPELL_AURA_REMOVED:'移除',SPELL_AURA_BROKEN:'打破',SPELL_AURA_BROKEN_SPELL:'打破'};
-        let title;
-        if (e.aura_type) title = e.target+' '+action[e.kind]+(e.aura_type==='DEBUFF'?'减益':'增益')+' · '+e.spell+
-            (e.aura_stacks!=null?' ×'+e.aura_stacks:'');
-        else if (e.kind==='UNIT_DIED') title=e.target+' 死亡';
-        else if (e.kind==='SPELL_CAST_START') title=e.source+' 开始施放 '+e.spell;
-        else if (e.kind==='SPELL_INTERRUPT' || e.kind==='SPELL_DISPEL') title=e.source+
-            (e.kind==='SPELL_INTERRUPT'?' 打断 ':' 驱散 ')+e.target+(e.interrupted_spell?' · '+e.interrupted_spell:'');
-        else title=e.source+' → '+e.target+' · '+e.spell+(e.amount!=null?' · '+e.amount.toLocaleString():'');
-        jump.textContent = precise(e.t) + '　' + title;
+        const type = eventType(e.kind,e.aura_type);
+        li.className = 'replay-event-card';
+        li.classList.toggle('combat-event-death',type === 'UNIT_DIED');
+        timestamp.textContent = precise(e.t);
+        timestamp.dateTime = 'PT'+(e.t/1000)+'S';
+        badge.className = 'combat-event-badge';
+        eventBadge(badge,type);
+        const subjectName = e.kind === 'UNIT_DIED' ? e.target : [e.source,e.target].filter(name => name && name !== '未知').join(' → ');
+        const skill = e.spell && e.spell !== '未知' && type !== 'UNIT_DIED' ? e.spell : '';
+        const detail = e.aura_type ? [action[e.kind],e.aura_stacks == null ? '' : '×'+e.aura_stacks].filter(Boolean).join(' ') : e.interrupted_spell;
+        const value = e.amount == null ? (type === 'DAMAGE' || type === 'HEAL' ? '数值未知' : '') : e.amount.toLocaleString('zh-CN');
+        description.textContent = [subjectName,skill,detail,value].filter(Boolean).join(' · ');
+        summary.append(badge,description);
+        jump.type = 'button';
+        jump.textContent = '跳转';
+        const title = timestamp.textContent+' '+badge.textContent+' '+description.textContent;
+        jump.setAttribute('aria-label','跳转回放 '+title);
         function showMap() {
             if (!window.matchMedia('(max-width:800px)').matches) return;
             (canvas.clientWidth ? canvas : $('state-title')).scrollIntoView({block:'start'});
@@ -298,27 +351,89 @@
         const repeat = document.createElement('button');
         repeat.type = 'button';
         repeat.textContent = '循环';
-        repeat.setAttribute('aria-label','循环回看 '+jump.textContent+' 前后 5 秒');
+        repeat.setAttribute('aria-label','循环回看 '+title+' 前后 5 秒');
         repeat.disabled = !data.duration;
         repeat.onclick = () => { followTarget(); startLoop(e.t); showMap(); };
         raw.href = e.url; raw.textContent = '原文';
-        li.append(jump,repeat,raw);
+        raw.setAttribute('aria-label','查看原文 '+title);
+        actions.className = 'replay-event-actions';
+        actions.append(jump,repeat,raw);
+        li.append(timestamp,summary,actions);
         return li;
     }
+    const recentKind = $('recent-kind'), recentRetry = $('recent-retry'), recentOverflow = $('recent-overflow');
+    const eventNodes = new Map();
+    const keyEvents = new Set(['UNIT_DIED','SPELL_CAST_START','SPELL_INTERRUPT']);
+    const recentLimit = 60;
+    let recent = null;
+    async function loadRecent(kind, chunk) {
+        const controller = new AbortController();
+        const request = recent = {kind, chunk, controller, events:[]};
+        const url = new URL(location.href);
+        url.search = new URLSearchParams({chunk, kind, revision:data.revision});
+        try {
+            const response = await fetch(url,{signal:controller.signal});
+            if (response.status === 409) throw Error('索引已更新，请刷新回放。');
+            if (response.redirected || !response.ok) throw Error('读取近期事件失败。');
+            request.events = (await response.json()).events;
+        } catch (error) {
+            if (!controller.signal.aborted) request.error = error.message;
+        } finally {
+            request.done = true;
+            if (recent === request) eventList();
+        }
+    }
     function eventList() {
-        const items = (current?.events || []).filter(e => e.t <= time && time-e.t <= 5000).reverse();
-        const key = items.map(e => e.line).join(',') + (current ? '!' : '?');
+        const kind = recentKind.value;
+        const extra = kind && !keyEvents.has(kind);
+        const visible = !$('replay-aside').hidden && !$('replay-events').hidden;
+        if (recent && (!extra || !visible || !current || recent.kind !== kind || recent.chunk !== currentChunk)) {
+            recent.controller.abort();
+            recent = null;
+        }
+        if (!visible) return;
+        if (extra && current && !recent) loadRecent(kind,currentChunk);
+        const rows = (extra ? recent?.events : current?.events) || [];
+        let lo = 0, hi = rows.length;
+        while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (rows[mid].t <= time) lo = mid + 1;
+            else hi = mid;
+        }
+        const items = [];
+        for (let i = lo-1; i >= 0 && rows[i].t >= time-5000; i--) {
+            const event = rows[i];
+            if (!kind || extra || eventType(event.kind,event.aura_type) === kind) items.push(event);
+            if (items.length > recentLimit) break;
+        }
+        recentOverflow.hidden = items.length <= recentLimit;
+        if (!recentOverflow.hidden) items.pop();
+        const message = !current || extra && !recent?.done ? '正在读取事件…' :
+            recent?.error || '此时段没有所选类型的事件。';
+        recentRetry.hidden = !recent?.error;
+        const key = kind + '|' + (items.length ? items.map(e => e.line).join(',') : message);
         if (key === eventKey) return;
         eventKey = key;
         const list = $('event-list');
-        list.replaceChildren();
+        const shown = new Set(items.map(e => e.line));
+        for (const [line,node] of eventNodes) {
+            if (!shown.has(line)) { node.remove(); eventNodes.delete(line); }
+        }
+        list.querySelector('.replay-event-empty')?.remove();
         if (!items.length) {
             const li = document.createElement('li');
-            li.textContent = current ? '此时段没有死亡、打断或敌方读条。' : '正在读取事件…';
+            li.className = 'replay-event-empty';
+            li.textContent = message;
             list.append(li);
         }
-        for (const e of items) list.append(eventItem(e));
+        for (const [i,e] of items.entries()) {
+            if (!eventNodes.has(e.line)) eventNodes.set(e.line,eventItem(e));
+            const node = eventNodes.get(e.line);
+            if (list.children[i] !== node) list.insertBefore(node,list.children[i] || null);
+        }
     }
+    recentKind.onchange = () => { $('event-list').scrollTop = 0; eventList(); };
+    recentRetry.onclick = () => { recent = null; eventList(); };
     let eventRequest = null, resultsPage = 0, searchFilter = null;
     async function findEvents(page) {
         eventRequest?.abort();
@@ -406,7 +521,7 @@
         if (!button) return;
         actorSelect.value = button.dataset.actor;
         floorSelect.value = '';
-        if (['battle','1'].includes($('zoom').value)) $('zoom').value = '2';
+        if (['battle','1'].includes(zoomSelect.value)) setZoomPreset('2');
         pan = null;
         draw();
     };
@@ -549,22 +664,32 @@
         }
         const terrain = chooseTerrain(map,points);
         const entry = terrain ? imageFor(terrain) : null;
-        const region = $('zoom').value !== '1';
-        const zoom = $('zoom').value === 'battle' ? 1 : Number($('zoom').value);
-        const [x0,y0,x1,y1] = !region && terrain ? terrain.bounds : [map.x0,map.y0,map.x1,map.y1];
-        const margin = terrain && region ? 1.45 : 1;
-        const minSpan = terrain && region ? 90 : 20;
-        let scale = Math.min((w-52)/Math.max(minSpan,(y1-y0)*margin),
-                               (h-56)/Math.max(minSpan,(x1-x0)*margin))*zoom;
+        const base = customZoom?.base || ({battle:'battle',1:'full'}[zoomSelect.value] ?? 'region');
+        const battle = base === 'battle';
+        const zoom = customZoom?.ratio ?? (battle ? 1 : Number(zoomSelect.value));
+        const pull = activity.currentPull(time);
+        const activePlayers = battle ? points.filter(p => p.map === map.id && !p.dead &&
+            actors.get(p.id).family === 'Player' && (!pull || p.t >= pull.t && pull.actors.includes(p.id))) : [];
+        let bounds = terrain && base === 'full' ? terrain.bounds : [map.x0,map.y0,map.x1,map.y1];
+        if (activePlayers.length) {
+            const xs = activePlayers.map(p => p.x), ys = activePlayers.map(p => p.y);
+            bounds = [Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)];
+        }
+        const [x0,y0,x1,y1] = bounds;
+        const margin = activePlayers.length ? 1.23 : terrain && base !== 'full' ? 1.45 : 1;
+        const minSpan = terrain && base !== 'full' && !activePlayers.length ? 90 : 20;
+        let scale = Math.min(Math.max(1,w-52)/Math.max(minSpan,(y1-y0)*margin),
+                             Math.max(1,h-56)/Math.max(minSpan,(x1-x0)*margin))*zoom;
         const onFloor = selected?.map === map.id ? selected : partner?.map === map.id ? partner : null;
-        const follow = zoom > 1 && !!onFloor;
+        const follow = !battle && zoom > 1 && !!onFloor;
         const pairFollow = follow && sameFloor;
         if (pairFollow) scale = Math.min(scale, Math.max(1,w-96)/Math.max(1,Math.abs(selected.y-partner.y)),
             Math.max(1,h-80)/Math.max(1,Math.abs(selected.x-partner.x)));
         const focus = pairFollow ? {x:(selected.x+partner.x)/2, y:(selected.y+partner.y)/2} : onFloor;
         const cx = pan?.map === map.id ? pan.x : follow ? focus.x : (x0+x1)/2;
         const cy = pan?.map === map.id ? pan.y : follow ? focus.y : (y0+y1)/2;
-        camera = {cx,cy,scale,map:map.id};
+        if (pan?.map === map.id && pan.scale) scale = pan.scale;
+        camera = {cx,cy,scale,map:map.id,zoom,base};
         const px = y => w/2 - (y-cy)*scale, py = x => h/2 - (x-cx)*scale;
         const unit = Math.pow(10,Math.floor(Math.log10(75/scale)));
         const grid = [unit,unit*2,unit*5,unit*10].find(n => n*scale >= 42) || unit*10;
@@ -720,7 +845,10 @@
             }
         }
         if (floorSelect.value) url.searchParams.set('map',floorSelect.value);
-        if ($('zoom').value !== 'battle') url.searchParams.set('zoom',$('zoom').value);
+        if (customZoom) {
+            url.searchParams.set('zoom',customZoom.ratio.toFixed(4));
+            url.searchParams.set('zoomBase',customZoom.base);
+        } else if (zoomSelect.value !== 'battle') url.searchParams.set('zoom',zoomSelect.value);
         if ($('map-mode').value !== 'terrain') url.searchParams.set('background',$('map-mode').value);
         $('moment').href = url;
     }
@@ -739,7 +867,7 @@
         button.onclick = () => {
             floorSelect.value = button.dataset.floor;
             pan = null;
-            if (['battle','1'].includes($('zoom').value)) $('zoom').value = '2';
+            if (['battle','1'].includes(zoomSelect.value)) setZoomPreset('2');
             draw();
             if (window.matchMedia('(max-width:800px)').matches) canvas.scrollIntoView({block:'start'});
         };
@@ -815,7 +943,45 @@
         e.preventDefault();stop();seek(time+((e.key==='ArrowRight'?1:-1)*(e.shiftKey?250:1000)));
     };
     document.querySelectorAll('[data-skip]').forEach(b => b.onclick=() => {stop();seek(time+Number(b.dataset.skip));});
-    for (const control of [actorSelect,compareSelect,floorSelect,$('zoom'),$('map-mode'), $('npcs'),$('effects')]) control.onchange=() => {pan=null;draw();};
+    for (const control of [actorSelect,compareSelect,floorSelect,$('map-mode')]) control.onchange=() => {
+        pan = null;
+        draw();
+    };
+    for (const control of [$('npcs'),$('effects')]) control.onchange = draw;
+    function setCustomZoom(view) {
+        customZoom = view;
+        customZoomOption.textContent = '自定义 '+Number(view.ratio.toFixed(2))+'×';
+        customZoomOption.hidden = false;
+        zoomSelect.value = 'custom';
+    }
+    function setZoomPreset(value) {
+        customZoom = pan = null;
+        customZoomOption.hidden = true;
+        zoomSelect.value = value;
+    }
+    zoomSelect.onchange = () => {
+        if (zoomSelect.value !== 'custom') setZoomPreset(zoomSelect.value);
+        draw();
+    };
+    function zoomAt(factor, px, py) {
+        if (!camera || drag) return;
+        const {cx,cy,scale,map,zoom,base} = camera;
+        const ratio = Math.max(0.5,Math.min(16,zoom*factor));
+        if (ratio === zoom) return;
+        const nextScale = scale * ratio / zoom;
+        const delta = 1 / nextScale - 1 / scale;
+        pan = {map,x:cx + (py - canvas.clientHeight/2)*delta,y:cy + (px - canvas.clientWidth/2)*delta,scale:nextScale};
+        setCustomZoom({ratio,base});
+        draw();
+    }
+    $('zoom-in').onclick = () => zoomAt(1.3,canvas.clientWidth/2,canvas.clientHeight/2);
+    $('zoom-out').onclick = () => zoomAt(1/1.3,canvas.clientWidth/2,canvas.clientHeight/2);
+    canvas.addEventListener('wheel', event => {
+        event.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1;
+        zoomAt(Math.exp(-event.deltaY*unit*0.002),event.clientX-rect.left,event.clientY-rect.top);
+    }, {passive:false});
     for (const control of layerControls) {
         control.onchange = () => {
             const requestedAuras = layers.buffs || layers.debuffs;
@@ -838,18 +1004,19 @@
         jumpDeath(death);$('death').value='';
     };
     canvas.onpointerdown=e => {
-        if (e.button!==0 || !camera) return;
-        drag={x:e.clientX,y:e.clientY,camera,moved:false};canvas.setPointerCapture(e.pointerId);
+        if (e.button!==0 || !camera || drag) return;
+        drag={id:e.pointerId,x:e.clientX,y:e.clientY,camera,moved:false};canvas.setPointerCapture(e.pointerId);
     };
     canvas.onpointermove=e => {
-        if (!drag) return;
+        if (drag?.id !== e.pointerId) return;
         const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
         if (!drag.moved && Math.hypot(dx,dy)<5) return;
         drag.moved=true;
-        pan={map:drag.camera.map,x:drag.camera.cx+dy/drag.camera.scale,y:drag.camera.cy+dx/drag.camera.scale};draw();
+        const {map,cx,cy,scale} = drag.camera;
+        pan={map,x:cx+dy/scale,y:cy+dx/scale,scale};draw();
     };
     canvas.onpointerup=e => {
-        if (!drag) return;
+        if (drag?.id !== e.pointerId) return;
         if (!drag.moved) {
             const rect=canvas.getBoundingClientRect();
             const near=hits.map(p=>({...p,d:Math.hypot(e.clientX-rect.left-p.x,e.clientY-rect.top-p.y)})).filter(p=>p.d<=14).sort((a,b)=>a.d-b.d);
@@ -857,8 +1024,48 @@
         }
         drag=null;
     };
-    canvas.onpointercancel=() => {drag=null;};
-    $('reset-view').onclick=canvas.ondblclick=() => {pan=null;$('zoom').value='battle';draw();};
+    canvas.onpointercancel=canvas.onlostpointercapture=e => {if (drag?.id === e.pointerId) drag=null;};
+    $('focus-players').onclick=$('reset-view').onclick=canvas.ondblclick=() => {setZoomPreset('battle');draw();};
+    const aside = $('replay-aside'), asideToggle = $('aside-toggle');
+    function setAside(open) {
+        aside.hidden = !open;
+        asideToggle.setAttribute('aria-expanded',String(open));
+        asideToggle.textContent = open ? '收起右侧面板' : '展开右侧面板';
+        draw();
+    }
+    asideToggle.onclick = () => setAside(aside.hidden);
+    const stage = canvas.parentElement, meter = stage.querySelector('.damage-meter');
+    const meterHead = meter.querySelector('.meter-head');
+    let meterPosition = null, meterDrag = null;
+    function placeMeter(x,y) {
+        if (!canvas.clientWidth) return;
+        meterPosition = {
+            x:Math.max(0,Math.min(x,stage.clientWidth-meter.offsetWidth)),
+            y:Math.max(0,Math.min(y,stage.clientHeight-meter.offsetHeight))
+        };
+        meter.style.setProperty('--meter-x',meterPosition.x+'px');
+        meter.style.setProperty('--meter-y',meterPosition.y+'px');
+        meter.classList.add('is-positioned');
+    }
+    meterHead.onpointerdown = event => {
+        if (event.button !== 0 || meterDrag || !canvas.clientWidth || event.target.closest('select,button')) return;
+        meterDrag = {id:event.pointerId,x:event.clientX-meter.offsetLeft,y:event.clientY-meter.offsetTop};
+        meterHead.setPointerCapture(event.pointerId);
+        meterHead.classList.add('is-dragging');
+    };
+    meterHead.onpointermove = event => {
+        if (meterDrag?.id === event.pointerId) placeMeter(event.clientX-meterDrag.x,event.clientY-meterDrag.y);
+    };
+    meterHead.onpointerup = meterHead.onpointercancel = meterHead.onlostpointercapture = event => {
+        if (meterDrag?.id !== event.pointerId) return;
+        meterDrag = null;
+        meterHead.classList.remove('is-dragging');
+    };
+    const meterResize = new ResizeObserver(() => {
+        if (meterPosition) placeMeter(meterPosition.x,meterPosition.y);
+    });
+    meterResize.observe(stage);
+    meterResize.observe(meter);
     document.addEventListener('visibilitychange',() => {if (document.hidden) stop();});
     new ResizeObserver(draw).observe(canvas);
     const params = new URLSearchParams(location.search);
@@ -879,7 +1086,9 @@
     }
     if (maps.has(Number(params.get('map')))) floorSelect.value = params.get('map');
     if (['native','grid'].includes(params.get('background'))) $('map-mode').value = params.get('background');
-    if (['1','2','4','8'].includes(params.get('zoom'))) $('zoom').value = params.get('zoom');
+    const ratio = Number(params.get('zoom')), base = params.get('zoomBase');
+    if (['battle','full','region'].includes(base) && ratio >= 0.5 && ratio <= 16) setCustomZoom({ratio,base});
+    else if (['1','2','4','8'].includes(params.get('zoom'))) setZoomPreset(params.get('zoom'));
     const shell = canvas.closest('.player-shell');
     function setMapVisible(visible) {
         shell.classList.toggle('focus-state',!visible);

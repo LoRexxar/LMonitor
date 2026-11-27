@@ -81,6 +81,12 @@ def boss_fixture(day, second=False):
     return text.encode()
 
 
+def replay_wave_fixture():
+    rows = fixture().splitlines(keepends=True)
+    rows[-2] = rows[-2].replace('Player-1,"甲"'.encode(), 'Player-2,"乙"'.encode())
+    return b"".join(rows)
+
+
 def raid_fixture(day, second=False):
     return b"".join(line.replace(b',8,5,', b',16,20,') for line in boss_fixture(day, second).splitlines(keepends=True)
                     if b"CHALLENGE_MODE_" not in line)
@@ -665,6 +671,26 @@ class CombatWorkbenchTests(TestCase):
         self.client.force_login(self.member)
         for params in ({}, {"chunk": 0}, {"event_page": 0}):
             self.assertEqual(self.client.get(key, params).status_code, 404)
+
+    def test_replay_reports_pull_players_and_filters_recent_events(self):
+        rows = replay_wave_fixture().splitlines(keepends=True)
+        rows.insert(3, '9/1/2026 18:00:02.000+8  SPELL_CAST_SUCCESS,Player-3,"丙",0,0,Creature-1,"首领",0,0,99,"技能",4\r\n'.encode())
+        report = self.ingest(self.owner, 2, b"".join(rows))
+        url = reverse("combat_replay", args=[report.pk, 1])
+        replay = self.client.get(url).context["replay"]
+        names = {a["id"]: a["name"] for a in replay["actors"]}
+        self.assertIn("丙", names.values())
+        self.assertEqual([[names[a] for a in p["actors"]] for p in replay["pulls"]], [["甲"], ["甲"], ["乙"]])
+        for kind, expected in [
+            ("HEAL", [(7000, "治疗")]),
+            ("DEBUFF", [(8000, "光环"), (10000, "光环")]),
+            ("SPELL_DISPEL", [(9000, "驱散")]),
+        ]:
+            with self.subTest(kind=kind):
+                response = self.client.get(url, {"chunk": 0, "kind": kind})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([(e["t"], e["spell"]) for e in response.json()["events"]], expected)
+        self.assertEqual(self.client.get(url, {"chunk": 0, "kind": "INVALID"}).status_code, 400)
 
     def test_replay_boss_sources_follow_pull_boundaries(self):
         version = MythicDungeonDataVersion.objects.create(key="boss-catalog", is_active=True)
@@ -1478,6 +1504,156 @@ class BossReviewBrowserTests(StaticLiveServerTestCase):
     @classmethod
     def _make_connections_override(cls):
         return {}
+
+    def test_replay_map_panels_wave_following_and_review_timeline(self):
+        from playwright.sync_api import expect, sync_playwright
+
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot", COMBAT_LOG_COLD_ROOT=root/"cold"))
+        user = get_user_model().objects.create_user(username="回放交互验收")
+        raw = replay_wave_fixture()
+        report = archive.create(user, "回放交互.txt", len(raw))
+        archive.put_part(user, report.pk, 0, raw)
+        with patch.object(archive, "launch", side_effect=archive.collect):
+            archive.enqueue(user, report.pk)
+        self.client.force_login(user)
+        path = reverse("combat_replay", args=[report.pk, 1])
+        replay = self.client.get(path).context["replay"]
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge")
+            try:
+                page = browser.new_page(viewport={"width":1440,"height":1000}, device_scale_factor=1.25)
+                page.route("**/*", lambda route: route.continue_() if route.request.url.startswith(self.live_server_url) else route.abort())
+                errors = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                page.context.add_cookies([{"url":self.live_server_url, "name":"sessionid",
+                                           "value":self.client.cookies["sessionid"].value}])
+                page.add_init_script("""{
+                    const arc = CanvasRenderingContext2D.prototype.arc;
+                    CanvasRenderingContext2D.prototype.arc = function(x,y,r,...rest) {
+                        if (this.canvas.id === 'arena' && r === 10) this.canvas.playerX = x;
+                        return arc.call(this,x,y,r,...rest);
+                    };
+                }""")
+                page.goto(self.live_server_url + path + "?t=8000&background=grid")
+                canvas = page.locator("#arena")
+                expect(canvas).to_be_visible()
+                page.wait_for_function("document.querySelector('#arena').playerX > 0")
+                canvas.scroll_into_view_if_needed()
+                bounds = canvas.bounding_box()
+                self.assertAlmostEqual(bounds["height"], 660, delta=1)
+                self.assertAlmostEqual(canvas.evaluate("c => c.playerX"), bounds["width"]/2, delta=2)
+                self.assertGreater(bounds["width"], 0.7*page.locator(".replay-layout").bounding_box()["width"])
+                x, y = bounds["x"]+bounds["width"]/2+100, bounds["y"]+150
+                before_scroll = page.evaluate("window.scrollY")
+                page.mouse.move(x,y)
+                page.mouse.wheel(0,-150)
+                expect(page.locator("#zoom")).to_have_value("custom")
+                ratio = float(page.locator("#zoom-custom").text_content().split()[1].rstrip("×"))
+                self.assertGreater(ratio, 1)
+                focused_x = bounds["width"]/2 - 100*(ratio-1)
+                self.assertAlmostEqual(canvas.evaluate("c => c.playerX"), focused_x, delta=2)
+                self.assertEqual(page.evaluate("window.scrollY"), before_scroll)
+                page.mouse.move(x,y)
+                page.mouse.down()
+                page.mouse.move(x+40,y+20)
+                page.mouse.up()
+                self.assertAlmostEqual(canvas.evaluate("c => c.playerX"), focused_x+40, delta=3)
+                page.locator("#zoom-in").click()
+                expect(page.locator("#zoom")).to_have_value("custom")
+                canvas.dispatch_event("wheel", {"deltaY":10000,"clientX":x,"clientY":y})
+                expect(page.locator("#zoom-custom")).to_have_text("自定义 0.5×")
+                canvas.dispatch_event("wheel", {"deltaY":-10000,"clientX":x,"clientY":y})
+                expect(page.locator("#zoom-custom")).to_have_text("自定义 16×")
+                page.locator("#focus-players").click()
+                expect(page.locator("#zoom")).to_have_value("battle")
+                page.locator("#aside-toggle").click()
+                expect(page.locator("#replay-aside")).to_be_hidden()
+                self.assertGreater(canvas.bounding_box()["width"], bounds["width"]+300)
+                page.locator("#aside-toggle").click()
+                expect(page.locator("#replay-aside")).to_be_visible()
+
+                meter = page.locator(".damage-meter")
+                meter.scroll_into_view_if_needed()
+                handle = page.locator("#meter-title").bounding_box()
+                page.mouse.move(handle["x"]+3,handle["y"]+4)
+                page.mouse.down()
+                page.mouse.move(0,0)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('.damage-meter').offsetLeft === 0")
+                page.locator("#aside-toggle").click()
+                meter.scroll_into_view_if_needed()
+                handle = page.locator("#meter-title").bounding_box()
+                page.mouse.move(handle["x"]+3,handle["y"]+4)
+                page.mouse.down()
+                page.mouse.move(1439,handle["y"]+30)
+                page.mouse.up()
+                page.set_viewport_size({"width":390,"height":820})
+                page.wait_for_function("""() => {
+                    const meter = document.querySelector('.damage-meter');
+                    return meter.offsetLeft + meter.offsetWidth <= meter.offsetParent.clientWidth + 1 &&
+                        meter.offsetTop + meter.offsetHeight <= meter.offsetParent.clientHeight + 1;
+                }""")
+                self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), 391)
+                page.set_viewport_size({"width":1440,"height":1000})
+                page.locator("#aside-toggle").click()
+
+                roster = page.locator("#activity-players label:visible")
+                expect(roster).to_have_count(2)
+                page.locator("#meter-pull").click()
+                expect(roster).to_contain_text(["甲"])
+                last_wave = replay["pulls"][-1]
+                page.locator("#replay-wave").select_option(str(last_wave["id"]))
+                expect(roster).to_contain_text(["乙"])
+                expect(roster).to_have_count(1)
+                expect(page.locator("#activity-count")).to_contain_text(last_wave["label"])
+                page.locator("#replay-wave-jump").click()
+                expect(page.locator("#clock")).to_have_value(str(last_wave["t"]))
+                page.locator("#replay-wave").select_option("all")
+                expect(roster).to_have_count(2)
+
+                axis = page.locator("#cast-scroll")
+                follow = page.locator("#cast-follow")
+                page.locator("#activity-all").click()
+                axis.evaluate("el => {el.scrollTop = 37.5}")
+                page.wait_for_function("document.querySelector('#cast-scroll').scrollTop > 250")
+                expect(follow).to_have_attribute("aria-pressed","true")
+                axis.press("PageUp")
+                expect(follow).to_have_text("回到当前时间")
+                follow.click()
+                expect(follow).to_have_attribute("aria-pressed","true")
+                scroll_top = axis.evaluate("el => el.scrollTop")
+                self.assertGreater(scroll_top, 250)
+                page.locator("#play").click()
+                page.wait_for_function("top => document.querySelector('#cast-scroll').scrollTop > top + 10", arg=scroll_top)
+                expect(follow).to_have_attribute("aria-pressed","true")
+                page.locator("#play").click()
+                page.locator("#clock").fill("8000")
+                page.get_by_role("tab", name="战斗事件").click()
+                page.locator("#recent-kind").select_option("HEAL")
+                card = page.locator("#event-list .replay-event-card").first
+                expect(card).to_contain_text("0:07.000")
+                expect(card.locator(".combat-event-badge")).to_have_text("治疗")
+                expect(card.get_by_role("link",name="查看原文",exact=False)).to_be_visible()
+                card.get_by_role("button",name="跳转回放",exact=False).click()
+                expect(page.locator("#clock")).to_have_value("7000")
+                page.get_by_text("查找全场事件",exact=True).click()
+                page.locator("#event-kind").select_option("UNIT_DIED")
+                expect(page.locator("#found-events .combat-event-badge")).to_have_text("死亡")
+
+                death = replay["deaths"][0]
+                page.goto(self.live_server_url + reverse("combat_review", args=[report.pk, 1, "death", death["line"]]))
+                expect(page.get_by_role("heading",name="死亡前十秒")).to_be_visible()
+                expect(page.locator("#review-damage-total")).to_have_text("80")
+                expect(page.locator("#review-heal-total")).to_have_text("75")
+                expect(page.locator("tr.combat-event-death")).to_contain_text("死亡")
+                page.goto(self.live_server_url + reverse("combat_review", args=[report.pk, 1, "mechanic", 22]))
+                expect(page.get_by_role("heading",name="读条机会")).to_be_visible()
+                expect(page.locator("#review-event-total")).to_have_text("2")
+                expect(page.locator(".review-timeline .combat-event-badge")).to_have_text(["完成","打断"])
+                self.assertFalse(errors)
+            finally:
+                browser.close()
 
     def test_wait_page_handles_gateway_failure_offline_and_deadline(self):
         from playwright.sync_api import expect, sync_playwright

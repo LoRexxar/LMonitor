@@ -1,7 +1,8 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{% firstof actor.name book.title selected.name report.filename "多日志分析" %} · 战斗分析{% endblock %}
 {% block assets %}
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=event-timeline"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2">
+{% if view == 'review' %}<script defer src="{% static 'dashboard/js/combat_replay.js' %}?v=map-timeline"></script>{% endif %}
 {% endblock %}
 {% block trail %}{% if book %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% url 'combat_collections' %}">团队分析册</a>{% endif %}{% if report %}{% url 'combat_report' report.pk as report_directory %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url|default:report_directory }}">{{ report.filename }}</a>{% endif %}{% if analysis_url %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ analysis_url }}">单场分析</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if view == 'books' %}团队分析册{% elif view == 'actor' %}角色复盘{% elif view == 'event' %}原始事件{% elif view == 'review' %}事件复盘{% elif book %}{{ book.title }}{% else %}战斗数据{% endif %}</span>{% endblock %}
 {% block content %}
@@ -45,12 +46,17 @@
 <h2>{{ event.ability }} · {{ event.kind_label }}</h2><p>{{ event.source }} → {{ event.target }}</p><p>有效量 {{ event.amount|default_if_none:"未知或不适用" }} · 过量 {{ event.excess|default_if_none:"未知或不适用" }}</p>
 <pre>{{ raw }}</pre>{% if clipped %}<p>已显示前 64 KiB。</p>{% endif %}</section>
 {% elif view == 'review' %}
-<section><a href="{{ analysis_url }}"><i class="nav-arrow back" aria-hidden="true"></i>返回本场分析</a>
-{% if packet.counts %}<h2>读条机会</h2><p>{% for k,v in packet.counts.items %}{{ k }} {{ v }} 次　{% endfor %}</p><p>按同一敌方实例和技能配对；施法完成只表示观察到了完成事件。</p>
-{% else %}<h2>死亡前十秒</h2><p>数值为已识别布局中的有效量，血量仅列出属于死亡玩家的采样。</p>{% endif %}
-<div class="table-wrap"><table><thead><tr><th>相对时间（毫秒）</th><th>事件或结果</th><th>技能编号</th><th>{% if packet.counts %}响应耗时（毫秒）{% else %}有效量 · 血量／上限{% endif %}</th><th>依据</th></tr></thead><tbody>
-{% for r in packet.items %}<tr><td>{{ r.relative_ms }}</td><td>{% firstof r.outcome r.kind %}</td><td>{{ r.spell }}</td><td>{% if packet.counts %}{{ r.response_ms|default_if_none:"—" }}{% else %}{{ r.amount|default_if_none:"—" }} · {{ r.hp|default_if_none:"—" }} / {{ r.max_hp|default_if_none:"—" }}{% endif %}</td><td><a href="{% url 'combat_evidence' report.pk r.line %}">#{{ r.line }}</a> {% if r.response_line %}<a href="{% url 'combat_evidence' report.pk r.response_line %}">响应 #{{ r.response_line }}</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
-{% if packet.truncated %}<p>表格显示有限窗口，机制计数包含全部机会。</p>{% endif %}</section>
+<section class="review-timeline" aria-labelledby="review-title"><a href="{{ analysis_url }}"><i class="nav-arrow back" aria-hidden="true"></i>返回本场分析</a>
+{% if packet.counts %}<h2 id="review-title">读条机会</h2>
+<dl class="review-summary"><div><dt>总事件</dt><dd id="review-event-total">{{ packet.items|length }}</dd></div>{% for k,v in packet.counts.items %}<div><dt>{{ k }}</dt><dd>{{ v }}</dd></div>{% endfor %}</dl>
+<p>按同一敌方实例和技能配对，施法完成表示观察到了完成事件。</p>
+{% else %}<h2 id="review-title">死亡前十秒</h2>
+<dl class="review-summary"><div><dt>总事件</dt><dd>{{ packet.items|length }}</dd></div><div><dt>有效承伤</dt><dd id="review-damage-total">—</dd></div><div><dt>有效治疗</dt><dd id="review-heal-total">—</dd></div><div class="combat-event-death"><dt>致命时间点</dt><dd>0 毫秒 · {% with death=packet.items|last %}<a href="{% url 'combat_evidence' report.pk death.line %}">死亡事件</a>{% endwith %}</dd></div></dl>
+<p>以死亡为零点。血量仅列出死亡玩家的采样，≥ 表示含未知数值时的已知下限。</p>{% endif %}
+<div class="table-wrap"><table><thead><tr><th scope="col">相对时间（毫秒）</th><th scope="col">事件或结果</th><th scope="col">技能编号</th><th scope="col">{% if packet.counts %}响应耗时（毫秒）{% else %}有效量 · 血量／上限{% endif %}</th><th scope="col">依据</th></tr></thead><tbody>
+{% for r in packet.items %}<tr{% if r.kind == 'UNIT_DIED' %} class="combat-event-death"{% endif %}><td>{{ r.relative_ms }}</td><td><span class="combat-event-badge">{% firstof r.outcome r.kind %}</span></td><td>{{ r.spell }}</td><td>{% if packet.counts %}{{ r.response_ms|default_if_none:"—" }}{% else %}{{ r.amount|default_if_none:"—" }} · {{ r.hp|default_if_none:"—" }} / {{ r.max_hp|default_if_none:"—" }}{% endif %}</td><td><a href="{% url 'combat_evidence' report.pk r.line %}">原文 #{{ r.line }}</a> {% if r.response_line %}<a href="{% url 'combat_evidence' report.pk r.response_line %}">响应 #{{ r.response_line }}</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% if packet.truncated %}<p>{% if packet.counts %}表格展示部分读条，摘要包含全部机会。{% else %}摘要和表格均基于死亡前最近的 {{ packet.items|length }} 条记录。{% endif %}</p>{% endif %}
+{{ packet|json_script:"review-timeline-data" }}</section>
 <section><h2>AI 复盘意见</h2>{% if error %}<p role="alert">{{ error }}</p>{% endif %}
 {% for f in findings %}<article><p>{{ f.hypothesis }}</p><p>复核建议　{{ f.check }}</p>{% for n in f.lines %}<a href="{% url 'combat_evidence' report.pk n %}">依据 #{{ n }}</a>　{% endfor %}</article>{% empty %}
 {% if user.pk == report.owner_id %}<form method="post">{% csrf_token %}<p>将本页的匿名事件、技能编号、数值与行号发送给已配置模型，结果保存到当前报告版本。</p><button>生成带证据的复盘</button></form>{% else %}<p>上传者尚未生成复盘。</p>{% endif %}{% endfor %}</section>
