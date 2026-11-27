@@ -3,19 +3,23 @@
 import csv
 import json
 import re
+import sqlite3
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from functools import lru_cache
 from pathlib import Path
 
+from django.core.cache import cache
 from django.db.models import Q
 
 from botend.journal_models import JournalEncounter, JournalState
-from botend.models import MythicDungeonEnemy, MythicDungeonSpell, WowSpellSnapshot, WowTalentNodeMetadata
+from botend.models import MythicDungeonAbility, MythicDungeonEnemy, MythicDungeonSpell, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
 from botend.services.combat_log_facts import DAMAGE, pull_catalog
 from botend.services.site_image_assets import published_image_url
 from botend.services.wow_skill_report_metadata import _tooltip_icon
-from botend.templatetags.wow_tags import wow_icon_oss_url
+from botend.templatetags.wow_tags import named_icon_source, wow_icon_oss_url
 from botend.wow.talents.versioning import TalentVersionResolver
 
 CHUNK_MS = 30000
@@ -105,6 +109,47 @@ def _file_icon_names(path, revision):
                 if re.fullmatch(r'[A-Za-z0-9_-]{1,160}', row['IconName'] or '')}
 
 
+def _spell_files(rows):
+    result = {}
+    for row in rows:
+        if row["DifficultyID"] == "0":
+            fid = localization.number(row["SpellIconFileDataID"]) or localization.number(row["ActiveIconFileDataID"])
+            if fid:
+                result[localization.number(row["SpellID"])] = str(fid)
+    return result
+
+
+@lru_cache(maxsize=2)
+def _installed_spell_files(path, revision):
+    with path.open(encoding="utf-8-sig") as source:
+        return _spell_files(csv.DictReader(source))
+
+
+def _game_icons(ids, files):
+    path = Path(__file__).resolve().parents[1] / "data" / "combat_spell_icons.sqlite3"
+    if not ids or not path.is_file():
+        return []
+    with closing(sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)) as db:
+        return list(db.execute("""
+            SELECT CAST(request.key AS INTEGER), icon.file_id, icon.name FROM json_each(?) request
+            LEFT JOIN spell ON spell.id=CAST(request.key AS INTEGER)
+            JOIN icon ON icon.file_id=COALESCE(request.value, spell.file_id)""",
+            (json.dumps({sid: files.get(sid) for sid in ids}),)))
+
+
+def published_spell_icon(value):
+    url = wow_icon_oss_url(value)
+    if url or not value:
+        return url
+    match = re.fullmatch(r"https://(?:wow\.zamimg\.com/images/wow/icons|oss\.wowdaily\.cn/wow_icons_oss)/(?:small|medium|large)/([\w-]+)\.jpg", value)
+    name = match[1] if match else value
+    if named_icon_source(name):
+        for size in ("small", "medium", "large"):
+            if url := wow_icon_oss_url(name, size):
+                return url
+    return ""
+
+
 def spell_icons(spell_ids, source_icons=None):
     """批量查找当前页实际出现的技能，沿用回放的图标资源。"""
     ids = {localization.number(s) for s in spell_ids} - {0}
@@ -118,7 +163,7 @@ def spell_icons(spell_ids, source_icons=None):
             files.setdefault(sid, file_icon[1])
             if mapped := published_image_url(icon):
                 mirrored_files.setdefault(sid, mapped)
-        elif mapped := wow_icon_oss_url(icon):
+        elif mapped := published_spell_icon(icon):
             result[sid] = mapped
 
     for sid in ids:
@@ -149,30 +194,72 @@ def spell_icons(spell_ids, source_icons=None):
     ).values_list("spell_id", "icon_name", "icon_url"):
         add(sid, url)
         add(sid, icon)
-    unresolved = files.keys() - result.keys()
+    for sid, url in MythicDungeonAbility.objects.filter(
+            spell_id__in=ids-result.keys(), enemy__dungeon__data_version__is_active=True, is_active=True
+    ).exclude(icon_url="").values_list("spell_id", "icon_url"):
+        add(sid, url)
+    unresolved = ids - result.keys()
     if unresolved:
         version = TalentVersionResolver.get_default()
         if version and version.source_dir:
+            folder = Path(version.source_dir)
             try:
-                path = Path(version.source_dir) / 'file_data_icon_cache.csv'
+                path = folder / 'file_data_icon_cache.csv'
                 st = path.stat()
                 names = _file_icon_names(path, (st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size))
             except (OSError, KeyError, UnicodeError, csv.Error):
                 names = {}
+            try:
+                path = folder / "SpellMisc.csv"
+                st = path.stat()
+                spell_files = _installed_spell_files(path, (st.st_ino, st.st_mtime_ns, st.st_size))
+            except (OSError, KeyError, UnicodeError, csv.Error):
+                spell_files = {}
             for sid in unresolved:
-                add(sid, names.get(files[sid]))
+                add(sid, names.get(files.get(sid) or spell_files.get(sid)))
+        for sid, file_id, name in _game_icons(unresolved - result.keys(), files):
+            add(sid, name)
+            if sid not in result:
+                for source in (f"https://assets-ng.maxroll.gg/wow/icons/{file_id}.webp",
+                               f"https://assets-ng.maxroll.gg/wow/icons/sprites/{file_id}.webp",
+                               f"https://static.icy-veins.com/wp/static/icydb/wow/icons/{file_id}.webp",
+                               f"/portal/adventure-journal/art/{file_id}/?v=2",
+                               f"https://oss.wowdaily.cn/wow_icons_oss/small/{file_id}.jpg"):
+                    if url := published_image_url(source):
+                        result[sid] = url
+                        break
+    keys = {f"combat-spell-image:v1:{sid}": sid for sid in ids - result.keys() - mirrored_files.keys()}
+    if keys:
+        for key, url in cache.get_many(keys).items():
+            add(keys[key], url)
     return mirrored_files | result
+
+
+_tooltip_workers = ThreadPoolExecutor(max_workers=4, thread_name_prefix="combat-icons")
+
+
+def lookup_report_icons(db, ids):
+    """仅为已授权日志实际记录的技能补查名称，图片仍取自本站发布清单。"""
+    marks = ",".join("?" for _ in ids)
+    recorded = [int(row[0]) for row in db.execute(
+        f"SELECT id FROM main.ability WHERE id IN ({marks})", list(map(str, ids)))]
+    keys = {f"combat-spell-image:v1:{sid}": sid for sid in recorded}
+    found = {keys[k]: url for k, url in cache.get_many(keys).items()}
+    missing = [sid for sid in recorded if sid not in found]
+    fresh = dict(zip(missing, _tooltip_workers.map(lookup_tooltip_icon, missing)))
+    cache.set_many({f"combat-spell-image:v1:{sid}": url for sid, url in fresh.items() if url}, 7 * 86400)
+    return found | fresh
+
+
+def lookup_tooltip_icon(sid):
+    return published_spell_icon(_tooltip_icon("wow", sid))
 
 
 def missing_cast_icon(db, fight, sid, bosses):
     source, params = _cast_spell_query(fight, bosses)
     if not db.execute("SELECT 1 "+source+" AND f.spell=? LIMIT 1", (*params,str(sid))).fetchone():
         return ""
-    slug = _tooltip_icon("wow", sid)
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", slug or ""):
-        return ""
-    source = f"https://wow.zamimg.com/images/wow/icons/small/{slug}.jpg"
-    return published_image_url(source)
+    return lookup_tooltip_icon(sid)
 
 
 def _damage_rows(db, fight, start, end, interval):

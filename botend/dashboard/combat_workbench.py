@@ -475,7 +475,11 @@ def render_analysis(request, reports, ctx, selected=None):
         actor_links = {}
         for player in ctx["players"]:
             url = reverse("combat_actor", args=[ctx["report"].pk, selected, player["guid"]])
-            player["actor_url"] = url + "?" + urlencode({"back": ctx["replay_back"]})
+            attempt = ctx["comparisons"][0]
+            scope = {"back": ctx["replay_back"], "from_ms": attempt["window_start"] - attempt["start_ms"]}
+            if attempt["window_end"] is not None:
+                scope["to_ms"] = attempt["window_end"] - attempt["start_ms"]
+            player["actor_url"] = url + "?" + urlencode(scope)
             actor_links[player["guid"]] = player["actor_url"]
         ctx["panel"] = panel
 
@@ -581,6 +585,17 @@ def render_analysis(request, reports, ctx, selected=None):
             for key, name in analysis.GROUPS.items()
         ]
         term = params.get("term", "").strip().casefold()
+        coverage_table = ctx["metric"] == "auras" and panel == "table"
+        if coverage_table:
+            ctx["buff_spell_count"] = len({r["spell"] for r in ctx["coverage"]})
+            if len(ctx["comparisons"]) == 1:
+                attempt = ctx["comparisons"][0]
+                if attempt["window_end"] is not None:
+                    ctx["buff_window_seconds"] = max(0, attempt["window_end"] - attempt["window_start"]) / 1000
+            ctx["coverage"].sort(key=lambda r: (-r["percent"], r["target"], r["name"], r["fight"]))
+            if term:
+                ctx["coverage"] = [r for r in ctx["coverage"] if any(
+                    term in str(r[key]).casefold() for key in ("name", "target", "spell", "filename"))]
         if term:
             ctx["rows"] = [
                 r
@@ -589,10 +604,16 @@ def render_analysis(request, reports, ctx, selected=None):
                 or term in str(r["ident"]).casefold()
             ]
         page = max(1, analysis.nonnegative(params, "page", 1))
-        count = len(ctx["rows"])
+        count = len(ctx["coverage"] if coverage_table else ctx["rows"])
         ctx["groups_count"] = count
         page = min(page, max(1, (count + 39) // 40))
         ctx["rows"] = ctx["rows"][(page - 1) * 40 : page * 40]
+        ctx["coverage"] = ctx["coverage"][(page - 1) * 40 : page * 40]
+        for row in ctx["coverage"]:
+            row["target_url"] = link(target=row["guid"])
+            row["ability_url"] = link(ability=row["spell"])
+        ctx["icon_sources"] = [reverse("combat_spell_icons", args=[pk]) for pk in
+                               dict.fromkeys(c["report"].pk for c in ctx["comparisons"])]
         if page > 1:
             ctx["previous_groups"] = link(page=page - 1, term=term)
         if page * 40 < count:
@@ -1045,6 +1066,18 @@ def render_players(request, reports, scope):
 
 
 @endpoint("GET")
+def spell_icon_batch(request, pk):
+    ids = list(dict.fromkeys(request.GET.getlist("id")))
+    if not 1 <= len(ids) <= 8 or any(not 0 < visuals.localization.number(s) <= 2147483647 for s in ids):
+        raise ValueError("每次可查询 1 至 8 个有效技能编号。")
+    report = readable_report(request.user, pk)
+    if report.summary.get("index_version", 0) < analysis.VERSION:
+        raise Http404
+    with analysis.database(report) as db:
+        return JsonResponse({"icons": combat_replay_activity.lookup_report_icons(db, ids)})
+
+
+@endpoint("GET")
 def replay_map(request, build, art):
     try:
         content = combat_replay_maps.native_art(build, art)
@@ -1142,7 +1175,8 @@ def actor_view(request, pk, fight, guid):
         raise Http404
     try:
         context = combat_log_actor.inspect(
-            report, fight, guid, analysis.nonnegative(request.GET, "after", 0)
+            report, fight, guid, analysis.nonnegative(request.GET, "after", 0),
+            analysis.nonnegative(request.GET, "from_ms", 0), analysis.nonnegative(request.GET, "to_ms"),
         )
     except LookupError:
         raise Http404
@@ -1155,6 +1189,10 @@ def actor_view(request, pk, fight, guid):
         back["sample"] = str(report.pk)
         route = reverse("combat_workspace")
     context["analysis_url"] = route + "?" + back.urlencode()
+    if context["cursor"]:
+        query = request.GET.copy()
+        query["after"] = context["cursor"]
+        context["next_casts"] = "?" + query.urlencode()
     restore_directory(context, back)
     if hasattr(report, "wcl_source") and not context.get("directory_url"):
         from botend.dashboard.combat_wcl import source_directory

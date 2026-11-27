@@ -3,11 +3,11 @@
 from collections import defaultdict
 
 from botend.services import combat_log_visuals as visuals
-from botend.services.combat_log_analysis import database
+from botend.services.combat_log_analysis import aura_coverage, database
 from botend.services.combat_log_index import event_label
 
 
-def inspect(report, fight_id, guid, after):
+def inspect(report, fight_id, guid, after, start_offset=0, end_offset=None):
     with database(report) as db:
         actor = db.execute("SELECT * FROM actor WHERE guid=? AND family='Player'", (guid,)).fetchone()
         fight = db.execute("SELECT * FROM fight WHERE id=?", (fight_id,)).fetchone()
@@ -36,40 +36,14 @@ def inspect(report, fight_id, guid, after):
                 [*bounds, actor["id"], after],
             )
         ]
-        # 同一施放者的同一光环只占一个区间，死亡封住当前已观测的区间。
-        open_auras, auras = {}, {}
-        last_ms = origin
-        for r in db.execute(
-            """SELECT f.line,f.ms,f.spell,f.src,f.kind,a.name FROM fact f JOIN ability a ON a.id=f.spell
-            WHERE dst=? AND line BETWEEN ? AND ? ORDER BY line""",
-            [actor["id"], *bounds],
-        ):
-            last_ms = r["ms"]
-            key = r["src"], r["spell"]
-            if r["kind"] == "UNIT_DIED":
-                for k, start in open_auras.items():
-                    auras[k]["ms"] += max(0, last_ms - start)
-                open_auras.clear()
-            if not r["kind"].startswith("SPELL_AURA_"):
-                continue
-            aura = auras.setdefault(
-                key, dict(name=r["name"], spell=r["spell"], first=r["line"], ms=0, gaps=0)
-            )
-            if r["kind"] in ("SPELL_AURA_REMOVED", "SPELL_AURA_BROKEN", "SPELL_AURA_BROKEN_SPELL"):
-                start = open_auras.pop(key, None)
-                if start is not None:
-                    aura["ms"] += max(0, last_ms - start)
-                else:
-                    aura["gaps"] += 1
-            elif key not in open_auras:
-                open_auras[key] = last_ms
-                aura["gaps"] += int(r["kind"] != "SPELL_AURA_APPLIED")
-        end = fight["end_ms"] or last_ms
-        for key, start in open_auras.items():
-            auras[key]["ms"] += max(0, end - start)
-            auras[key]["gaps"] += int(fight["end_ms"] is None)
-        for (src, _), aura in auras.items():
-            aura["seconds"] = round(aura["ms"] / 1000, 3)
+        end = fight["end_ms"]
+        if end is None:
+            end = db.execute("SELECT MAX(ms) FROM fact WHERE line BETWEEN ? AND ?", bounds).fetchone()[0] or origin
+        stop = min(end, origin + end_offset) if end_offset is not None else end
+        start = min(origin + start_offset, stop)
+        auras = []
+        if report.summary.get("state_revision"):
+            auras = aura_coverage(db, dict(fight, report=report), {"target": guid}, start, stop, include_debuffs=True)
         # 按时间桶选出一条真实采样，采样点和证据行保持一一对应。
         maps = defaultdict(list)
         step = max(1000, (end - origin) // 220)
@@ -85,16 +59,17 @@ def inspect(report, fight_id, guid, after):
             scale = min(360 / max(1, x1 - x0), 144 / max(1, y1 - y0))
             for p in points:
                 p.update(cx=round(10 + (p["x"] - x0) * scale, 2), cy=round(154 - (p["y"] - y0) * scale, 2))
-    icons = visuals.spell_icons([c["spell_id"] for c in casts] + [a["spell"] for a in auras.values()], source_icons)
+    icons = visuals.spell_icons([c["spell_id"] for c in casts] + [a["spell"] for a in auras], source_icons)
     for c in casts:
         c["icon"] = icons.get(visuals.localization.number(c["spell_id"]))
-    for a in auras.values():
+    for a in auras:
         a["icon"] = icons.get(visuals.localization.number(a["spell"]))
     return dict(
         builds=builds, actor=actor,
         fight=fight,
         casts=casts[:80],
         cursor=casts[79]["line"] if len(casts) > 80 else None,
-        auras=sorted(auras.values(), key=lambda a: -a["ms"]),
+        auras=sorted(auras, key=lambda a: -a["covered_ms"]),
+        aura_start=(start - origin) / 1000, aura_end=(stop - origin) / 1000,
         maps=dict(maps),
     )

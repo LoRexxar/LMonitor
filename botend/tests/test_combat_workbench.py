@@ -182,6 +182,56 @@ class CombatWorkbenchTests(TestCase):
         choices = self.client.get(path, dict(query, panel="pick", group="ability"), HTTP_X_COMBAT_VIEW="choices")
         self.assertTrue(any("spell_fire_fireball.jpg" in item["icon"] for item in choices.json()["items"]))
 
+    def test_buff_window_unions_sources_and_preserves_actor_scope(self):
+        rows = fixture().decode().splitlines(keepends=True)
+        aura = rows[8].replace("DEBUFF", "BUFF")
+        def event(second, action, other=False):
+            row = aura.replace(":09.", f":{second:02}.").replace("APPLIED", action)
+            return row.replace("Creature-1", "Creature-2") if other else row
+        extra = [event(0, "APPLIED"), event(6, "APPLIED", True), event(8, "REFRESH"),
+                 event(9, "REMOVED"), event(11, "REMOVED", True), event(13, "APPLIED")]
+        report = self.ingest(self.owner, 2, "".join(sorted(rows + extra)).encode())
+        path = reverse("combat_analysis", args=[report.pk])
+        query = dict(fight=1, metric="auras", wave="-2", start=6, end=9)
+        page = self.client.get(path, query)
+        self.assertContains(page, "Buff 覆盖率")
+        buff, = page.context["coverage"]
+        self.assertEqual((buff["seconds"], buff["window_seconds"], buff["percent"]), (3, 3, 100))
+        actor = self.client.get(page.context["players"][0]["actor_url"])
+        self.assertEqual([(a["category"], a["seconds"]) for a in actor.context["auras"]], [("BUFF", 3), ("DEBUFF", 1)])
+        whole = self.client.get(path, {**query, "start":0, "end":25}).context["coverage"][0]
+        self.assertEqual((whole["seconds"], whole["window_seconds"], whole["percent"]), (8, 11, 72.73))
+        self.assertEqual(self.client.get(path, {**query, "source":"Creature-1"}).context["coverage"][0]["seconds"], 2)
+        self.assertEqual(self.client.get(path, {**query, "start":13, "end":15}).context["coverage"], [])
+        pick = self.client.get(path, {**query, "panel":"pick", "group":"ability"}, HTTP_X_COMBAT_VIEW="choices")
+        self.assertEqual([(r["id"], r["hits"]) for r in pick.json()["items"]], [("55", 0)])
+
+    def test_buff_windows_use_each_attempts_observed_duration(self):
+        first = self.ingest(self.owner, 2, fixture(2).replace(b"DEBUFF", b"BUFF"))
+        second = self.ingest(self.owner, 3, fixture(3).replace(b"DEBUFF", b"BUFF")
+                             .replace(b"18:00:15.000", b"18:00:19.000"))
+        samples = [s for s in analysis.catalog([first, second])[0] if s["kind"] == "首领"]
+        result = analysis.run(samples, {"metric":"auras", "panel":"table", "start":"5", "end":"15"})
+        self.assertEqual([(r["seconds"], r["window_seconds"], r["percent"]) for r in result["coverage"]],
+                         [(2, 6, 33.33), (2, 10, 20)])
+
+    def test_missing_icons_resolve_only_recorded_ids_of_readable_report(self):
+        from botend.services.combat_replay_activity import spell_icons
+        self.assertTrue(spell_icons([53])[53].endswith("/ability_backstab.jpg"))
+        sid = "1900000055"
+        report = self.ingest(self.owner, 2, fixture(2).replace(b',55,"', b',1900000055,"'))
+        url = reverse("combat_spell_icons", args=[report.pk])
+        with patch("botend.services.combat_replay_activity._tooltip_icon", return_value="spell_fire_fireball") as lookup:
+            data = self.client.get(url, {"id":[sid,sid,"99999"]}).json()
+            self.assertTrue(data["icons"][sid].endswith("/spell_fire_fireball.jpg"))
+            self.assertEqual(set(data["icons"]), {sid})
+            self.assertEqual(self.client.get(url, {"id":sid}).json(), data)
+            self.assertEqual(spell_icons([sid])[int(sid)], data["icons"][sid])
+            lookup.assert_called_once_with("wow", int(sid))
+            self.assertEqual(self.client.get(url, {"id":list(range(1,10))}).status_code, 400)
+            self.client.force_login(self.member)
+            self.assertEqual(self.client.get(url, {"id":"55"}).status_code, 404)
+
     def test_selected_logs_drive_battles_replay_and_character_comparison(self):
         from bs4 import BeautifulSoup
         from urllib.parse import urlsplit
@@ -1146,7 +1196,7 @@ class CombatWorkbenchTests(TestCase):
         for metric, side, total in [
             ("damage", "npc", 80),
             ("dispels", "players", 1),
-            ("auras", "players", 1),
+            ("auras", "players", 0),
             ("enemycasts", "players", 2),
             ("deaths", "players", 1),
         ]:

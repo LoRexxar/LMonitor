@@ -180,7 +180,7 @@ METRICS = {
     "interrupts": "成功打断",
     "deaths": "死亡",
     "dispels": "成功驱散",
-    "auras": "获得光环",
+    "auras": "Buff",
     "enemycasts": "NPC 读条",
     "events": "全部索引事件",
 }
@@ -225,16 +225,17 @@ def build_selection(sample, params, metric, wave):
     start, stop = nonnegative(params, "start", 0), nonnegative(params, "end")
     if stop is not None and stop <= start:
         raise ValueError("结束秒数必须大于开始秒数。")
-    lo = sample.get("from_ms", origin + start * 1000)
+    lo = max(sample.get("from_ms", origin), origin + start * 1000)
     observed_end = sample["end_ms"] if sample["end_ms"] is not None else sample.get("observed_end_ms")
-    hi = sample.get("to_ms", origin + stop * 1000 if stop is not None else observed_end)
-    if observed_end is not None and hi is not None:
-        hi = min(hi, observed_end)
+    bounds = [t for t in (observed_end, sample.get("to_ms"), origin + stop * 1000 if stop is not None else None)
+              if t is not None]
+    hi = min(bounds, default=None)
     clauses.append("f.ms>=?")
     binds.append(lo)
     if stop is not None or "to_ms" in sample:
         clauses.append("f.ms<?")
-        binds.append(sample.get("to_ms") if "to_ms" in sample else origin + stop * 1000)
+        binds.append(min(t for t in (sample.get("to_ms"), origin + stop * 1000 if stop is not None else None)
+                         if t is not None))
     if wave is not None:
         condition, bounds = pull_filter(wave)
         clauses.append(condition)
@@ -282,6 +283,8 @@ def build_selection(sample, params, metric, wave):
     if kinds:
         clauses.append("f.kind IN (" + ",".join("?" for _ in kinds) + ")")
         binds.extend(kinds)
+    if metric == "auras":
+        clauses.append("f.aura_type='BUFF'" if sample["report"].summary.get("state_revision") else "0")
     for dim, (column, _) in DIMENSIONS.items():
         if params.get(dim):
             clauses.append(column + "=?")
@@ -295,6 +298,67 @@ def build_selection(sample, params, metric, wave):
     known = wave["known"] if wave else observed_end is not None
     span = max(0, hi - lo) if hi is not None and known else None
     return joins + " WHERE " + " AND ".join(clauses), binds, value, span, lo, hi
+
+
+def aura_coverage(db, sample, params, start, end, *, include_debuffs=False):
+    """按目标和技能合并实测状态区间，保留选区左侧已生效的 Buff。"""
+    if end <= start:
+        return []
+    axis = "keystone" if sample["kind"] == "钥匙" else "boss"
+    conditions = ["u.session=?", "u.line<=?", "u.ms<?",
+                  "(u.end_ms IS NULL OR u.end_ms>?)"]
+    args = [sample["session"], sample["end_line"], end, start]
+    if not include_debuffs:
+        conditions.append("u.category='BUFF'")
+    side = params.get("side", "players")
+    if side == "players":
+        conditions.append("t.family='Player'")
+    elif side == "npc":
+        conditions.append("t.family IN ('Creature','Vehicle')")
+    for key, field in (("source", "s.guid"), ("target", "t.guid"), ("ability", "u.spell")):
+        if params.get(key):
+            conditions.append(field + "=?")
+            args.append(params[key])
+    if params.get("kind"):
+        conditions.append("u.line IN (SELECT line FROM fact WHERE kind=?)")
+        args.append(params["kind"])
+    roster_conditions, roster_args = ["roster.actor=u.dst"], []
+    for key, field in (("spec", "sp.id"), ("role", "sp.role")):
+        if params.get(key):
+            roster_conditions.append(field + "=?")
+            roster_args.append(params[key])
+    rows = db.execute(f"""
+        WITH roster(actor,spec) AS (
+            SELECT src,src_spec FROM fact WHERE {axis}=? UNION SELECT dst,dst_spec FROM fact WHERE {axis}=?
+        )
+        SELECT t.guid,t.name,u.spell,a.name,u.category,u.ms,u.end_ms,u.line,s.guid,s.name
+        FROM replay_aura u JOIN actor t ON t.id=u.dst JOIN actor s ON s.id=u.src
+        JOIN ability a ON a.id=u.spell
+        WHERE EXISTS (SELECT 1 FROM roster JOIN spec sp ON sp.id=roster.spec
+                      WHERE {" AND ".join(roster_conditions)})
+        AND {" AND ".join(conditions)}
+        ORDER BY t.guid,u.spell,u.category,u.ms,u.line
+    """, [sample["id"], sample["id"], *roster_args, *args])
+    result = []
+    previous = None
+    for guid, target, spell, name, category, begin, finish, line, source, source_name in rows:
+        stop = min(finish if finish is not None else end, end)
+        if stop <= max(begin, start):
+            continue
+        key = (guid, spell, category)
+        if key != previous:
+            previous, covered_until = key, start
+            item = dict(target=target, guid=guid, spell=spell, name=name, covered_ms=0, category=category,
+                        first=line, sources={},
+                        window_ms=end-start, filename=sample["report"].filename, fight=sample["id"])
+            result.append(item)
+        item["sources"][source] = source_name
+        item["covered_ms"] += max(0, stop - max(begin, covered_until))
+        covered_until = max(covered_until, stop)
+    for item in result:
+        item.update(percent=round(100 * item["covered_ms"] / item["window_ms"], 2),
+                    seconds=item["covered_ms"] / 1000, window_seconds=item["window_ms"] / 1000)
+    return result
 
 
 def run(samples, params, *, single=False, first_wave=False):
@@ -332,6 +396,7 @@ def run(samples, params, *, single=False, first_wave=False):
     unknown = total = duration = 0
     duration_known = True
     events, waves, mechanisms, players = [], [], [], []
+    coverage, coverage_unavailable = [], []
     actor_specs = defaultdict(set)
     actor_classes, report_icons = {}, {}
     wave = None
@@ -378,6 +443,21 @@ def run(samples, params, *, single=False, first_wave=False):
             sql, args, value, span, window_start, window_end = build_selection(
                 sample, params, metric, wave
             )
+            coverage_picker = panel == "pick" and group in ("ability", "target", "source")
+            if metric == "auras" and (panel == "table" or coverage_picker):
+                if not report.summary.get("state_revision") or window_end is None:
+                    coverage_unavailable.append(f"{report.filename} #{sample['id']}")
+                else:
+                    active = aura_coverage(db, sample, params, window_start, window_end)
+                    if coverage_picker:
+                        for buff in active:
+                            choices = (buff["sources"].items() if group == "source" else
+                                       [(buff["guid"], buff["target"])] if group == "target" else
+                                       [(buff["spell"], buff["name"])])
+                            for ident, name in choices:
+                                groups.setdefault(ident, dict(ident=ident, name=name, value=0, hits=0, unknown=0))
+                    else:
+                        coverage.extend(active)
             rows = db.execute(
                 f"SELECT {dim} ident, min({label}) name, sum({value}) value, count(*) hits, "
                 f"count({value}) known " + sql + f" GROUP BY {dim}",
@@ -579,6 +659,8 @@ def run(samples, params, *, single=False, first_wave=False):
         if duration_known and duration and not unknown
         else None,
         rows=ranked,
+        coverage=coverage,
+        coverage_unavailable=coverage_unavailable,
         trend=trend,
         step=step,
         comparisons=comparisons,

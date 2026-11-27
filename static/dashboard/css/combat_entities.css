@@ -21,5 +21,6 @@
 .roster-switch .fight-choice small { display: block; margin-inline-start: 1.85rem; font-size: .76rem; }
 .combat-attempt-option { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; }
 .combat-attempt-option > a { flex-shrink: 0; }
-combat-spell-icon:defined:not([hidden]) { display: inline-block; width: 1.375rem; height: 1.375rem; vertical-align: middle; margin-inline-end: .45rem; }
+combat-spell-icon:not([hidden]) { display: inline-block; width: 1.375rem; height: 1.375rem; vertical-align: middle; margin-inline-end: .45rem; }
 combat-spell-icon .combat-entity-icon { display: block; margin: 0; }
+.combat-icon-placeholder { display: grid; place-items: center; width: 100%; height: 100%; border-radius: .25rem; background: color-mix(in srgb, currentColor 12%, transparent); font-size: .85rem; font-weight: 600; }

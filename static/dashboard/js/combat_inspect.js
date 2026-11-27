@@ -72,7 +72,19 @@
                 link.href = target;
                 link.dataset.applied = filterAxis;
                 link.textContent = row.name;
-                if (row.icon) {
+                if (row.icon_id) {
+                    const icon = document.createElement('combat-spell-icon');
+                    icon.dataset.spell = row.icon_id;
+                    const url = window.publishedImageUrl?.(row.icon);
+                    if (url) {
+                        const image = new Image(22, 22);
+                        image.className = 'combat-entity-icon';
+                        image.alt = '';
+                        image.src = url;
+                        icon.append(image);
+                    }
+                    link.prepend(icon);
+                } else if (row.icon) {
                     const image = document.createElement('img');
                     image.className = 'combat-entity-icon';
                     setIcon(image, row.icon);
@@ -81,11 +93,6 @@
                     image.loading = 'lazy';
                     image.width = image.height = 22;
                     link.prepend(image);
-                } else if (row.icon_id) {
-                    const icon = document.createElement('combat-spell-icon');
-                    icon.dataset.spell = row.icon_id;
-                    icon.setAttribute('aria-hidden', 'true');
-                    link.prepend(icon);
                 }
                 const hint = document.createElement('small');
                 hint.textContent = row.id + ' · ' + row.hits + ' 条事件';

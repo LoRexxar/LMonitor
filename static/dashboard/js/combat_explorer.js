@@ -181,7 +181,8 @@
                     if (inResults && focus.getBoundingClientRect().top < 0) focus.scrollIntoView({block:'start'});
                 }
             }
-            document.title = doc.title;
+            const title = doc.querySelector('title')?.textContent;
+            if (title) document.title = title;
             if (push) history.pushState(null, '', url);
             rememberView();
         } catch (error) {

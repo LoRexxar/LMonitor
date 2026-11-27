@@ -9,7 +9,7 @@ from botend.constants.wow import CLASS_CN, specialization_catalog
 from botend.models import WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
 from botend.services.content_image_display import display_image_url
-from botend.services.combat_replay_activity import spell_icons
+from botend.services.combat_replay_activity import published_spell_icon, spell_icons
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
 SPECS = {s["spec_id"]: s for s in specialization_catalog()}
@@ -31,11 +31,11 @@ def _report_icon(icon):
     if not isinstance(icon, str):
         return ''
     if icon.startswith(('https://', '/static/')):
-        mapped = display_image_url(icon)
+        mapped = published_spell_icon(icon)
         return mapped if mapped.startswith(('https://oss.wowdaily.cn/', '/static/')) else ''
     match = re.fullmatch(r'([A-Za-z0-9_-]{1,160})(?:\.jpg)?', icon, re.I)
     if match and not match[1].isdecimal() and match[1].lower() != 'inv_misc_questionmark':
-        return wow_icon_oss_url(match[1])
+        return published_spell_icon(match[1])
     return ''
 
 
@@ -81,19 +81,24 @@ def decorate(ctx):
               (ctx["group"], ctx.get("curves", []))]
     ids = [r["ident"] for axis, rows in groups if axis == "ability" for r in rows]
     events = ctx["events"]
-    icons = spell_icons(ids + [e["spell_id"] for e in events], ctx["report_icons"])
+    coverage = ctx.get("coverage", [])
+    icons = spell_icons(ids + [e["spell_id"] for e in events] + [r["spell"] for r in coverage], ctx["report_icons"])
+    melee_icon = published_spell_icon("ability_meleedamage") if "SWING_DAMAGE" in ids or any(
+        e["spell_id"] == "SWING_DAMAGE" for e in events) else ""
+    for row in coverage:
+        row["icon"] = icons.get(localization.number(row["spell"]))
     for axis, rows in groups:
         for r in rows:
             key = r["ident"]
             if axis == "ability":
                 r["icon_id"] = localization.number(key)
-                r["icon"] = icons.get(r["icon_id"], "")
+                r["icon"] = melee_icon if key == "SWING_DAMAGE" else icons.get(r["icon_id"], "")
             elif axis == "spec":
                 r.update(identity([localization.number(key)]))
             elif axis in ("source", "target"):
                 r.update(identity(ctx["actor_specs"].get(key, ()), ctx["actor_classes"].get(key)))
     for event in events:
-        event["icon"] = icons.get(localization.number(event["spell_id"]), "")
+        event["icon"] = melee_icon if event["spell_id"] == "SWING_DAMAGE" else icons.get(localization.number(event["spell_id"]), "")
         for side in ("source", "target"):
             event[side + "_identity"] = identity([event[side + "_spec"]], ctx["actor_classes"].get(event[side + "_guid"]))
 

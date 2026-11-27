@@ -28,6 +28,7 @@ urlpatterns = [
     path('teams/', combat_workbench.collection_list, name='combat_collections'),
     path('teams/<int:pk>/', combat_workbench.collection, name='combat_collection'),
     path('<uuid:pk>/analysis/', combat_workbench.workbench, name='combat_analysis'),
+    path('<uuid:pk>/spell-icons/', combat_workbench.spell_icon_batch, name='combat_spell_icons'),
     path('<uuid:pk>/replay/<int:fight>/', combat_workbench.replay, name='combat_replay'),
     path('<uuid:pk>/actor/<int:fight>/<str:guid>/', combat_workbench.actor_view, name='combat_actor'),
     path('<uuid:pk>/event/<int:line>/', combat_workbench.event, name='combat_evidence'),

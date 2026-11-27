@@ -7,7 +7,7 @@
 {% block content %}
 <header class="page-head"><div class="wrap">
 <h1>{% if boss_discovery %}首领对比复盘{% elif view == 'event' %}原始事件 · 第 {{ event.line }} 行{% elif view == 'review' %}{{ packet.topic }}复盘{% elif view == 'actor' %}{% include 'dashboard/combat_entity_icon.html' with icon=actor.icon label=actor.icon_label only %}{{ actor.name }} · 角色复盘{% else %}{% firstof selected.name book.title "选择副本或首领" %}{% endif %}</h1>
-{% if selected %}<p>{{ selected.kind }} · {{ selected.result }} · {{ report.filename }}</p>{% endif %}</div></header><main class="wrap wb">
+{% if selected %}<p>{{ selected.kind }} · {{ selected.result }} · {{ report.filename }}</p>{% endif %}</div></header><main class="wrap wb"{% if report %} data-icon-sources="{% url 'combat_spell_icons' report.pk %}"{% endif %}>
 {% if view == 'books' %}
 <form method="post">{% csrf_token %}<label>新建分析册 <input name="title" maxlength="100" required></label> <button>创建</button></form>
 <section><h2>可访问的分析册</h2>{% for item in books %}<a class="entry" href="{% url 'combat_collection' item.pk %}">{{ item.title }} <span>{{ item.owner.username }}</span></a>{% empty %}<p>创建分析册后，可加入多份日志并邀请队员。</p>{% endfor %}</section>
@@ -32,8 +32,12 @@
 {% empty %}{% if not report.summary.talent_revision and report.owner_id == user.pk %}<p>这份日志使用旧索引，可从已上传的归档中补读天赋。</p><form method="post" action="{% url 'combat_rebuild' report.pk %}">{% csrf_token %}<button>补建天赋索引</button></form>{% else %}<p>这场战斗没有记录该角色的天赋。</p>{% endif %}{% endfor %}</section>
 <section><h2>{{ actor.name }} · 施法轨道</h2>
 <div class="table-wrap"><table><thead><tr><th>秒</th><th>动作</th><th>技能</th><th>目标</th><th>原文</th></tr></thead><tbody>{% for c in casts %}<tr><td>{{ c.sec }}</td><td>{{ c.kind_label }}</td><td>{% include 'dashboard/combat_entity_icon.html' with spell=c.spell_id icon=c.icon label=c.icon_label only %}{{ c.spell }}</td><td>{{ c.target }}</td><td><a href="{% url 'combat_evidence' report.pk c.line %}">#{{ c.line }}</a></td></tr>{% endfor %}</tbody></table></div>
-{% if cursor %}<a href="?after={{ cursor }}">后续施法<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}</section>
-<section><h2>光环已观测时长</h2><div class="table-wrap"><table><thead><tr><th>光环</th><th>时长（秒）</th><th>缺失边界次数</th><th>首条依据</th></tr></thead><tbody>{% for a in auras %}<tr><td>{% include 'dashboard/combat_entity_icon.html' with spell=a.spell icon=a.icon label=a.icon_label only %}{{ a.name }}</td><td>{{ a.seconds }}</td><td>{{ a.gaps }}</td><td><a href="{% url 'combat_evidence' report.pk a.first %}">#{{ a.first }}</a></td></tr>{% endfor %}</tbody></table></div></section>
+{% if cursor %}<a href="{{ next_casts }}">后续施法<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}</section>
+<section><h2>Buff 与 Debuff 覆盖率</h2><p>统计区间为开战后 {{ aura_start|floatformat:"-3" }} 至 {{ aura_end|floatformat:"-3" }} 秒。</p>
+<div class="table-wrap"><table><thead><tr><th>名称</th><th>类型</th><th>覆盖秒数</th><th>区间秒数</th><th>覆盖率</th><th>首条依据</th></tr></thead><tbody>
+{% for a in auras %}<tr><td>{% include 'dashboard/combat_entity_icon.html' with spell=a.spell icon=a.icon only %}{{ a.name }}</td><td>{% if a.category == 'BUFF' %}Buff{% else %}Debuff{% endif %}</td>
+<td>{{ a.seconds|floatformat:"-3" }}</td><td>{{ a.window_seconds|floatformat:"-3" }}</td><td>{{ a.percent|floatformat:"-2" }}%</td><td><a href="{% url 'combat_evidence' report.pk a.first %}">#{{ a.first }}</a></td></tr>
+{% empty %}<tr><td colspan="6">{% if report.summary.state_revision %}此区间没有观测到生效的 Buff 或 Debuff。{% else %}此日志缺少状态索引，无法计算覆盖率。{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>
 <section><h2>位置、血量与资源采样</h2>{% for map,pts in maps.items %}<h3>地图 {{ map }}</h3><svg viewBox="0 0 380 165" width="380" style="max-width:100%" role="img" aria-label="按实际坐标等比绘制的玩家采样点">{% for p in pts %}<a href="{% url 'combat_evidence' report.pk p.line %}"><circle cx="{{ p.cx|stringformat:'f' }}" cy="{{ p.cy|stringformat:'f' }}" r="2.6" fill="var(--plot)"><title>{{ p.sec }} 秒 · 血量 {{ p.hp }}/{{ p.maximum }}</title></circle></a>{% endfor %}</svg>
 <details><summary>查看 {{ pts|length }} 个实际采样点</summary><div class="table-wrap"><table><thead><tr><th>秒</th><th>坐标</th><th>血量</th><th>资源类型／当前／上限</th><th>依据</th></tr></thead><tbody>{% for p in pts %}<tr><td>{{ p.sec }}</td><td>{{ p.x }}, {{ p.y }}</td><td>{{ p.hp }}/{{ p.maximum }}</td><td>{{ p.power_type }} · {{ p.power }}/{{ p.power_max }}</td><td><a href="{% url 'combat_evidence' report.pk p.line %}">#{{ p.line }}</a></td></tr>{% endfor %}</tbody></table></div></details>{% empty %}<p>本场没有可确认归属的高级位置采样。</p>{% endfor %}</section>
 {% elif view == 'event' %}
@@ -91,7 +95,7 @@
 {% if user.pk == book.owner_id %}<details><summary>定义本组机制或保存查询</summary>
 <form method="post">{% csrf_token %}<input type="hidden" name="action" value="rule">
 <label>规则名<input name="name" maxlength="100" required></label>
-<label>观察方式<select name="kind"><option value="impact">敌方施法后同一敌人造成的玩家受击</option><option value="dispel">玩家获得光环后被驱散</option></select></label>
+<label>观察方式<select name="kind"><option value="impact">敌方施法后同一敌人造成的玩家受击</option><option value="dispel">玩家身上的光环被驱散</option></select></label>
 <label>施法或光环编号<input name="trigger" type="number" min="1" required></label>
 <label>伤害技能编号（驱散可留空）<input name="response" type="number" min="1"></label>
 <label>观察秒数<input name="window" type="number" value="8" min="1" max="120" required></label><button>保存规则并计算轮次</button></form>

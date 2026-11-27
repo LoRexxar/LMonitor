@@ -29,7 +29,7 @@ PLAYER_EVENTS = {
     "SPELL_HEAL": "治疗",
     "SPELL_PERIODIC_HEAL": "持续治疗",
     "SPELL_ABSORBED": "吸收",
-    "SPELL_AURA_APPLIED": "获得光环",
+    "SPELL_AURA_APPLIED": "施加光环",
     "SPELL_AURA_REMOVED": "失去光环",
     "SPELL_RESURRECT": "战复施法",
     "DAMAGE_SHIELD": "反弹伤害",
