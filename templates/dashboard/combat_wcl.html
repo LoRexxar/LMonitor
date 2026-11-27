@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_boss.css' %}">
 <link rel="stylesheet" href="{% static 'dashboard/css/combat_raid_study.css' %}">
 {% if section == "account" and not private %}<script defer src="{% static 'dashboard/js/combat_public_roles.js' %}"></script>{% endif %}
-{% if show_directory %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_wcl_picker.css' %}?v=views2">{% endif %}
+{% if show_directory %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_wcl_picker.css' %}?v=compare-nav1">{% endif %}
 {% endblock %}
 {% block trail %}{% if section == 'report' %}{% if group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url }}">战斗目录</a>{% if fight and request.GET.group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ group_url }}">首领开荒复盘</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if comparing %}开荒场次对比{% elif group.dungeon %}副本复盘{% else %}首领开荒复盘{% endif %}</span>{% else %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">战斗目录</span>{% endif %}{% else %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if private %}WCL 账号授权{% else %}关联公开角色{% endif %}</span>{% endif %}{% endblock %}
 {% block content %}<main class="wrap boss-review{% if section == 'account' %} source-settings{% endif %}">

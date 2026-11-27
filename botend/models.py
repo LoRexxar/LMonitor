@@ -4453,6 +4453,7 @@ class CombatLogReport(models.Model):
     upload_key = models.UUIDField(null=True)
     retire_after = models.ForeignKey("self", null=True, on_delete=models.SET_NULL, related_name="replacements")
     filename = models.CharField(max_length=240)
+    source_filename = models.CharField(max_length=255, blank=True, default="")
     size = models.PositiveBigIntegerField()
     part_size = models.PositiveIntegerField()
     published = models.UUIDField(null=True)

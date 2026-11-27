@@ -55,7 +55,7 @@ def pull_catalog(db, fight, *, include_enemies=False):
             label = pull["name"]
         t, end = start-fight["start_ms"],stop-fight["start_ms"]
         pull.update(start_ms=start,end_ms=stop,t=t,end=end,label=label,
-                    caption=f"{'首领 · ' if pull['id'] < 0 else ''}{label}　{_clock_label(t)}–{_clock_label(end)}")
+                    caption=f"{'大秘境首领 · ' if pull['id'] < 0 else ''}{label}　{_clock_label(t)}–{_clock_label(end)}")
         result.append(pull)
     return result
 
@@ -70,6 +70,14 @@ DAMAGE = {
     "DAMAGE_SPLIT",
 }
 HEAL = {"SPELL_HEAL", "SPELL_PERIODIC_HEAL"}
+
+
+def hostile_damage(row):
+    if row[0] not in DAMAGE or len(row) < 6:
+        return False
+    players, enemies = ("Player-", "Pet-"), ("Creature-", "Vehicle-")
+    return ((row[1].startswith(players) and row[5].startswith(enemies))
+            or (row[5].startswith(players) and row[1].startswith(enemies)))
 POSITION_ONLY = {"SWING_DAMAGE_LANDED", "SPELL_ENERGIZE", "SPELL_PERIODIC_ENERGIZE", "SPELL_DRAIN", "SPELL_LEECH"}
 EXTRA = {
     "SPELL_CAST_START",
@@ -286,7 +294,7 @@ class FactWriter:
             return
         if len(row) < 9:
             return
-        boss = active.get("首领", (0,))[0]
+        boss = active.get("首领", active.get("地下城交战", (0,)))[0]
         key = active.get("钥匙", (0,))[0]
         kind = row[0]
         src, dst = self.actor(row[1], row[2]), self.actor(row[5], row[6])
@@ -320,15 +328,9 @@ class FactWriter:
         if amount is None and kind in DAMAGE | HEAL:
             self.unknown += 1
         # 用双方直接发生的伤害划定小怪交战；空档和首领边界分别封段。
-        player = ("Player-", "Pet-")
-        enemy = ("Creature-", "Vehicle-")
-        contact = kind in DAMAGE and (
-            (row[1].startswith(player) and row[5].startswith(enemy))
-            or (row[5].startswith(player) and row[1].startswith(enemy))
-        )
         if self.wave and (ms - self.wave[-1] > 8000 or ms < self.wave[-1]):
             self.finish_wave()
-        if key and not boss and contact:
+        if key and not boss and hostile_damage(row):
             if not self.wave:
                 self.wave = [line, key, line, line, ms, ms]
             self.wave[3], self.wave[5] = line, ms
@@ -361,7 +363,7 @@ class FactWriter:
                 *combat_replay_state.aura_fields(row),
             ),
         )
-        if kind == "SPELL_CAST_START" and row[1].startswith(enemy):
+        if kind == "SPELL_CAST_START" and row[1].startswith(("Creature-", "Vehicle-")):
             self.pending[src] = (line, ms, spell)
             self.db.execute(
                 "INSERT INTO opportunity VALUES (?,?,?,?,?,?,?,NULL)",

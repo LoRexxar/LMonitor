@@ -68,6 +68,8 @@ class CombatLogTests(TestCase):
         self.assertEqual(self.report.state, "ready")
         self.assertEqual(self.report.summary["orphan_keys"], 1)
         self.assertEqual(b"".join(self.client.get(self.url + "original/").streaming_content), self.data)
+        with patch.object(archive, "read_report", side_effect=AssertionError("归档入口不应重复读取战斗索引")):
+            self.assertContains(self.client.get(self.url), reverse("combat_battles") + f"?log={self.report.pk}")
         view = self.client.get(self.url + "?fight=2&death=8")
         self.assertEqual([f["result"] for f in view.context["fights"]], ["已完成", "失败", "击杀"])
         self.assertEqual([f["deaths"] for f in view.context["fights"]], [1, 1, 0])
@@ -149,6 +151,69 @@ class CombatLogTests(TestCase):
         self.assertEqual((fight["result"], fight["end_line"], fight["end_ms"], fight["official_ms"]),
                          ("未结算", 5, None, None))
         self.assertEqual(fight["observed_end_ms"] - fight["start_ms"], 3000)
+
+    def test_key_continuation_needs_same_map_difficulty_and_recent_header(self):
+        raw = sample().splitlines(keepends=True)
+        header = raw[0].replace(b"49:00.", b"49:22.")
+        encounter = raw[3].replace(b"49:03.", b"50:45.")
+        end = raw[8].replace(b"49:08.", b"51:10.")
+        def index(rows):
+            return build_index(":memory:", [raw[0], raw[2], *rows])["activity_index"]
+        key, boss = index([header, encounter, end])
+        self.assertEqual((key["result"], key["end_line"], key["observed_end_ms"], boss["parent"]),
+                         ("未结算", 5, boss["end_ms"], key["id"]))
+        for contrary in (encounter.replace(b",5,2660", b",5,999"),
+                         encounter.replace(b",8,5,", b",16,20,"),
+                         encounter.replace(b"18:50:", b"20:50:")):
+            key, boss = index([header, contrary])
+            self.assertEqual((key["end_line"], boss["parent"]), (2, None))
+        room = header.split(b"  ")[0] + b'  ZONE_CHANGE,2660,"room",8\n'
+        key, boss = index([header, room, end])
+        self.assertEqual((boss["start_line"], boss["parent"]), (None, key["id"]))
+        key, boss = index([room.replace(b",8\n", b",23\n"), encounter])
+        self.assertEqual((key["end_line"], boss["parent"]), (2, None))
+
+    def test_selected_segments_keep_independent_sessions(self):
+        raw = sample().splitlines(keepends=True)
+        first = raw[0] + raw[2]
+        # 第二段版本头紧随第一段钥匙开场，且其首领属于同一张地图。
+        second = raw[0].replace(b"49:00.", b"49:03.") + raw[3] + raw[8]
+        data = first + second
+        result = build_index(":memory:", [data], segment_starts={0, len(first)})
+        key, boss = result["activity_index"]
+        self.assertEqual((key["result"], key["end_line"], boss["parent"]), ("未结算", 2, None))
+        self.assertNotEqual(key["session"], boss["session"])
+        for boundary in (len(first) - 1, len(raw[0])):
+            with self.subTest(boundary=boundary), self.assertRaisesRegex(ValueError, "片段"):
+                build_index(":memory:", [data], segment_starts={0, boundary})
+
+    def test_keystone_level_uses_matching_key_markers(self):
+        raw = sample().splitlines(keepends=True)
+        end = raw[-1]
+        for start_level, end_level, expected in (("0","21","21"),("20","21","冲突"),("0","0","未知"),("8","8","8")):
+            with self.subTest(start=start_level, end=end_level):
+                r = build_index(":memory:", [raw[0], raw[2].replace(b",12,[", f",{start_level},[".encode()),
+                                             raw[3], end.replace(b",12,189", f",{end_level},189".encode())])
+                key, boss = r["activity_index"]
+                self.assertEqual((key["level"], boss["level"], boss["parent"]), (expected, "8", key["id"]))
+        key, = build_index(":memory:", [raw[0], raw[2], raw[1]])["activity_index"]
+        self.assertEqual((key["level"], key["result"], key["end_ms"]), ("12", "未结算", None))
+        malformed = end.replace(b",1,12,1890000", b",9,21,broken") + b"\n"
+        key, = build_index(":memory:", [raw[0], raw[2], malformed, raw[4]])["activity_index"]
+        self.assertEqual((key["level"], key["end_line"], key["result"]), ("12", 4, "未结算"))
+
+    def test_pre_key_dungeon_damage_has_its_own_range_without_renumbering_keys(self):
+        import sqlite3
+        from contextlib import closing
+        raw = sample().splitlines(keepends=True)
+        zone = raw[0].partition(b"  ")[0] + b'  ZONE_CHANGE,2660,"prep",23\n'
+        result = build_index(path := Path(self.enterContext(TemporaryDirectory())) / "index.sqlite3",
+                             [raw[0], zone, raw[4], raw[1], raw[2], raw[3], raw[4], raw[8], raw[-1]])
+        key, boss, before = result["activity_index"]
+        self.assertEqual((key["id"], boss["parent"], before["kind"], before["level"]), (1, 1, "地下城交战", "23"))
+        with closing(sqlite3.connect(path)) as db:
+            self.assertEqual(db.execute("SELECT boss,keystone FROM fact WHERE line=3").fetchone(), (before["id"], 0))
+            self.assertEqual(db.execute("SELECT boss,keystone FROM fact WHERE line=7").fetchone(), (boss["id"], key["id"]))
 
     def test_invalid_text_can_retry_with_new_attempt(self):
         self.parts = [b"x"*len(chunk) for chunk in self.parts]

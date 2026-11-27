@@ -154,6 +154,8 @@ def public_reference(sample, actor):
     if not dungeon and sample["parent"]:
         return None, "公开大秘境榜只记录整把钥匙，当前地下城首领没有独立榜单。"
     level = sample["level"]
+    if dungeon and not str(level).isdecimal():
+        return None, "这把钥匙的层数未能确认，无法匹配同层公开排名。"
     difficulty = {"15": 4, "16": 5}.get(str(level))
     if not dungeon and not difficulty:
         return None, "公开团本缓存目前覆盖英雄和史诗难度。"

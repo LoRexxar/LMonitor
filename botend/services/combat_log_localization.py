@@ -124,7 +124,7 @@ def spell_names(original):
 
 def _fight_names(rows):
     names = {}
-    maps = {number(r["game_id"]) for r in rows if r["kind"] == "钥匙"}
+    maps = {number(r["game_id"]) for r in rows if r["kind"] in ("钥匙", "地下城交战")}
     bosses = {number(r["game_id"]) for r in rows if r["kind"] == "首领"}
     if not (maps or bosses):
         return names
@@ -168,7 +168,7 @@ def _fight_names(rows):
             _add(by_slug, key, zh, name)
     for row in rows:
         mid = number(row["game_id"])
-        if row["kind"] == "钥匙":
+        if row["kind"] in ("钥匙", "地下城交战"):
             keys = slugs.get(mid, ())
             slug_name = by_slug.get(next(iter(keys))) if len(keys) == 1 else None
             _add(

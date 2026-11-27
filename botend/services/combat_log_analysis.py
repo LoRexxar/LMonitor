@@ -8,7 +8,7 @@ from django.urls import reverse
 from botend.services.combat_log_archive import index_path
 from botend.services.combat_log_facts import DAMAGE, HEAL, VERSION, pull_catalog
 from botend.services import combat_log_localization as localization
-from botend.services.combat_log_index import event_label
+from botend.services.combat_log_index import RAID_DIFFICULTIES, dungeon_detail, event_label, key_level, level_label
 from botend.services import combat_log_visuals as visuals
 
 
@@ -49,10 +49,14 @@ def catalog(reports):
         parents = {row["id"]: row for row in activity_index if row["kind"] == "钥匙"}
         for row in activity_index:
             session = report.summary["sessions"][row["session"] - 1]
+            parent = parents.get(row["parent"])
+            wcl = session.get("format") == "WCL"
+            detail = dungeon_detail(row, wcl=wcl)
+            raid = row["kind"] == "首领" and not detail and (wcl or str(row["level"]) in RAID_DIFFICULTIES)
             scope = (
                 "钥匙"
                 if row["kind"] == "钥匙"
-                else ("地下城首领" if row["parent"] else "首领")
+                else ("地下城交战" if row["kind"] == "地下城交战" else "地下城首领" if detail else "首领")
             )
             cohort = "/".join(
                 [
@@ -63,14 +67,25 @@ def catalog(reports):
                     row["affixes"] or "",
                 ]
             )
-            title = f"{scope} · {row['name']} · {row['level']} · {session['build']}"
+            key = row if row["kind"] == "钥匙" else parent
+            key_label = level_label(key["level"]) if key else ""
+            label = key_label if key else ("层数未知" if detail == "大秘境首领" else f"难度 {row['level']}")
+            if row["kind"] == "地下城交战" and row["level"] == "23":
+                label = "史诗（非钥匙）"
+            title = f"{detail or scope} · {row['name']} · {label} · {session['build']}"
+            if parent:
+                cohort += f"/{parent['game_id']}/{parent.get('challenge_id') or ''}"
+                title = f"{parent['name']} · {detail} · {row['name']} · {session['build']}"
             if row["affixes"]:
                 title += " · 词缀 " + row["affixes"]
             groups[cohort] = title
-            parent = parents.get(row["parent"])
-            bracket = (f"{parent['game_id']} / +{parent['level']} / {parent['affixes'] or '无词缀'}"
+            bracket = (f"{key_label} · 词缀 {parent['affixes'] or '未记录'}"
                        if parent else "")
-            samples.append(dict(row, report=report, cohort=cohort, key_bracket=bracket,
+            samples.append(dict(row, report=report, cohort=cohort, key_bracket=bracket, dungeon_detail=detail, raid=raid,
+                                dungeon_name=key["name"] if key else "", level_label=label,
+                                source_log=getattr(report, "source_filename", "") or report.filename,
+                                comparable_key_boss=bool(parent and key_level(parent["level"]) and row["start_ms"] is not None
+                                                         and row["game_id"] not in ("", "0")),
                                 url=work_url(report, row["id"])))
     return samples, groups, skipped
 
@@ -87,12 +102,12 @@ def unique_attempts(samples):
             and roster
             and roster == sample.get("roster")
             and min(end, b) - max(begin, a) > 0.8 * min(end - begin, b - a)
-            for pk, a, b, roster in ranges[sample["cohort"]]
+            for pk, a, b, roster in ranges[sample["cohort"], sample.get("key_bracket", "")]
         ):
             reason = "观测阵容相同且时间高度重叠，仅采用先选视角"
         else:
             if end is not None:
-                ranges[sample["cohort"]].append(
+                ranges[sample["cohort"], sample.get("key_bracket", "")].append(
                     (sample["report"].pk, begin, end, sample.get("roster"))
                 )
             kept.append(sample)
@@ -110,6 +125,7 @@ def overview(samples):
             dict(
                 name=s["name"],
                 kind=s["kind"],
+                raid=s["raid"],
                 level=s["level"],
                 count=0,
                 files=set(),

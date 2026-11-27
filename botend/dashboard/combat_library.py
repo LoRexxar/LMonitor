@@ -1,6 +1,7 @@
 """选择日志和选择战斗的公共入口。来源只决定目录数据的读取方式。"""
 
 import re
+from collections import Counter
 from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -16,6 +17,7 @@ from botend.dashboard import combat_wcl, combat_workbench
 from botend.dashboard.combat_logs import STATES, endpoint
 from botend.models import CombatPublicReportEntry, CombatPublicReportPage, CombatPublicSource, WclUserBinding
 from botend.services import combat_log_analysis as analysis
+from botend.services.combat_log_index import dungeon_detail, needs_boundary_rebuild
 from botend.services import combat_loading
 from botend.services import combat_public_list_cache as list_cache
 from botend.services import combat_wcl_account as wcl, combat_wcl_catalog as catalog
@@ -93,9 +95,10 @@ def library_page(request, lookup=None, *, private_binding=None):
                    "title", "owner__username", "created_at").order_by("-created_at"),
                private_available=private_available)
     reports = combat_workbench.visible(request.user).select_related("owner").only(
-        "filename", "created_at", "published", "summary", "state", "owner__username").order_by("-created_at","pk")
+        "filename", "source_filename", "created_at", "published", "summary", "state", "owner__username").order_by("-created_at","pk")
     if ctx["query"]:
-        reports = reports.filter(Q(filename__icontains=ctx["query"]) | Q(summary__activity_index__icontains=ctx["query"]))
+        reports = reports.filter(Q(filename__icontains=ctx["query"]) | Q(source_filename__icontains=ctx["query"])
+                                 | Q(summary__activity_index__icontains=ctx["query"]))
     page = Paginator(reports,30).get_page(1 if q.get("filter") else q.get("page"))
     rows = []
     for r in page:
@@ -105,8 +108,12 @@ def library_page(request, lookup=None, *, private_binding=None):
         detail = STATES.get(r.state, r.state)
         fights = r.summary.get("activity_index")
         if ready and fights:
-            names = list(dict.fromkeys(f["name"] for f in fights if f.get("name")))
-            detail = " · ".join(filter(None, (f"{len(fights)} 场", "、".join(names[:3]))))
+            primary = [f for f in fights if not dungeon_detail(f)]
+            names = list(dict.fromkeys(f["name"] for f in (primary or fights) if f.get("name")))
+            count = f"{len(primary)} 场" if primary else f"{len(fights)} 个地下城片段"
+            detail = " · ".join(filter(None, (count, "、".join(names[:3]))))
+        if r.source_filename and r.source_filename != r.filename:
+            detail += f" · 来源 {r.source_filename}"
         rows.append(dict(field=key[0],value=key[1],title=r.filename,date=r.created_at,
                          source="上传日志",owner=r.owner.username,detail=detail,
                          selectable=ready,archive=archive,url=directory_url(carry+[key]) if ready else archive))
@@ -182,12 +189,25 @@ def library_page(request, lookup=None, *, private_binding=None):
 
 def local_groups(reports):
     samples, _, skipped = analysis.catalog(reports)
-    groups = {}
+    groups, children, fragments = {}, {}, []
+    boss_counts = Counter(s["cohort"] for s in samples if s["comparable_key_boss"])
+    selection = [("log", str(report.pk)) for report in reports]
     for s in samples:
+        if s["parent"]:
+            if s["comparable_key_boss"] and boss_counts[s["cohort"]] > 1:
+                s["compare_url"] = reverse("combat_workspace") + "?" + urlencode(
+                    [*selection, ("cohort", s["cohort"]), ("panel", "dungeon_boss"), ("bracket", s["key_bracket"])])
+            children.setdefault((s["report"].pk, s["parent"]), []).append(s)
+    for s in samples:
+        if s["parent"]:
+            continue
+        if s["dungeon_detail"]:
+            fragments.append(s)
+            continue
         group = groups.setdefault(s["cohort"],dict(key="local-"+sha256(s["cohort"].encode()).hexdigest()[:24],name=s["name"],dungeon=s["kind"]=="钥匙",
-                                  dungeon_boss=bool(s["parent"]),
-                                  difficulty=(f"大秘境 +{s['level']}" if s["kind"]=="钥匙" else
-                                              f"{'副本首领' if s['parent'] else '团本首领'} · 难度 {s['level']}"),
+                                  raid=s["raid"],
+                                  difficulty=(f"大秘境 {s['level_label']}" if s["kind"]=="钥匙" else
+                                              f"{'团本首领' if s['raid'] else '首领记录'} · 难度 {s['level']}"),
                                   pulls=[],kills=0,wipes=0,source_label="上传日志"))
         start = s["start_ms"]
         end = s["end_ms"] if s["end_ms"] is not None else s.get("observed_end_ms")
@@ -198,24 +218,27 @@ def local_groups(reports):
         if len(reports)>1:
             url = reverse("combat_workspace")+"?"+urlencode([*(("log",str(r.pk)) for r in reports),
                                                              ("sample",str(s["report"].pk)),("fight",s["id"])])
-        group["pulls"].append(dict(number=0,date=date,result=s["result"],file=s["report"].filename,
+        group["pulls"].append(dict(number=0,date=date,result=s["result"],file=s["source_log"],
+                                   level_markers=s.get("level_markers"),
+                                   opening_only=s["kind"] == "钥匙" and start is not None and end is None,
                                    elapsed=f"{seconds//60}:{seconds%60:02d}" if seconds is not None else "—",
                                    observed_only=s["end_ms"] is None and seconds is not None,
-                                   url=url,kill=kill,local=True))
+                                   url=url,kill=kill,local=True,
+                                   bosses=children.get((s["report"].pk, s["id"]), ())))
         group["kills"] += int(kill)
-        group["wipes"] += int(s["result"] in ("未完成","未击杀","灭团"))
+        group["wipes"] += int(s["result"] in ("未完成","未击杀","灭团","失败"))
     for cohort,g in groups.items():
         items = [("log",str(r.pk)) for r in reports]+[("cohort",cohort)]
         base = reverse("combat_workspace")+"?"
         g["combined_url"] = base+urlencode(items)
         g["players_url"] = base+urlencode(items+[("mode","players"),("target_group",cohort)])
-        if not g["dungeon"] and (not g["dungeon_boss"] or len(g["pulls"]) > 1):
+        if g["raid"]:
             g["review_url"] = base+urlencode(items+[("panel","boss")])
         g["pulls"].sort(key=lambda p:(p["date"] is None,p["date"]))
         g["unsettled"] = sum(p["result"] == "未结算" for p in g["pulls"])
         for n,p in enumerate(g["pulls"],1):
             p["number"]=n
-    return list(groups.values()), skipped
+    return list(groups.values()), skipped, fragments
 
 
 @endpoint("GET")
@@ -225,7 +248,7 @@ def battles(request):
     if not items:
         return redirect(reverse("combat_logs")+"?analyze=battle")
     local = combat_workbench.selected_reports(request.user,q)
-    groups, skipped = local_groups(local)
+    groups, skipped, fragments = local_groups(local)
     report_count = len(local)
     picked_ref = ""
     picked_group = ""
@@ -273,10 +296,23 @@ def battles(request):
         for key in ("review_url","players_url","combined_url"):
             if g.get(key):
                 g[key] += "&"+back
+        comparisons = {}
         for pull in g["pulls"]:
             pull["url"] += ("&" if "?" in pull["url"] else "?")+back
+            for boss in pull.get("bosses", ()):
+                boss["wave_url"] = pull["url"] + "&" + urlencode({"wave": -boss["id"]})
+                if boss.get("compare_url"):
+                    boss["compare_url"] += "&" + back
+                    comparisons.setdefault(boss["compare_url"], boss)
             for view in pull.get("views", ()):
                 view["single_url"] += ("&" if "?" in view["single_url"] else "?")+back
+        g["sidebar_comparisons"] = list(comparisons.values())
     active = next((g for g in groups if g["key"]==(q.get("focus") or picked_group)),groups[0] if groups else None)
+    for boss in fragments:
+        boss["url"] += "&" + urlencode({"back_catalog": urlencode(state + items)})
+    normal_runs = [s for s in fragments if s["kind"] == "地下城交战"]
+    fragments = [s for s in fragments if s["kind"] != "地下城交战"]
+    rebuild_reports = [r for r in local if r.owner_id == request.user.pk and needs_boundary_rebuild(r.summary)]
     return render(request,"dashboard/combat_battles.html",dict(groups=groups,active=active,report_count=report_count,
+                  fragments=fragments,normal_runs=normal_runs,rebuild_reports=rebuild_reports,
                   shared_directory=True,listing_url=library_url,picked=picked_ref,skipped=skipped,pull_count=sum(len(g["pulls"]) for g in groups)))

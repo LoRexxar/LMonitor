@@ -29,9 +29,9 @@
 <section><a href="{% url 'combat_report' report.pk %}"><i class="nav-arrow back" aria-hidden="true"></i>活动目录</a>
 <h2>{{ selected.name }} · {{ selected.result }}</h2>
 {% if report.summary.index_version >= 3 %}<a class="wb-open" href="{% url 'combat_analysis' report.pk %}?fight={{ selected.id }}">进入多维分析工作台<i class="nav-arrow" aria-hidden="true"></i></a> · <a href="{% url 'combat_replay' report.pk selected.id %}">战斗回放</a>{% endif %}
-<p>{% if selected.kind == '钥匙' %}大秘境全程 · +{{ selected.level }}{% else %}首领尝试 #{{ selected.id }} · 难度 {{ selected.level }}{% endif %} · {{ selected.deaths }} 次玩家死亡</p>
+<p>{% if selected.kind == '钥匙' %}大秘境全程 · {{ selected.key_label }}{% elif selected.dungeon_detail %}{{ selected.dungeon_detail }} · {{ selected.dungeon_name }} {{ selected.key_label }}{% else %}首领尝试 #{{ selected.id }} · 难度 {{ selected.level }}{% endif %} · {{ selected.deaths }} 次玩家死亡</p>
 {% if selected.kind == '钥匙' and selected.official_ms %}<p>日志结算用时 {{ selected.official_seconds|floatformat:3 }} 秒</p>{% endif %}
-{% if comparisons|length > 1 %}<h3>{% if selected.kind == '钥匙' %}同会话、同副本、同层数对照{% else %}同活动、同难度的首领尝试{% endif %}</h3>
+{% if comparisons|length > 1 and not selected.dungeon_detail %}<h3>{% if selected.kind == '钥匙' %}同会话、同副本、同层数对照{% else %}同活动、同难度的首领尝试{% endif %}</h3>
 <div class="table-wrap"><table><thead><tr><th>场次</th><th>结果</th><th>时长（秒）</th><th>首死（秒）</th><th>死亡次数</th><th>成功打断</th></tr></thead><tbody>
 {% for other in comparisons %}<tr><td><a href="?fight={{ other.id }}">第 {{ forloop.counter }} 次</a></td><td>{{ other.result }}</td><td>{% if other.observed_seconds != None %}已记录 {{ other.observed_seconds }}{% else %}{{ other.seconds|default_if_none:"未知" }}{% endif %}</td><td>{{ other.first_death_seconds|default_if_none:"—" }}</td><td>{{ other.deaths }}</td><td>{{ other.kicks }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 <h3>减员顺序</h3>{% for item in deaths %}<a class="death-link" href="?fight={{ selected.id }}&amp;death={{ item.line }}#evidence">{{ forloop.counter }}. {{ item.target }} · 开始后 {{ item.seconds|floatformat:3 }} 秒</a>{% empty %}<p>该区间未记录玩家死亡。</p>{% endfor %}
@@ -48,9 +48,11 @@
 {% if interrupts %}<div class="table-wrap"><table><thead><tr><th>被打断技能</th><th>队员</th><th>敌方目标</th><th>次数</th><th>首次记录行</th></tr></thead><tbody>
 {% for row in interrupts %}<tr><td>{{ row.spell }} · {{ row.spell_id }}</td><td>{{ row.actor }}</td><td>{{ row.target }}</td><td>{{ row.total }}</td><td>{{ row.first_line }}</td></tr>{% endfor %}
 </tbody></table></div>{% else %}<p>该区间未记录玩家成功打断。</p>{% endif %}</section>
+{% elif report.summary.index_version >= 3 %}
+<section><a class="wb-open" href="{% url 'combat_battles' %}?log={{ report.pk }}">进入战斗目录<i class="nav-arrow" aria-hidden="true"></i></a></section>
 {% else %}
-<section><h2>活动目录</h2>{% if report.summary.index_version >= 3 %}<a class="wb-open" href="{% url 'combat_analysis' report.pk %}">连续分析整份日志<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}<div class="table-wrap"><table><thead><tr><th>活动</th><th>类型</th><th>结果</th><th>记录时长</th><th>死亡次数</th></tr></thead><tbody>
-{% for fight in fights %}<tr><td><a href="{% if report.summary.index_version >= 3 %}{% url 'combat_analysis' report.pk %}{% endif %}?fight={{ fight.id }}">{{ fight.name }}</a></td><td>{% if fight.kind == '钥匙' %}钥匙 +{{ fight.level }}{% elif fight.parent %}钥匙 #{{ fight.parent }} 内首领{% else %}首领 · 难度 {{ fight.level }}{% endif %}</td><td>{{ fight.result }}{% if not fight.start_line %}（起点缺失）{% endif %}</td><td>{% if fight.seconds != None %}{{ fight.seconds }} 秒{% elif fight.observed_seconds != None %}已记录 {{ fight.observed_seconds }} 秒{% else %}未知{% endif %}</td><td>{{ fight.deaths }}</td></tr>
+<section><h2>活动目录</h2><div class="table-wrap"><table><thead><tr><th>活动</th><th>类型</th><th>结果</th><th>记录时长</th><th>死亡次数</th></tr></thead><tbody>
+{% for fight in fights %}<tr><td><a href="?fight={{ fight.id }}">{{ fight.name }}</a></td><td>{% if fight.kind == '钥匙' %}钥匙 +{{ fight.level }}{% elif fight.dungeon_detail %}{{ fight.dungeon_detail }}补充分析{% if fight.parent %} · 钥匙 #{{ fight.parent }}{% endif %}{% else %}首领 · 难度 {{ fight.level }}{% endif %}</td><td>{{ fight.result }}{% if not fight.start_line %}（起点缺失）{% endif %}</td><td>{% if fight.seconds != None %}{{ fight.seconds }} 秒{% elif fight.observed_seconds != None %}已记录 {{ fight.observed_seconds }} 秒{% else %}未知{% endif %}</td><td>{{ fight.deaths }}</td></tr>
 {% empty %}<tr><td colspan="5">日志中未识别到首领尝试或大秘境钥匙。</td></tr>{% endfor %}</tbody></table></div></section>
 {% endif %}
 {% elif report.state != 'uploading' and report.state != 'paused' %}

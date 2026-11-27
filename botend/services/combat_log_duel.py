@@ -64,7 +64,7 @@ def directory(reports, target=""):
             group, title = s["cohort"], labels[s["cohort"]]
             if parent := parents.get(s["parent"]):
                 group += "/" + parent["cohort"]
-                title += " · " + parent["name"] + " +" + parent["level"]
+                title += " · " + s["level_label"]
                 if parent["affixes"]:
                     title += " · 词缀 " + parent["affixes"]
             group += "/" + s["result"]

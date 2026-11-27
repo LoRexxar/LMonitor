@@ -219,12 +219,13 @@ def read_anchors(db, s):
 def comparison(samples, params):
     brackets = sorted({s["key_bracket"] for s in samples})
     bracket = params.get("bracket", brackets[0] if brackets else "")
-    if brackets and bracket not in brackets:
+    all_levels = params.get("panel") == "dungeon_boss" and bracket == "all"
+    if brackets and not all_levels and bracket not in brackets:
         raise ValueError("所选钥匙层数或词缀不在当前首领范围中。")
-    kept, excluded = analysis.unique_attempts([s for s in samples if s["key_bracket"] == bracket])
+    kept, excluded = analysis.unique_attempts([s for s in samples if all_levels or s["key_bracket"] == bracket])
     kept.sort(key=lambda s: (s["start_ms"], str(s["report"].pk), s["id"]))
     ctx = dict(excluded_attempts=excluded, bracket=bracket, brackets=brackets,
-               bracket_fields=fields(params, "bracket", "base", "batch", "at"),
+               bracket_fields=fields(params, "bracket", "base", "batch", "at", "attempt", "sync"),
                metric_fields=fields(params, "behavior"), baseline_fields=fields(params, "base", "batch"),
                window_fields=fields(params, "at", "sync"), full_url=link(params, at=None, sync=None))
     if not kept:

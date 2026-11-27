@@ -25,6 +25,7 @@ from django.views.decorators.http import require_http_methods
 from botend.models import CombatLogReport, CombatLogPolicy
 from botend.services import combat_log_archive as archive
 from botend.services import combat_loading, combat_page_cache
+from botend.services.combat_log_index import needs_boundary_rebuild
 from botend.services.combat_wcl_account import WclError
 
 
@@ -98,6 +99,12 @@ def uploader(request):
     if request.method == "POST":
         try:
             items = json.loads(request.body)
+            source_filename = ""
+            selection = []
+            if isinstance(items, dict):
+                source_filename = items["source_filename"]
+                selection = items.get("selection", [])
+                items = items["scenes"]
             if not isinstance(items, list) or not 1 <= len(items) <= 1000:
                 raise ValueError
             batch = [(r["name"], r["size"], uuid.UUID(r["key"])) for r in items]
@@ -105,7 +112,7 @@ def uploader(request):
                 raise ValueError
         except (TypeError, ValueError, KeyError, AttributeError):
             raise ValueError("场次上传清单无效。") from None
-        reports = archive.create_batch(request.user, batch)
+        reports = archive.create_batch(request.user, batch, source_filename=source_filename, selection=selection)
         return JsonResponse({"reports": [reverse("combat_report", args=[r.pk]) for r in reports]})
     resume = None
     if request.GET.get("resume"):
@@ -114,6 +121,7 @@ def uploader(request):
     return render(request, "dashboard/combat_upload.html", {
         "policy": archive.policy_for(request.user),
         "resume": resume if resume and resume.upload_key else None,
+        "resume_selection": resume.summary.get("upload_selection", []) if resume else [],
         "legacy_resume": resume if resume and not resume.upload_key else None,
         "max_source_bytes": getattr(settings, "COMBAT_LOG_MAX_SOURCE_BYTES", 2 * 1024**3),
         "count": CombatLogReport.objects.filter(owner=request.user, retire_after__isnull=True, expires_at__gt=timezone.now()).count(),
@@ -257,6 +265,9 @@ def detail(request, pk):
     if report.published or report.state == "ready":
         fight_id = request.GET.get("fight")
         death = request.GET.get("death")
+        if not fight_id and not death and report.summary.get("index_version", 0) >= 3:
+            context["legacy_partial_key"] = needs_boundary_rebuild(report.summary)
+            return render(request, "dashboard/combat_logs.html", context)
         try:
             context.update(
                 archive.read_report(

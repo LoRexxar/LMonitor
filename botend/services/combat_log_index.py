@@ -14,6 +14,11 @@ STAMP = re.compile(
     rb"(\d{1,2})/(\d{1,2})(?:/(\d{4}))? (\d{1,2}):(\d{2}):(\d{2})\.(\d{3})(?:([+-]?)(\d{1,2})(?::(\d{2}))?)?"
 )
 MAX_LINE = 2 * 1024 * 1024
+BOUNDARY_REVISION = 4
+DUNGEON_DIFFICULTIES = {"1", "2", "8", "23", "24", "150"}
+RAID_DIFFICULTIES = {"3", "4", "5", "6", "7", "9", "14", "15", "16", "17", "33", "151", "220"}
+# 只在短暂中断且后续边界明确证实同一钥匙地图时衔接版本头。
+HEADER_GAP_MS = 300_000
 PLAYER_EVENTS = {
     "UNIT_DIED": "死亡",
     "SPELL_DAMAGE": "技能伤害",
@@ -51,6 +56,31 @@ EVENT_LABELS = {
 
 def event_label(kind):
     return EVENT_LABELS.get(kind, kind)
+
+
+def key_level(value):
+    return str(value) if re.fullmatch(r"[1-9][0-9]*", str(value or "")) else ""
+
+
+def level_label(value):
+    return f"+{value}" if key_level(value) else ("层数冲突" if value == "冲突" else "层数未知")
+
+
+def dungeon_detail(fight, *, wcl=False):
+    if fight.get("kind") == "地下城交战":
+        return "非钥匙地下城"
+    if fight.get("kind") == "首领":
+        if fight.get("parent") or (not wcl and str(fight.get("level")) == "8"):
+            return "大秘境首领"
+        if not wcl and str(fight.get("level")) in DUNGEON_DIFFICULTIES:
+            return "地下城首领"
+    return ""
+
+
+def needs_boundary_rebuild(summary):
+    fights = summary.get("activity_index")
+    return (summary.get("boundary_revision", 0) < BOUNDARY_REVISION and fights is not None
+            and (not fights or any(f["kind"] == "钥匙" for f in fights)))
 
 SCHEMA = """
 CREATE TABLE fight(id INTEGER PRIMARY KEY, session INTEGER, kind TEXT, game_id TEXT, name TEXT, level TEXT,
@@ -104,7 +134,7 @@ def iter_lines(chunks):
         yield offset, length, bytes(pending) if length <= MAX_LINE else b""
 
 
-def session_order(chunks):
+def session_order(chunks, segment_starts=()):
     """正式服有时先写开战和队伍信息，再写本段版本头。原文行号和偏移始终不变。"""
     opening = []
     size = 0
@@ -114,6 +144,11 @@ def session_order(chunks):
         prefix = raw[:96].removeprefix(b"\xef\xbb\xbf")
         stamp, _, event = prefix.partition(b"  ")
         kind = event.partition(b",")[0]
+        if offset in segment_starts:
+            if kind != b"COMBAT_LOG_VERSION":
+                raise ValueError("合并片段的起点缺少日志版本头。")
+            yield from opening
+            opening.clear()
         if opening:
             if kind == b"COMBATANT_INFO" and size + length <= 4 * 1024 * 1024 and len(opening) < 256:
                 opening.append(record)
@@ -141,10 +176,53 @@ def session_order(chunks):
     yield from opening
 
 
+def header_evidence(chunks, segment_starts=()):
+    """楼层和队伍快照不能证明换本，预读有限的上下文并保留原事件顺序。"""
+    records = iter(session_order(chunks, segment_starts))
+    record = next(records, None)
+    while record is not None:
+        if b"  COMBAT_LOG_VERSION," in record[3][:96]:
+            following = next(records, None)
+            context = []
+            size = 0
+            while following and len(context) < 32 and size + following[2] <= MAX_LINE:
+                kind = following[3][:96].partition(b"  ")[2].partition(b",")[0]
+                if kind not in (b"MAP_CHANGE", b"COMBATANT_INFO"):
+                    break
+                context.append(following)
+                size += following[2]
+                following = next(records, None)
+            yield record, following[3][:2048] if following else b""
+            for item in context:
+                yield item, b""
+            record = following
+        else:
+            yield record, b""
+            record = next(records, None)
+
+
+def continues_key(raw, game_map, header_ms, year):
+    stamp, _, payload = raw.partition(b"  ")
+    match = STAMP.fullmatch(stamp)
+    try:
+        delay = timestamp(match, year) - header_ms if match else None
+        row = next(csv.reader([payload.decode("utf-8", "replace").strip()]), [])
+    except (ValueError, csv.Error):
+        return False
+    if delay is None or not -1000 <= delay <= HEADER_GAP_MS:
+        return False
+    return ((len(row) >= 4 and row[0] == "ZONE_CHANGE" and row[1] == game_map and row[3] == "8")
+            or (len(row) >= 6 and row[0] == "ENCOUNTER_START" and row[3] == "8" and row[5] == game_map))
+
+
 class ActivityIndex:
     def __init__(self, db):
         self.db = db
         self.active = {}
+        self.key_levels = {}
+        self.normal_zone = None
+        self.normal_spans = []
+        self.boss_zone = None
         self.orphan_keys = 0
         self.session = 0
 
@@ -181,16 +259,64 @@ class ActivityIndex:
             )
 
     def finish_session(self, line):
+        self.finish_normal(line)
+        self.normal_zone = None
         self.close("首领", line, None, "终点缺失")
         self.close("钥匙", line, None, "终点缺失")
 
+    def finish_normal(self, line):
+        if self.active.pop("地下城交战", None):
+            self.normal_spans[-1]["end_line"] = line
+
+    def enter_zone(self, row, line):
+        if "首领" in self.active and self.boss_zone:
+            instance, difficulty = self.boss_zone
+            if (instance and row[1] != instance) or (len(row) > 3 and row[3] and row[3] != difficulty):
+                self.close("首领", line - 1, None, "终点缺失")
+        zone = tuple(row[1:4]) if len(row) >= 4 and row[3] in DUNGEON_DIFFICULTIES - {"8"} else None
+        if zone != self.normal_zone:
+            self.finish_normal(line - 1)
+            self.normal_zone = zone
+
+    def observe_normal(self, row, line, ms):
+        if self.active or not facts.hostile_damage(row):
+            return
+        game_id, name, level = self.normal_zone
+        self.normal_spans.append(dict(session=self.session, game_id=game_id, name=name, level=level,
+                                      start_line=line, start_ms=ms))
+        self.active["地下城交战"] = (-len(self.normal_spans), game_id)
+
+    def publish_normal_spans(self):
+        # 在正式钥匙和首领之后分配编号，重建旧归档时原场次链接仍指向原战斗。
+        for number, span in enumerate(self.normal_spans, 1):
+            fight = self.db.execute(
+                "INSERT INTO fight(session,kind,game_id,name,level,start_line,start_ms,end_line,result) "
+                "VALUES (:session,'地下城交战',:game_id,:name,:level,:start_line,:start_ms,:end_line,'已记录')", span)
+            for table in ("fact", "opportunity"):
+                self.db.execute(f"UPDATE {table} SET boss=? WHERE line BETWEEN ? AND ? AND boss=?",
+                                (fight.lastrowid, span["start_line"], span["end_line"], -number))
+
     def boundary(self, row, line, ms):
         kind = row[0]
+        if kind == "CHALLENGE_MODE_END" and (len(row) < 5 or row[2] not in ("0", "1")
+                                             or not re.fullmatch(r"[0-9]+", row[4])):
+            raise ValueError("钥匙结束标记缺少有效的结果或用时")
+        self.finish_normal(line - 1)
+        if kind == "CHALLENGE_MODE_START" or (kind == "ENCOUNTER_START" and self.normal_zone and
+                (row[3] != self.normal_zone[2] or (len(row) > 5 and row[5] != self.normal_zone[0]))):
+            self.normal_zone = None
+        if kind in ("ENCOUNTER_START", "ENCOUNTER_END") and "钥匙" in self.active:
+            map_changed = kind == "ENCOUNTER_START" and len(row) > 5 and row[5] and row[5] != self.active["钥匙"][1]
+            if row[3] != "8" or map_changed:
+                self.close("钥匙", line - 1, None, "未结算")
         if kind == "ENCOUNTER_START":
             self.start("首领", row[1], row[2], row[3], line, ms)
+            self.boss_zone = (row[5] if len(row) > 5 else "", row[3])
         elif kind == "CHALLENGE_MODE_START":
             self.close("首领", line - 1, None, "终点缺失")
-            self.start("钥匙", row[2], row[1], row[4], line, ms)
+            level = key_level(row[4]) if len(row) > 4 else ""
+            self.start("钥匙", row[2], row[1], level or "未知", line, ms)
+            self.key_levels[self.active["钥匙"][0]] = {"start": level, "end": ""}
             affixes = ",".join(sorted(re.findall(r"\d+", ",".join(row[5:]))))
             self.db.execute(
                 "UPDATE fight SET affixes=?,challenge_id=? WHERE id=?",
@@ -202,19 +328,32 @@ class ActivityIndex:
                 self.close("首领", line, ms, result)
             else:
                 self.db.execute(
-                    "INSERT INTO fight(kind,session,game_id,name,level,end_line,end_ms,result) "
-                    "VALUES ('首领',?,?,?,?,?,?,?)",
-                    (self.session, row[1], row[2], row[3], line, ms, result),
+                    "INSERT INTO fight(kind,session,game_id,name,level,end_line,end_ms,result,parent) "
+                    "VALUES ('首领',?,?,?,?,?,?,?,?)",
+                    (self.session, row[1], row[2], row[3], line, ms, result,
+                     self.active["钥匙"][0] if row[3] == "8" and "钥匙" in self.active else None),
                 )
         elif self.active.get("钥匙", (None, None))[1] == row[1]:
+            if row[2:5] == ["0", "0", "0"]:
+                self.close("钥匙", line - 1, None, "未结算")
+                return
+            ident = self.active["钥匙"][0]
+            levels = self.key_levels[ident]
+            levels["end"] = key_level(row[3])
+            effective = levels["start"] or levels["end"] or "未知"
+            if levels["start"] and levels["end"] and levels["start"] != levels["end"]:
+                effective = "冲突"
+            self.db.execute("UPDATE fight SET level=? WHERE id=?", (effective, ident))
             self.close(
                 "钥匙", line, ms, {"1": "已完成", "0": "未完成"}[row[2]], int(row[4])
             )
         else:
             self.orphan_keys += 1
+            if row[1].isdigit() and int(row[1]) > 0:
+                self.close("钥匙", line - 1, None, "未结算")
 
 
-def build_index(path, chunks):
+def build_index(path, chunks, *, segment_starts=()):
     db = sqlite3.connect(path)
     try:
         db.executescript(SCHEMA)
@@ -225,7 +364,9 @@ def build_index(path, chunks):
         unreadable_header_time = False
         bad = events = last_line = 0
         year, last_month = 2000, 0
-        for line, offset, length, raw, session_start in session_order(chunks):
+        header = previous_ms = None
+        remaining = set(segment_starts)
+        for (line, offset, length, raw, session_start), following in header_evidence(chunks, segment_starts):
             last_line = max(last_line, line)
             stamp, separator, payload = raw.removeprefix(b"\xef\xbb\xbf").partition(
                 b"  "
@@ -254,12 +395,26 @@ def build_index(path, chunks):
                 last_month = month
                 ms = timestamp(match, year)
                 row = next(csv.reader([payload.decode("utf-8").rstrip("\r\n")]))
-                if event_type == "ZONE_CHANGE":
+                last_ms, previous_ms = previous_ms, ms
+                if event_type == "COMBAT_LOG_VERSION":
                     key = fights.active.get("钥匙")
-                    if key and row[1] != key[1]:
+                    if (offset not in segment_starts and supported and key and row == header and last_ms is not None
+                            and 0 <= ms - last_ms <= HEADER_GAP_MS
+                            and continues_key(following, key[1], ms, year)):
+                        continue
+                    header = row
+                if event_type == "ZONE_CHANGE":
+                    previous_activity = len(fights.active)
+                    fights.enter_zone(row, line)
+                    if len(fights.active) < previous_activity:
+                        writer.boundary()
+                    key = fights.active.get("钥匙")
+                    if key and (row[1] != key[1] or (len(row) > 3 and row[3] and row[3] != "8")):
                         writer.boundary()
                         fights.close("钥匙", line - 1, None, "未结算")
                     continue
+                if supported and fights.normal_zone:
+                    fights.observe_normal(row, line, ms)
                 if supported and (event_type in combat_replay_state.AURA_ACTIONS or event_type == "UNIT_DIED"):
                     writer.auras.observe(writer, fights.session, row, line, ms)
                 if event_type in BOUNDARIES:
@@ -276,6 +431,8 @@ def build_index(path, chunks):
                     fights.session += 1
                     fields = dict(zip(row[::2], row[1::2]))
                     supported = fields.get("PROJECT_ID") == "1"
+                    if supported:
+                        remaining.discard(offset)
                     sessions.append(
                         {
                             "build": fields.get("BUILD_VERSION", "未知"),
@@ -339,8 +496,11 @@ def build_index(path, chunks):
             raise ValueError(
                 "未找到正式服 COMBAT_LOG_VERSION 版本头，请上传游戏生成的完整文本。"
             )
+        if remaining:
+            raise ValueError("合并片段的字节边界与原文不一致。")
         fights.finish_session(last_line)
         writer.finish_wave()
+        fights.publish_normal_spans()
         db.executescript(facts.INDEXES + combat_replay_state.INDEXES)
         db.execute("CREATE INDEX death_lines ON event(kind,line)")
         db.execute("CREATE INDEX player_time ON event(dst,ms,line)")
@@ -361,12 +521,19 @@ def build_index(path, chunks):
         combat_replay_activity.index_damage(db, activity_index)
         players = dict(db.execute("SELECT guid,name FROM actor WHERE family='Player'"))
         for activity in activity_index:
+            if activity["id"] in fights.key_levels:
+                activity["level_markers"] = fights.key_levels[activity["id"]]
             axis = "keystone" if activity["kind"] == "钥匙" else "boss"
             if activity["end_ms"] is None and activity["start_ms"] is not None:
                 activity["observed_end_ms"] = db.execute(
                     f"SELECT MAX(ms) FROM fact WHERE {axis}=? AND line BETWEEN ? AND ?",
                     (activity["id"], activity["start_line"], activity["end_line"]),
                 ).fetchone()[0]
+                if axis == "keystone":
+                    child_end = db.execute("SELECT MAX(COALESCE(end_ms,start_ms)) FROM fight WHERE parent=?",
+                                           (activity["id"],)).fetchone()[0]
+                    if child_end is not None:
+                        activity["observed_end_ms"] = max(child_end, activity["observed_end_ms"] or child_end)
             roster = [
                 r[0]
                 for r in db.execute(
@@ -392,7 +559,7 @@ def build_index(path, chunks):
             "state_revision": 1,
             "talent_revision": 1,
             "replay_damage_revision": combat_replay_activity.DAMAGE_REVISION,
-            "boundary_revision": 2,
+            "boundary_revision": BOUNDARY_REVISION,
             "unknown_amounts": writer.unknown,
             "activity_index": activity_index,
             "player_catalog": players,

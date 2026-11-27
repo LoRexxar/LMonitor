@@ -351,7 +351,7 @@ def render_analysis(request, reports, ctx, selected=None):
             raise Http404
     samples, cohorts, skipped = analysis.catalog(reports)
     if ctx.get("boss_discovery"):
-        samples = [s for s in samples if s["kind"] == "首领" and s["game_id"] not in ("", "0")]
+        samples = [s for s in samples if s["raid"] and s["game_id"] not in ("", "0")]
         cohorts = {s["cohort"]: cohorts[s["cohort"]] for s in samples}
     only_activity = len(samples) == 1
     cohort = params.get("cohort", "")
@@ -412,6 +412,8 @@ def render_analysis(request, reports, ctx, selected=None):
             comparison_scope["run"] = f"{ctx['report'].pk}.{selected}"
         ctx["players_url"] += "&" + urlencode(comparison_scope)
     if ("book" in ctx or ctx.get("multi_scope")) and not cohort:
+        samples = [s for s in samples if not s["dungeon_detail"]]
+        ctx["cohorts"] = {s["cohort"]: cohorts[s["cohort"]] for s in samples}
         ctx["overview"], ctx["excluded"] = analysis.overview(samples)
         by_cohort = {}
         for sample in samples:
@@ -427,13 +429,13 @@ def render_analysis(request, reports, ctx, selected=None):
             for entry in ctx["overview"]:
                 entry["url"] += "&" + urlencode({"file": params["file"]})
         for entry in ctx["overview"]:
-            if entry["kind"] == "首领" and (entry["count"] > 1 or ctx.get("boss_discovery")):
+            if entry["raid"] and (entry["count"] > 1 or ctx.get("boss_discovery")):
                 entry["boss_url"] = entry["url"] + "&panel=boss"
                 if ctx.get("boss_discovery"):
                     entry["boss_url"] += "&mode=boss"
     if "report" in ctx or cohort:
         panel = params.get("panel", "table")
-        if samples and all(s["kind"] == "首领" and s["game_id"] not in ("", "0") for s in samples) and cohort:
+        if samples and all(s["raid"] and s["game_id"] not in ("", "0") for s in samples) and cohort:
             ctx["boss_url"] = boss_compare.link(params, panel="boss", rule=None, wave=None)
             if ctx.get("wcl_progression") and selected == ctx["report"].wcl_source["fight"]:
                 ctx["boss_url"] = ctx["wcl_progression"]
@@ -441,13 +443,22 @@ def render_analysis(request, reports, ctx, selected=None):
                     return redirect(ctx["boss_url"])
             ctx["all_boss_url"] = reverse("combat_workspace") + "?" + urlencode(
                 {"mode": "boss", "cohort": cohort, "panel": "boss"})
-        if panel == "boss":
-            if not ctx.get("boss_url"):
-                raise ValueError("请先选择同一首领的战斗。")
+        if panel in ("boss", "dungeon_boss"):
+            dungeon_compare = panel == "dungeon_boss"
+            if dungeon_compare:
+                if not cohort or not samples or any(not s["parent"] for s in samples):
+                    raise ValueError("请选择同一副本中归属明确的首领。")
+                samples = [s for s in samples if s["comparable_key_boss"]]
+                ctx["dungeon_compare"] = True
+                ctx["attempt_choices"] = [c for c in ctx.get("attempt_choices", ()) if c["sample"]["comparable_key_boss"]]
+            elif not ctx.get("boss_url"):
+                raise ValueError("首领开荒复盘适用于同一团本首领。大秘境首领可在所属钥匙的分析波次中查看。")
             ctx["data_url"] = boss_compare.link(params, panel="table", at=None, base=None, behavior=None,
                                                 batch=None, bracket=None)
             for sample in samples:
                 sample["url"] = single_fight_url(sample, ctx, params)
+                if dungeon_compare:
+                    sample["url"] = single_fight_url(dict(sample, id=sample["parent"]), ctx, params) + "&" + urlencode({"wave": -sample["id"]})
             ctx.update(boss_compare.comparison(samples, params))
             return render(request, "dashboard/combat_boss_comparison.html", ctx)
         if panel not in ("table", "pivot", "events", "review", "pick"):

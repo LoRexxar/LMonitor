@@ -23,7 +23,7 @@ from django.utils import timezone
 from botend.services import combat_log_localization as localization
 
 from botend.models import CombatLogReport, CombatLogScheduler, CombatLogPolicy, CombatLogPurge
-from botend.services.combat_log_index import PLAYER_EVENTS, build_index
+from botend.services.combat_log_index import PLAYER_EVENTS, build_index, dungeon_detail, level_label, needs_boundary_rebuild
 
 logger = logging.getLogger(__name__)
 PART_SIZE = 512 * 1024
@@ -112,8 +112,27 @@ def validate_file(name, size):
         raise ValueError(f"请选择非空的 .txt 战斗日志，大小上限为 {maximum // 1024**2} MiB。")
 
 
-def create_batch(owner, items):
+def create_batch(owner, items, *, source_filename="", selection=None):
     """同一批次统一预留名额；直到替换日志解析成功才回收旧归档。"""
+    if (not isinstance(source_filename, str) or len(source_filename) > 255
+            or any(ord(c) < 32 or c in "/\\" for c in source_filename)):
+        raise ValueError("原始日志文件名无效。")
+    metadata = {}
+    if selection is not None and not isinstance(selection, list):
+        raise ValueError("合并日志的片段清单无效。")
+    if selection:
+        if len(selection) < 2 or len(items) != 1 or not source_filename:
+            raise ValueError("合并日志需要一份原文件和至少两个片段。")
+        previous_end = total = 0
+        for segment in selection:
+            if (not isinstance(segment, list) or len(segment) != 3 or any(type(n) is not int for n in segment)
+                    or not 0 <= previous_end <= segment[0] < segment[1] or segment[2] <= 0):
+                raise ValueError("所选片段的顺序或字节范围无效。")
+            previous_end = segment[1]
+            total += segment[2]
+        if total != items[0][1]:
+            raise ValueError("所选片段的合计大小与归档大小不一致。")
+        metadata["upload_selection"] = selection
     with transaction.atomic():
         get_user_model().objects.select_for_update().get(pk=owner.pk)
         policy = policy_for(owner)
@@ -129,10 +148,14 @@ def create_batch(owner, items):
                 new.append((name, size, key))
             elif (existing[key].filename, existing[key].size) != (name, size):
                 raise ValueError("续传记录与所选场次不一致。")
+            elif source_filename and existing[key].source_filename and existing[key].source_filename != source_filename:
+                raise ValueError("续传记录的原始日志文件名不一致。")
+            elif existing[key].summary.get("upload_selection") != metadata.get("upload_selection"):
+                raise ValueError("续传记录与原先勾选的片段不一致。")
         if not new:
             return [existing[k] for _, _, k in items]
         if len(items) > policy.max_reports:
-            raise ValueError(f"本批场次数超过账号上限（{policy.max_reports} 份）。")
+            raise ValueError(f"本批日志份数超过账号上限（{policy.max_reports} 份）。")
         live = reports.filter(retire_after__isnull=True, expires_at__gt=now)
         excess = max(0, live.count() + len(new) - policy.max_reports)
         victims = []
@@ -147,7 +170,7 @@ def create_batch(owner, items):
         expiry = timezone.now() + timedelta(days=policy.retention_days)
         for i, (name, size, key) in enumerate(new):
             report = reports.create(filename=name, size=size, owner=owner, part_size=PART_SIZE,
-                                    upload_key=key, expires_at=expiry)
+                                    source_filename=source_filename, upload_key=key, expires_at=expiry, summary=metadata)
             existing[key] = report
             for victim in victims[i::len(new)]:
                 victim.retire_after = report
@@ -402,7 +425,15 @@ def collect(pk, attempt):
                     heartbeat = time.monotonic()
                 yield data
 
-        result = build_index(directory(report) / f"{attempt}.sqlite3", verified_chunks())
+        selection = report.summary.get("upload_selection", [])
+        starts = set()
+        offset = 0
+        for _, _, length in selection:
+            starts.add(offset)
+            offset += length
+        result = build_index(directory(report) / f"{attempt}.sqlite3", verified_chunks(), segment_starts=starts)
+        if selection:
+            result["upload_selection"] = selection
         with transaction.atomic():
             get_user_model().objects.select_for_update().get(pk=report.owner_id)
             if report.expires_at <= timezone.now():
@@ -456,7 +487,13 @@ def read_report(report, fight_id, death_line):
         ]
         observed = {entry["id"]: entry["observed_end_ms"] for entry in report.summary.get("activity_index", [])
                     if entry.get("observed_end_ms") is not None}
+        parents = {f["id"]: f for f in fights if f["kind"] == "钥匙"}
         for fight in fights:
+            fight["dungeon_detail"] = dungeon_detail(fight)
+            parent = parents.get(fight["parent"])
+            if parent or fight["kind"] == "钥匙":
+                key = parent or fight
+                fight.update(dungeon_name=key["name"], key_label=level_label(key["level"]))
             fight["seconds"] = None
             fight["first_death_seconds"] = None
             if fight["official_ms"] is not None:
@@ -467,8 +504,7 @@ def read_report(report, fight_id, death_line):
                 fight["observed_seconds"] = max(0, observed[fight["id"]] - fight["start_ms"]) // 1000
             if fight["first_death"] is not None:
                 fight["first_death_seconds"] = (fight["first_death"] - fight["start_ms"]) / 1000
-        result = {"fights": fights, "legacy_partial_key": report.summary.get("boundary_revision", 0) < 2
-                  and any(f["kind"] == "钥匙" and f["start_ms"] is not None and f["end_ms"] is None for f in fights)}
+        result = {"fights": fights, "legacy_partial_key": needs_boundary_rebuild(report.summary)}
         if fight_id is None:
             return result
         fight = next((f for f in fights if f["id"] == fight_id), None)

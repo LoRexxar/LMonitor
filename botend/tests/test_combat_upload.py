@@ -96,6 +96,23 @@ class RetentionTests(TestCase):
         self.assertEqual(archive.create_batch(self.owner, batch)[0].pk, first.pk)
         self.assertEqual(archive.create_batch(self.admin, batch)[0].pk, second.pk)
 
+    def test_merged_upload_rejects_invalid_or_changed_selection(self):
+        scene = dict(key=str(uuid.uuid4()), name="合并.txt", size=30)
+        body = dict(source_filename="战斗记录.txt", scenes=[scene])
+        url = reverse("combat_upload")
+        for selection in ([[0, 10, 10]], [[0, 10, 10], [9, 20, 20]], [[0, 10, 11], [15, 30, 20]]):
+            with self.subTest(selection=selection):
+                self.assertEqual(self.client.post(url, {**body, "selection": selection},
+                                                  content_type="application/json").status_code, 400)
+        self.assertFalse(CombatLogReport.objects.exists())
+        body["selection"] = [[0, 10, 10], [15, 30, 20]]
+        created = self.client.post(url, body, content_type="application/json")
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(self.client.post(url, body, content_type="application/json").json(), created.json())
+        body["selection"][1][1] += 1
+        self.assertEqual(self.client.post(url, body, content_type="application/json").status_code, 400)
+        self.assertEqual(CombatLogReport.objects.count(), 1)
+
     def test_legacy_resume_opens_local_scene_selection(self):
         old = archive.create(self.admin, "旧原文件.txt", 2000)
         url = reverse("combat_upload")
@@ -343,10 +360,15 @@ class UploadBrowserTests(StaticLiveServerTestCase):
             ('01.9308', 'CHALLENGE_MODE_START,"副本甲",2660,503,12,[]'),
             ('02.1208', 'COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5,PROJECT_ID,1'),
             ('05.0108', 'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4'),
-            ('06.0208', 'ZONE_CHANGE,1,"OUTSIDE",0'),
+            ('06.0208', 'ZONE_CHANGE,2660,"OUTSIDE",23'),
             ('07.0208', 'SPELL_CAST_SUCCESS,OUTSIDE'),
-            ('08.9308', 'CHALLENGE_MODE_START,"副本乙",2660,503,12,[]'),
-            ('09.0108', 'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4'),
+            ('08.9308', 'CHALLENGE_MODE_START,"副本乙",2660,503,21,[]'),
+            ('29.9308', 'COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5,PROJECT_ID,1'),
+            ('29.9318', 'MAP_CHANGE,1234,"副本乙",1,2,3,4'),
+            ('29.9328', 'COMBATANT_INFO,Player-1,0,63,[]'),
+            ('35.0108', 'ENCOUNTER_START,2926,"蛇神",8,5,2660'),
+            ('39.0108', 'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4'),
+            ('45.0108', 'ENCOUNTER_END,2926,"蛇神",8,5,0'),
         ]
         data = '\n'.join(f'10/26/2026 00:15:{sec}  {event}' for sec, event in events).encode()
         with sync_playwright() as pw:
@@ -361,6 +383,9 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 expect(rows).to_have_count(2)
                 expect(rows.nth(0)).to_contain_text("未结算（离开副本")
                 expect(rows.nth(1)).to_contain_text("未结算（文件结束")
+                expect(rows.nth(1)).to_contain_text("首领交战：蛇神")
+                expect(rows.nth(0)).to_contain_text("副本甲 +12")
+                expect(rows.nth(1)).to_contain_text("副本乙 +21")
                 page.locator("#send-log").click()
                 expect(page.locator("#upload-status")).to_contain_text("上传完成")
             finally:
@@ -368,9 +393,14 @@ class UploadBrowserTests(StaticLiveServerTestCase):
         self.wait_for_indexes()
         reports = list(CombatLogReport.objects.order_by("created_at"))
         self.assertEqual(len(reports), 2)
-        for report, duration in zip(reports, (3080, 80)):
+        for report, duration in zip(reports, (3080, 36080)):
+            self.assertEqual(report.source_filename, "两把钥匙.txt")
             self.assertEqual(report.state, "ready", report.message)
-            fight, = report.summary["activity_index"]
+            fight, *children = report.summary["activity_index"]
+            self.assertEqual(fight["level"], "12" if report == reports[0] else "21")
+            if report == reports[1]:
+                boss, = children
+                self.assertEqual((boss["name"], boss["parent"]), ("蛇神", fight["id"]))
             self.assertEqual(fight["result"], "未结算")
             self.assertEqual(fight["observed_end_ms"] - fight["start_ms"], duration)
             self.assertNotIn(b"OUTSIDE", b"".join(archive.archived_chunks(report)))
@@ -378,6 +408,89 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                                    {"fight": fight["id"], "wave": "all", "metric": "casts"})
             self.assertEqual(page.context["total"], 1)
             self.assertEqual(page.context["rate"], round(1000/duration, 2))
+
+    def test_merge_selected_unfinished_scenes_and_resume_as_one_report(self):
+        from playwright.sync_api import expect, sync_playwright
+        root = Path(self.enterContext(TemporaryDirectory()))
+        self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot", COMBAT_LOG_COLD_ROOT=root/"cold"))
+        self.enterContext(patch.object(archive, "PART_SIZE", 96))
+        owner = get_user_model().objects.create_user(username="合并上传")
+        self.client.force_login(owner)
+        CombatLogPolicy.objects.create(scope="default", max_reports=1)
+        events = [
+            "COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.5,PROJECT_ID,1",
+            'CHALLENGE_MODE_START,"未结算的钥匙",2660,503,12,[]',
+            'SPELL_CAST_SUCCESS,Player-1,"队员",0,0,Creature-1,"敌人",0,0,11,"技能",4',
+            'ZONE_CHANGE,1,"排除野外",0',
+            'ENCOUNTER_START,399,"排除未选首领",16,20,900',
+            'ENCOUNTER_END,399,"排除未选首领",16,20,1',
+            'ENCOUNTER_START,400,"未结算的团本首领",16,20,900',
+            'SPELL_CAST_SUCCESS,Player-2,"队员乙",0,0,Creature-2,"敌人乙",0,0,12,"技能乙",4',
+            'ENCOUNTER_START,401,"排除世界首领",0,20,1',
+            'SPELL_CAST_SUCCESS,OUTSIDE',
+            'ZONE_CHANGE,2660,"排除普通地下城",23',
+            'SPELL_DAMAGE,Player-1,"队员",0,0,Creature-1,"排除小怪",0,0,20,"平砍",1,100',
+        ]
+        rows = [f"10/26/2026 00:15:{i:02}.0008  {event}\n".encode() for i,event in enumerate(events)]
+        data = b"".join(rows)
+        payload = dict(name="开荒记录.txt", mimeType="text/plain", buffer=data)
+        with ThreadPoolExecutor(max_workers=1) as checks, sync_playwright() as pw:
+            browser = pw.chromium.launch(channel="msedge")
+            try:
+                page = browser.new_page()
+                cookie = dict(name="sessionid", value=self.client.cookies["sessionid"].value, url=self.live_server_url)
+                page.context.add_cookies([cookie])
+                url = self.live_server_url + reverse("combat_upload")
+                page.goto(url)
+                page.locator("#source-file").set_input_files(payload)
+                listing = page.locator("#scene-list label")
+                expect(listing).to_have_count(3)
+                expect(page.locator("#send-log")).to_be_disabled()
+                page.get_by_label("手动选择", exact=False).check()
+                expect(listing).to_have_count(4)
+                for label in ("未结算的团本首领", "未结算的钥匙"):
+                    listing.filter(has_text=label).locator("input").check()
+                expect(listing.filter(has_text="未结算的团本首领")).to_contain_text("部分记录（下一场开始")
+                expect(page.locator("#selection-total")).to_contain_text("2 场 · 1 份日志")
+                page.route("**/parts/1/", lambda route: route.abort())
+                page.locator("#send-log").click()
+                expect(page.locator("#send-log")).to_be_enabled()
+                report = checks.submit(CombatLogReport.objects.get).result()
+                self.assertEqual(checks.submit(report.parts.count).result(), 1)
+                # 换到没有本地存储的新浏览器上下文，从日志库的续传入口恢复原选区。
+                resume = browser.new_page()
+                resume.context.add_cookies([cookie])
+                resume.goto(url + f"?resume={report.pk}")
+                resume.locator("#source-file").set_input_files({**payload, "buffer": b"".join(rows[:6])})
+                expect(resume.locator("#upload-status")).to_contain_text("不匹配")
+                expect(resume.locator("#send-log")).to_be_disabled()
+                resume.locator("#source-file").set_input_files(payload)
+                expect(resume.locator("#scene-list label")).to_have_count(2)
+                parts = []
+                resume.on("request", lambda r: parts.append(urlsplit(r.url).path) if r.method == "PUT" else None)
+                resume.locator("#send-log").click()
+                expect(resume.locator("#upload-status")).to_contain_text("上传完成")
+                self.assertEqual(parts, [reverse("combat_part", args=[report.pk, i])
+                                         for i in range(1, archive.part_count(report))])
+                self.wait_for_indexes()
+            finally:
+                browser.close()
+        report = CombatLogReport.objects.get()
+        self.assertEqual((report.state, report.source_filename), ("ready", payload["name"]), report.message)
+        expected = b"".join([rows[0], *rows[1:3], rows[0], *rows[6:8]])
+        self.assertEqual(report.size, len(expected))
+        self.assertEqual(b"".join(archive.archived_chunks(report)), expected)
+        selection = report.summary["upload_selection"]
+        self.assertEqual([f["result"] for f in report.summary["activity_index"]], ["未结算", "终点缺失"])
+        library = self.client.get(reverse("combat_logs"), {"source": "uploads"})
+        self.assertContains(library, report.filename)
+        directory = self.client.get(reverse("combat_battles"), {"log": str(report.pk)})
+        self.assertEqual((directory.context["report_count"], directory.context["pull_count"]), (1, 2))
+        with patch.object(archive, "launch", side_effect=archive.collect):
+            archive.enqueue(owner, report.pk, rebuild=True)
+        report.refresh_from_db()
+        self.assertEqual((report.state, report.summary["upload_selection"]), ("ready", selection))
+        self.assertEqual(len(report.summary["activity_index"]), 2)
 
     def test_public_role_admin_control_alignment(self):
         from playwright.sync_api import expect, sync_playwright
@@ -585,7 +698,9 @@ class UploadBrowserTests(StaticLiveServerTestCase):
             b'9/30/2026 19:00:00.000-4  SPELL_CAST_SUCCESS,OUTDOOR_ENTRY',
             b'9/30/2026 19:10:00.000-4  ENCOUNTER_START,400,"Raid boss",16,20,900',
             b'9/30/2026 19:12:00.000-4  ENCOUNTER_END,400,"Raid boss",16,20,1',
-            b'9/30/2026 19:20:00.000-4  SPELL_CAST_SUCCESS,OUTDOOR_ENTRY'])
+            b'9/30/2026 19:20:00.000-4  SPELL_CAST_SUCCESS,OUTDOOR_ENTRY',
+            b'9/30/2026 19:21:00.000-4  ZONE_CHANGE,2660,"NORMAL_ONLY",23',
+            b'9/30/2026 19:22:00.000-4  SPELL_DAMAGE,Player-1,"p",0,0,Creature-1,"NORMAL_ONLY",0,0,20,"hit",1,100'])
         with ThreadPoolExecutor(max_workers=1) as checks, sync_playwright() as pw:
             browser = pw.chromium.launch(channel="msedge")
             try:
@@ -594,7 +709,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 page.goto(self.live_server_url+reverse("combat_upload"))
                 page.get_by_label("手动选择", exact=False).check()
                 page.locator("#source-file").set_input_files(dict(name="whole.txt",mimeType="text/plain",buffer=data))
-                expect(page.locator("#scene-list input")).to_have_count(2)
+                expect(page.locator("#scene-list input")).to_have_count(3)
                 self.assertFalse(checks.submit(CombatLogReport.objects.exists).result())
                 page.locator("#scene-list label").filter(has_text="Raid boss").locator("input").check()
                 # 上传一片后模拟网络中断，重新提交同一场不多占份数。
@@ -630,8 +745,10 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 content=checks.submit(lambda:b"".join(archive.archived_chunks(report))).result()
                 self.assertIn(b'Raid boss',content)
                 self.assertNotIn(b'OUTDOOR_ENTRY',content)
+                self.assertNotIn(b'NORMAL_ONLY',content)
                 self.assertNotIn(b'CHALLENGE_MODE_START',content)
                 page.get_by_label("全部副本场次",exact=False).check()
+                expect(page.locator("#scene-list input")).to_have_count(2)
                 page.locator("#send-log").click()
                 expect(page.locator("#uploaded a")).to_have_count(2)
                 self.wait_for_indexes()
@@ -641,5 +758,6 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 content=checks.submit(lambda:b"".join(archive.archived_chunks(key))).result()
                 self.assertNotIn(b'OUTDOOR_ENTRY',content)
                 self.assertNotIn(b'Raid boss',content)
+                self.assertNotIn(b'NORMAL_ONLY',content)
             finally:
                 browser.close()

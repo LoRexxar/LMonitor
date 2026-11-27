@@ -5,20 +5,32 @@
             <h1>{% if shared_directory %}战斗目录{% elif report_count == 1 %}{% firstof reports.0.title_label reports.0.zone_label "战斗目录" %}{% else %}所选日志的战斗目录{% endif %}</h1>
             <p>{% if shared_directory %}已选 {{ report_count }} 份日志{% elif report_count == 1 %}{{ reports.0.date|date:"Y 年 n 月 j 日" }}<span>·</span>{{ reports.0.owner.name|default:"记录者未知" }}{% else %}共 {{ report_count }} 份 WCL 报告{% endif %}</p>
         </div>
-        <dl class="picker-count"><div><dt>战斗</dt><dd>{{ pull_count }}</dd></div><div><dt>分组</dt><dd>{{ groups|length }}</dd></div></dl>
+        <dl class="picker-count"><div><dt>{% if normal_runs or fragments %}钥匙 / 团本{% else %}战斗{% endif %}</dt><dd>{{ pull_count }}</dd></div><div><dt>分组</dt><dd>{{ groups|length }}</dd></div>{% if normal_runs %}<div><dt>非钥匙交战</dt><dd>{{ normal_runs|length }}</dd></div>{% endif %}</dl>
     </header>
+    {% for report in rebuild_reports %}<form method="post" action="{% url 'combat_rebuild' report.pk %}" class="picker-reindex">{% csrf_token %}
+        <span>《{{ report.filename }}》使用旧版钥匙索引，可重新核对场次与层数。</span>
+        <button type="submit">从已有归档重新识别场次</button>
+    </form>{% endfor %}
     {% if groups %}
     <div class="picker-layout">
         <aside class="picker-index">
             <h2>战斗分组</h2>
+            <label class="picker-select">战斗分组<select>{% for g in groups %}<option value="{{ g.key }}"{% if g.key == active.key %} selected{% endif %}>{{ g.name }} · {{ g.difficulty }}（{{ g.pulls|length }} 场）</option>{% endfor %}</select></label>
             <nav aria-label="按首领或副本选择战斗">
                 {% for g in groups %}
+                <div class="picker-index-group">
                 <a href="{{ g.focus_url }}" data-focus="{{ g.key }}"{% if g.key == active.key %} aria-current="true"{% endif %}>
                     <span><strong>{{ g.name }}</strong><small>{{ g.difficulty }}{% if g.source_label %} · {{ g.source_label }}{% endif %}</small></span><b>{{ g.pulls|length }}</b>
                 </a>
+                {% if g.sidebar_comparisons %}
+                <div class="picker-comparisons" role="group" aria-labelledby="compare-{{ g.key }}">
+                    <h3 id="compare-{{ g.key }}"><svg aria-hidden="true"><use href="{% static 'dashboard/combat_symbols.svg' %}#compare"></use></svg>首领横向对比</h3>
+                    {% for boss in g.sidebar_comparisons %}<a href="{{ boss.compare_url }}" aria-label="{{ g.name }} {{ g.difficulty }} · {{ boss.name }}横向对比"><span>{{ boss.name }}</span><i class="nav-arrow" aria-hidden="true"></i></a>{% endfor %}
+                </div>
+                {% endif %}
+                </div>
                 {% endfor %}
             </nav>
-            <label class="picker-select">战斗分组<select>{% for g in groups %}<option value="{{ g.key }}"{% if g.key == active.key %} selected{% endif %}>{{ g.name }} · {{ g.difficulty }}（{{ g.pulls|length }} 场）</option>{% endfor %}</select></label>
         </aside>
         <div class="picker-content">
             {% for g in groups %}
@@ -29,7 +41,7 @@
                     </div>
                     <div class="picker-review">{% if g.combined_url and g.pulls|length > 1 %}<a href="{{ g.combined_url }}">多场分析</a>{% endif %}
                     {% if g.players_url %}<a href="{{ g.players_url }}">角色对照</a>{% endif %}
-                    {% if g.review_url and not g.dungeon %}<a class="log-primary" href="{{ g.review_url }}">{% if g.dungeon_boss %}副本首领对比{% else %}首领开荒复盘{% endif %}<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}
+                    {% if g.review_url and not g.dungeon %}<a class="log-primary" href="{{ g.review_url }}">首领开荒复盘<i class="nav-arrow" aria-hidden="true"></i></a>{% endif %}
                     {% if g.discover %}<small>合并列表中同首领、同难度的报告</small>{% endif %}</div>
                 </div>
                 <table class="picker-table{% if g.dungeon %} keystone{% endif %}">
@@ -37,13 +49,17 @@
                     <thead><tr><th scope="col">场次</th><th scope="col">开战时间</th><th scope="col">结果</th>{% if not g.dungeon and not g.dungeon_boss %}<th scope="col">阶段</th><th scope="col">结束血量</th>{% endif %}<th scope="col">用时</th><th scope="col"><span class="picker-sr">单场分析</span></th></tr></thead>
                     <tbody>{% for p in g.pulls %}
                         <tr{% if p.ref == picked %} class="picked"{% endif %}>
-                            <th scope="row"><a href="{{ p.url }}" aria-label="{{ g.name }} 第 {{ p.number }} 场单场分析">#{{ p.number|stringformat:"02d" }}</a>{% if shared_directory and report_count > 1 %}<small>{{ p.file }}</small>{% endif %}</th>
+                            <th scope="row"><a href="{{ p.url }}" aria-label="{{ g.name }} 第 {{ p.number }} 场单场分析">#{{ p.number|stringformat:"02d" }}</a>{% if p.local or shared_directory and report_count > 1 %}<small>{{ p.file }}</small>{% endif %}{% if p.level_markers %}<small>开场{% if p.level_markers.start %} +{{ p.level_markers.start }}{% else %}层数未知{% endif %}{% if p.level_markers.end %} · 结束 +{{ p.level_markers.end }}{% endif %}</small>{% endif %}</th>
                             <td><time datetime="{{ p.date|date:'c' }}" title="{{ p.date|date:'Y-m-d H:i:s' }}"><small>{{ p.date|date:"m-d" }}</small>{{ p.date|date:"H:i:s" }}</time></td>
                             <td><span class="picker-outcome{% if p.kill %} success{% endif %}">{% if p.result %}{{ p.result }}{% elif p.kill %}{% if g.dungeon %}完成{% else %}击杀{% endif %}{% elif p.kill == False %}{% if g.dungeon %}未完成{% else %}灭团{% endif %}{% else %}未知{% endif %}</span></td>
                             {% if not g.dungeon and not g.dungeon_boss %}<td>{% if p.lastPhase %}P{{ p.lastPhase }}{% else %}—{% endif %}</td>
                             <td>{% if p.bossPercentage != None %}{{ p.bossPercentage|floatformat:"-2" }}%{% else %}—{% endif %}</td>{% endif %}
-                            <td>{{ p.elapsed }}{% if p.observed_only %}<small>已记录</small>{% endif %}</td><td><a class="picker-action" href="{{ p.url }}" aria-label="进入第 {{ p.number }} 场单场分析">单场分析 <i class="nav-arrow"></i></a></td>
+                            <td>{% if p.opening_only %}仅记录开场{% else %}{{ p.elapsed }}{% endif %}{% if p.observed_only %}<small>已记录</small>{% endif %}</td><td><a class="picker-action" href="{{ p.url }}" aria-label="进入第 {{ p.number }} 场单场分析">单场分析 <i class="nav-arrow"></i></a></td>
                         </tr>
+                        {% if p.bosses %}<tr class="picker-views"><td colspan="5"><details>
+                            <summary>大秘境首领明细 · {{ p.bosses|length }} 次交战</summary>
+                            {% for boss in p.bosses %}<div>{% if boss.start_ms != None %}<a href="{{ boss.wave_url }}">{{ boss.name }} · {{ boss.result }}</a>{% else %}<span>{{ boss.name }} · {{ boss.result }}（仅记录结尾）</span>{% endif %}{% if boss.compare_url %}<a href="{{ boss.compare_url }}">{{ boss.dungeon_name }} · {{ boss.name }}横向对比</a>{% endif %}</div>{% endfor %}
+                        </details></td></tr>{% endif %}
                         {% if p.views|length > 1 %}<tr class="picker-views"><td colspan="{% if g.dungeon or g.dungeon_boss %}5{% else %}7{% endif %}"><details><summary>{{ p.views|length }} 个记录视角</summary>{% for v in p.views %}<a href="{{ v.single_url }}">{% firstof v.source_title v.owner v.code %} · #{{ v.id }}</a>{% endfor %}</details></td></tr>{% endif %}
                     {% endfor %}</tbody>
                 </table>
@@ -51,6 +67,13 @@
             {% endfor %}
         </div>
     </div>
-    {% else %}<p class="picker-empty">这份目录中没有可供分析的首领或大秘境战斗。<a href="{{ listing_url }}">返回报告列表</a></p>{% endif %}
+    {% elif not fragments and not normal_runs %}<p class="picker-empty">这份目录中没有可供分析的首领或大秘境战斗。<a href="{{ listing_url }}">返回报告列表</a></p>{% endif %}
+    {% if normal_runs %}<section class="picker-fragments"><h2>非钥匙地下城交战</h2>
+        {% for run in normal_runs %}<p><a href="{{ run.url }}">{{ run.name }} · {{ run.level_label }}</a> · 来源日志 {{ run.source_log }}</p>{% endfor %}
+    </section>{% endif %}
+    {% if fragments %}<section class="picker-fragments"><h2>未归入场次的地下城记录</h2>
+        <p>这些首领交战缺少可确认的钥匙归属，仅提供片段分析。</p>
+        {% for boss in fragments %}<p>{{ boss.dungeon_detail }} · {% if boss.start_ms != None %}<a href="{{ boss.url }}">{{ boss.name }} · {{ boss.result }}</a>{% else %}{{ boss.name }} · {{ boss.result }}（仅记录结尾）{% endif %} · 来源日志 {{ boss.source_log }}</p>{% endfor %}
+    </section>{% endif %}
 </div>
 {% if groups %}<script defer src="{% static 'dashboard/js/combat_wcl_picker.js' %}"></script>{% endif %}

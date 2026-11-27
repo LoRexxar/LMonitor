@@ -81,6 +81,11 @@ def boss_fixture(day, second=False):
     return text.encode()
 
 
+def raid_fixture(day, second=False):
+    return b"".join(line.replace(b',8,5,', b',16,20,') for line in boss_fixture(day, second).splitlines(keepends=True)
+                    if b"CHALLENGE_MODE_" not in line)
+
+
 class CombatWorkbenchTests(TestCase):
     def setUp(self):
         root = Path(self.enterContext(TemporaryDirectory()))
@@ -237,14 +242,14 @@ class CombatWorkbenchTests(TestCase):
         self.assertContains(automatic, "请先勾选")
 
     def test_same_boss_review_aligns_health_player_casts_and_outcomes(self):
-        left = self.ingest(self.owner, 2, boss_fixture(2))
-        right = self.ingest(self.owner, 3, boss_fixture(3, True))
-        params = {"log": [left.pk, right.pk], "panel": "boss", "cohort": analysis.catalog([left])[0][1]["cohort"]}
+        left = self.ingest(self.owner, 2, raid_fixture(2))
+        right = self.ingest(self.owner, 3, raid_fixture(3, True))
+        params = {"log": [left.pk, right.pk], "panel": "boss", "cohort": analysis.catalog([left])[0][0]["cohort"]}
         directory = reverse("combat_battles")
         single = self.client.get(directory, {"log": left.pk})
-        self.assertNotContains(single, "首领开荒复盘")
+        self.assertContains(single, "首领开荒复盘")
         self.assertNotContains(single, "副本首领对比")
-        self.assertContains(self.client.get(directory, {"log": [left.pk, right.pk]}), "副本首领对比")
+        self.assertContains(self.client.get(directory, {"log": [left.pk, right.pk]}), "首领开荒复盘")
         url = reverse("combat_workspace")
         response = self.client.get(url, params)
         self.assertContains(response, "首领血量走势")
@@ -273,23 +278,82 @@ class CombatWorkbenchTests(TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertIn("基准场次", invalid.json()["message"])
 
-    def test_boss_discovery_uses_visible_logs_and_separates_key_levels(self):
-        other = self.ingest(self.owner, 2, fixture(2).replace(b"55,2,10,[", b"55,2,12,["))
+    def test_dungeon_boss_is_a_wave_of_a_specific_run(self):
+        other = self.ingest(self.owner, 2)
         private = self.ingest(self.member, 3)
+        logs = [self.report.pk, other.pk]
+        directory = self.client.get(reverse("combat_battles"), {"log": logs})
+        group, = directory.context["groups"]
+        self.assertEqual(len(group["pulls"]), 2)
+        self.assertContains(directory, "大秘境首领明细")
+        self.assertNotContains(directory, "首领开荒复盘")
+        for pull in group["pulls"]:
+            boss, = pull["bosses"]
+            page = self.client.get(boss["wave_url"])
+            self.assertEqual(page.context["selected"]["kind"], "钥匙")
+            self.assertEqual(page.context["active_wave"]["id"], -boss["id"])
+            self.assertEqual(page.context["report"].pk, boss["report"].pk)
         url = reverse("combat_workspace")
-        menu = self.client.get(url, {"log":[self.report.pk, other.pk],"mode":"boss"})
-        self.assertContains(menu, "选择要复盘的首领")
-        self.assertEqual(len(menu.context["overview"]), 1)
-        target = menu.context["overview"][0]
-        self.assertEqual(target["files"], {self.report.pk, other.pk})
-        compare = self.client.get(url + target["boss_url"])
-        self.assertEqual(len(compare.context["brackets"]), 2)
-        self.assertEqual(len(compare.context["shown"]), 1)
-        self.assertContains(compare, "缺少可确认归属的首领血量采样")
-        single = self.client.get(url, {"log": self.report.pk, "mode": "boss", "panel": "boss",
-                                       "cohort": target["cohort"]})
-        self.assertEqual(len(single.context["brackets"]), 1)
-        self.assertEqual(self.client.get(url, {"mode": "boss", "log": private.pk}).status_code, 404)
+        menu = self.client.get(url, {"log": logs, "mode": "boss"})
+        self.assertFalse(menu.context["overview"])
+        cohort = analysis.catalog([other])[0][1]["cohort"]
+        self.assertEqual(self.client.get(url, {"log": logs, "panel": "boss", "cohort": cohort}).status_code, 400)
+        self.assertEqual(self.client.get(url, {"log": private.pk, "mode": "boss"}).status_code, 404)
+
+    def test_unassigned_keystone_boss_and_rebuild_of_old_directory(self):
+        raw = fixture(2).splitlines(keepends=True)
+        # 模拟只有钥匙开场、重复版本头、同地图首领的历史归档。
+        source = b"".join([raw[0], raw[1], raw[0].replace(b":00.000", b":21.000"),
+                           raw[3].replace(b":04.000", b":24.000"), raw[14].replace(b":15.000", b":45.000")])
+        report = self.ingest(self.owner, 2, source)
+        report.summary["boundary_revision"] = 2
+        key, boss = report.summary["activity_index"]
+        boss["parent"] = None
+        report.save(update_fields=["summary"])
+        url = reverse("combat_battles")
+        old = self.client.get(url, {"log": report.pk})
+        group, = old.context["groups"]
+        self.assertEqual(group["name"], key["name"])
+        self.assertContains(old, "未归入场次的地下城记录")
+        self.assertContains(old, "从已有归档重新识别场次")
+        self.assertNotContains(old, "团本首领 · 难度")
+        self.assertNotContains(old, "首领开荒复盘")
+        with patch.object(archive, "launch", side_effect=archive.collect), self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("combat_rebuild", args=[report.pk]))
+        fresh = self.client.get(url, {"log": report.pk})
+        self.assertNotContains(fresh, "未归入场次的地下城记录")
+        self.assertNotContains(fresh, "从已有归档重新识别场次")
+        self.assertContains(fresh, "大秘境首领明细")
+
+    def test_dungeon_comparison_keeps_log_map_and_key_level(self):
+        higher = fixture(2).replace(b"55,2,10,[", b"55,2,21,[").replace(b"END,55,1,10,", b"END,55,1,21,")
+        second = self.ingest(self.owner, 2, higher)
+        second.source_filename = "第二晚原始日志.txt"
+        second.save(update_fields=["source_filename"])
+        different = self.ingest(self.owner, 3, fixture(3).replace(b",55,", b",66,").replace(b",5,55", b",5,66"))
+        directory = self.client.get(reverse("combat_battles"), {"log":[self.report.pk, second.pk, different.pk]})
+        bosses = [p["bosses"][0] for g in directory.context["groups"] for p in g["pulls"]]
+        entries = {s["report"].pk:s for s in bosses}
+        self.assertNotIn("compare_url", entries[different.pk])
+        self.assertCountEqual(
+            [s["compare_url"] for group in directory.context["groups"] for s in group["sidebar_comparisons"]],
+            [entries[self.report.pk]["compare_url"], entries[second.pk]["compare_url"]],
+        )
+        from urllib.parse import urlsplit
+        from django.http import QueryDict
+        url = urlsplit(entries[second.pk]["compare_url"])
+        params = QueryDict(url.query, mutable=True)
+        page = self.client.get(url.path + "?" + params.urlencode())
+        self.assertContains(page, "地城 +21")
+        self.assertContains(page, "第二晚原始日志.txt")
+        self.assertNotContains(page, "难度 8")
+        self.assertEqual([s["report"].pk for s in page.context["shown"]], [second.pk])
+        params["bracket"] = "all"
+        page = self.client.get(url.path + "?" + params.urlencode())
+        self.assertEqual({s["level_label"] for s in page.context["shown"]}, {"+10","+21"})
+        for s in page.context["shown"]:
+            detail = self.client.get(s["url"])
+            self.assertEqual((detail.context["report"].pk, detail.context["active_wave"]["id"]), (s["report"].pk, -s["id"]))
 
     def test_target_boundaries_participants_and_public_benchmarks(self):
         rows = fixture(2).splitlines(keepends=True)
@@ -1387,8 +1451,7 @@ class BossReviewBrowserTests(StaticLiveServerTestCase):
         self.enterContext(self.settings(COMBAT_LOG_ROOT=root/"hot", COMBAT_LOG_COLD_ROOT=root/"cold"))
         user = get_user_model().objects.create_user(username="首领复盘验收")
         for day in (2, 3):
-            raw = b"".join(line for line in boss_fixture(day, day == 3).splitlines(keepends=True)
-                           if b"CHALLENGE_MODE_" not in line)
+            raw = raid_fixture(day, day == 3)
             report = archive.create(user, f"团本第{day}晚.txt", len(raw))
             archive.put_part(user, report.pk, 0, raw)
             with patch.object(archive, "launch", side_effect=archive.collect):

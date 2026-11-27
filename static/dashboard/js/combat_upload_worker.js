@@ -4,6 +4,8 @@ const csv = line => Array.from(line.matchAll(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g),
     match => match[1].replace(/^"|"$/g, '').replace(/""/g, '"'));
 const raids = new Set(['3','4','5','6','7','9','14','15','16','17','33','151','220']);
 const dungeons = new Set(['1','2','8','23','24','150']);
+const keyLevel = value => /^[1-9][0-9]*$/.test(value) ? value : '';
+const damage = new Set(['SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','RANGE_DAMAGE','SWING_DAMAGE','ENVIRONMENTAL_DAMAGE','DAMAGE_SHIELD','DAMAGE_SPLIT']);
 function millis(stamp) {
     // 三位毫秒后可直接接正时区，如 .2308 等同于 .230+8。
     const parts = stamp.match(/^(\d+)\/(\d+)(?:\/(\d+))? (\d+):(\d+):(\d+)\.(\d{3})(?:([+-]?)(\d{1,2})(?::(\d{2}))?)?$/);
@@ -16,11 +18,15 @@ async function scan(file) {
     const decoder = new TextDecoder(), prefix = new Uint8Array(2048), scenes = [];
     const people = new Map();
     let start = 0, used = 0, header = null, current = null, zone = null, opening = false;
+    let headerText = '', pendingHeader = null;
+    const previousPrefix = new Uint8Array(52);
+    const headerGap = 300000;
     function finish(end, result) {
-        if (current && current.header && end > current.start) {
+        if (current && current.header && end > current.start && (current.kind !== '地下城' || current.hasCombat)) {
             current.end = end;
             current.result = result;
             delete current.candidates;
+            delete current.hasCombat;
             scenes.push(current);
         }
         current = null;
@@ -40,8 +46,38 @@ async function scan(file) {
         const space = prefix.subarray(0, Math.min(used, 52)).indexOf(32, 10);
         let at = space;
         while (at >= 0 && at + 1 < used && !(prefix[at] === 32 && prefix[at+1] === 32)) at++;
-        if (at < 0 || at+2 >= used) return;
+        if (at < 0 || at+2 >= used) {
+            if (pendingHeader) {
+                finishPartial(pendingHeader.start, '日志会话切换');
+                pendingHeader = zone = null;
+            }
+            return;
+        }
         const first = prefix[at+2];
+        if (current?.kind === '地下城' && !current.hasCombat) {
+            const event = decoder.decode(prefix.subarray(at+2, Math.min(used,at+36))).split(',')[0];
+            if (damage.has(event)) {
+                const [,src,,,,dst] = csv(decoder.decode(prefix.subarray(at+2,used)));
+                const player = /^(Player|Pet)-/, enemy = /^(Creature|Vehicle)-/;
+                current.hasCombat = (player.test(src) && enemy.test(dst)) || (enemy.test(src) && player.test(dst));
+            }
+        }
+        if (pendingHeader) {
+            const fields = csv(decoder.decode(prefix.subarray(at+2,used)).trimEnd());
+            const delay = millis(decoder.decode(prefix.subarray(0,at))) - pendingHeader.ms;
+            const sameKey = (fields[0] === 'ZONE_CHANGE' && fields[1] === current.map && fields[3] === '8') ||
+                (fields[0] === 'ENCOUNTER_START' && fields[5] === current.map && fields[3] === '8');
+            if ((fields[0] === 'MAP_CHANGE' || fields[0] === 'COMBATANT_INFO') &&
+                pendingHeader.rows < 32 && end - pendingHeader.end <= 2 * 1024 * 1024) {
+                pendingHeader.rows++;
+            } else {
+                if (!sameKey || !(delay >= -1000 && delay <= headerGap)) {
+                    finishPartial(pendingHeader.start, '日志会话切换');
+                    zone = null;
+                }
+                pendingHeader = null;
+            }
+        }
         if (current?.candidates.size) {
             const leading = decoder.decode(prefix.subarray(at+2, Math.min(used,at+514)));
             for (const match of leading.matchAll(/(?:^|,)(Player-[^,\s]+)(?=,|$)/g)) {
@@ -58,38 +94,73 @@ async function scan(file) {
         const fields = csv(text.slice(sep+2)), kind = fields[0], stamp = text.slice(0,sep);
         if (kind === 'COMBAT_LOG_VERSION') {
             const version = fields.indexOf('PROJECT_ID');
+            const signature = text.slice(sep+2);
             header = version >= 0 && fields[version+1] === '1' ? [start,end] : null;
             const delay = opening ? millis(stamp) - millis(current.stamp) : NaN;
+            const gap = millis(stamp) - millis(decoder.decode(previousPrefix).split('  ')[0]);
             if (opening && header && delay >= 0 && delay <= 5000) {
                 current.header = header;
                 current.context = [];
                 current.candidates.clear();
+            } else if (header && signature === headerText && current?.kind === '大秘境' && gap >= 0 && gap <= headerGap) {
+                pendingHeader = {start, end, rows:0, ms:millis(stamp)};
             } else {
                 finishPartial(start,'日志会话切换');
                 zone = null;
             }
             opening = false;
+            headerText = signature;
             people.clear();
         } else if (kind === 'COMBATANT_INFO') {
             if (fields[1]?.startsWith('Player-')) people.set(fields[1],[start,end]);
         } else if (kind === 'CHALLENGE_MODE_START') {
-            begin('大秘境', fields[1], fields[2], fields[4], stamp, fields[2]);
+            begin('大秘境', fields[1], fields[2], keyLevel(fields[4]), stamp, fields[2]);
+            current.bosses = [];
         } else if (kind === 'CHALLENGE_MODE_END') {
-            if (current?.kind === '大秘境' && current.id === fields[1]) finish(end,fields[2] === '1' ? '已完成' : '未完成');
+            if (!['0','1'].includes(fields[2]) || !/^[0-9]+$/.test(fields[4])) return;
+            if (current?.kind === '大秘境' && current.id === fields[1]) {
+                if (fields[2] === '0' && fields[3] === '0' && fields[4] === '0') {
+                    finishPartial(start, '钥匙重置');
+                } else {
+                    const endLevel = keyLevel(fields[3]);
+                    if (endLevel && current.difficulty && endLevel !== current.difficulty) {
+                        current.levelNote = '开场 +' + current.difficulty + '，结束 +' + endLevel;
+                        current.difficulty = '冲突';
+                    } else current.difficulty ||= endLevel;
+                    finish(end,fields[2] === '1' ? '已完成' : '未完成');
+                }
+            } else if (current?.kind === '大秘境' && /^[1-9][0-9]*$/.test(fields[1])) {
+                finishPartial(start, '其他副本的钥匙标记');
+            } else if (current?.kind.endsWith('首领')) finishPartial(start, '钥匙结束标记');
         } else if (kind === 'ZONE_CHANGE') {
-            if (current && current.map && current.map !== fields[1]) finishPartial(start,'离开副本');
+            if (current && ((current.map && current.map !== fields[1]) ||
+                (current.kind === '大秘境' && fields[3] && fields[3] !== '8') ||
+                (current.kind !== '大秘境' && fields[3] && fields[3] !== current.difficulty))) finishPartial(start,'离开副本');
             zone = {id:fields[1], difficulty:fields[3]};
             if (!current && header && dungeons.has(fields[3]) && fields[3] !== '8')
                 begin('地下城', fields[2], fields[1], fields[3], stamp, fields[1]);
         } else if (kind === 'ENCOUNTER_START') {
             if (current?.kind === '大秘境' || current?.kind === '地下城') {
-                if ((!fields[5] || fields[5] === current.map) && dungeons.has(fields[3])) return;
+                if ((!fields[5] || fields[5] === current.map) &&
+                    fields[3] === (current.kind === '大秘境' ? '8' : current.difficulty)) {
+                    current.hasCombat = true;
+                    if (current.bosses) current.bosses.push(fields[2]);
+                    return;
+                }
                 finishPartial(start, '下一场开始');
             }
+            if (current?.kind.endsWith('首领')) finishPartial(start, '下一场开始');
             if (raids.has(fields[3]) || dungeons.has(fields[3]))
-                begin(raids.has(fields[3]) ? '团本首领' : '地下城首领', fields[2], fields[1], fields[3], stamp, fields[5] || zone?.id);
-        } else if (kind === 'ENCOUNTER_END' && current?.kind.endsWith('首领') && current.id === fields[1]) {
-            finish(end, fields[5] === '1' ? '击杀' : '未击杀');
+                begin(raids.has(fields[3]) ? '团本首领' : fields[3] === '8' ? '大秘境首领' : '地下城首领',
+                    fields[2], fields[1], fields[3], stamp, fields[5] || zone?.id);
+        } else if (kind === 'ENCOUNTER_END' && current?.kind === '大秘境' && fields[3] !== '8') {
+            finishPartial(start, '离开副本');
+        } else if (kind === 'ENCOUNTER_END' && current?.kind.endsWith('首领')) {
+            if (current.id !== fields[1] || current.difficulty !== fields[3]) {
+                finishPartial(start, '其他首领的结束标记');
+            } else if (['0','1'].includes(fields[5])) {
+                finish(end, fields[5] === '1' ? '击杀' : '未击杀');
+            }
         }
     }
     for (let offset = 0; offset < file.size; offset += blockSize) {
@@ -100,12 +171,14 @@ async function scan(file) {
             if (n) { prefix.set(bytes.subarray(pos,pos+n),used); used += n; }
             if (nl < 0) break;
             const end = offset+nl+1;
-            line(end); start=end; used=0; pos=nl+1;
+            line(end);
+            previousPrefix.set(prefix.subarray(0,previousPrefix.length));
+            start=end; used=0; pos=nl+1;
         }
         postMessage({progress: Math.min(file.size,offset+bytes.length)});
     }
     if (start < file.size) line(file.size);
-    finishPartial(file.size, '文件结束');
+    finishPartial(pendingHeader?.start ?? file.size, pendingHeader ? '日志会话切换' : '文件结束');
     for (const scene of scenes) {
         const [lo,hi] = scene.header;
         scene.ranges = [scene.header, ...scene.context.filter(r=>r[1]<=scene.start).sort((a,b)=>a[0]-b[0])];
@@ -113,7 +186,12 @@ async function scan(file) {
             scene.ranges.push([scene.start,lo], [hi,scene.end]);
         } else scene.ranges.push([scene.start,scene.end]);
         scene.ranges = scene.ranges.filter(([a,b])=>b>a);
-        scene.size = scene.ranges.reduce((sum,[a,b])=>sum+b-a,0);
+        // 文件末尾没有换行的版本头被提前时，保持下一条记录独占一行。
+        scene.ranges.forEach((range,i)=>{
+            if (start < file.size && range[1] === file.size && i < scene.ranges.length-1)
+                scene.ranges[i] = [...range,true];
+        });
+        scene.size = scene.ranges.reduce((sum,[a,b,newline])=>sum+b-a+(newline ? 1 : 0),0);
         delete scene.header;
         delete scene.context;
     }

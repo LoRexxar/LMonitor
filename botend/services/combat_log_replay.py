@@ -5,6 +5,7 @@ from botend.services.combat_log_facts import DAMAGE, HEAL
 from botend.services.combat_replay_maps import attach_floor_assets
 from botend.constants.wow import SPEC_ROLE, specialization_catalog
 from botend.services.combat_log_analysis import database, evidence_url
+from botend.services.combat_log_index import dungeon_detail, level_label
 
 from botend.services import combat_replay_activity as activity
 from botend.services.combat_replay_activity import CHUNK_MS
@@ -132,10 +133,16 @@ def read(report, fight_id, chunk=None, *, event_page=None, query="", kind="", su
             min(ms)-? first FROM sample WHERE line BETWEEN ? AND ? AND ms BETWEEN ? AND ?
             GROUP BY map ORDER BY first,map""", (origin, *lines, origin, end)
         )]
-        instance_id = fight["game_id"] if fight["kind"] == "钥匙" else None
+        instance_id = fight["game_id"] if fight["kind"] in ("钥匙", "地下城交战") else None
+        fight["dungeon_detail"] = dungeon_detail(fight, wcl=hasattr(report, "wcl_source"))
+        fight["level_label"] = level_label(fight["level"]) if fight["kind"] == "钥匙" else ""
+        if fight["kind"] == "地下城交战":
+            fight["level_label"] = "史诗" if fight["level"] == "23" else f"难度 {fight['level']}"
         if fight["parent"]:
-            parent = db.execute("SELECT game_id FROM fight WHERE id=?", (fight["parent"],)).fetchone()
+            parent = db.execute("SELECT game_id,name,level FROM fight WHERE id=?", (fight["parent"],)).fetchone()
             instance_id = parent["game_id"] if parent else None
+            if parent:
+                fight.update(dungeon_name=parent["name"], level_label=level_label(parent["level"]))
         attach_floor_assets(maps, int(instance_id) if instance_id and str(instance_id).isdigit() else None)
         axis = "keystone" if fight["kind"] == "钥匙" else "boss"
         extra_hp = "UNION SELECT actor FROM replay_hp WHERE line BETWEEN ? AND ?" if report.summary.get("state_revision") else ""
