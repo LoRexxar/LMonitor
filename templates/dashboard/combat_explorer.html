@@ -1,7 +1,7 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{% firstof selected.name report.filename book.title "多日志分析" %} · 战斗数据浏览器{% endblock %}
 {% block assets %}
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_explorer.css' %}?v=hierarchy1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav"><script defer src="{% static 'dashboard/js/combat_explorer.js' %}?v=outer-nav"></script><script defer src="{% static 'dashboard/js/combat_inspect.js' %}?v=entity2"></script>
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_explorer.css' %}?v=hierarchy1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2"><script defer src="{% static 'dashboard/js/combat_explorer.js' %}?v=oss-images2"></script><script defer src="{% static 'dashboard/js/combat_inspect.js' %}?v=oss-images2"></script>
 {% endblock %}
 {% block trail %}{% if report %}{% url 'combat_report' report.pk as report_directory %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url|default:report_directory }}">{{ report.filename }}</a>{% elif book %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% url 'combat_collection' book.pk %}">{{ book.title }}</a>{% else %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ battle_url }}">所选日志</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if selected %}单场分析{% else %}多场分析{% endif %}</span>{% endblock %}
 {% block content %}

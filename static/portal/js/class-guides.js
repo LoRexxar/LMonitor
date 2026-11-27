@@ -107,11 +107,6 @@
   document.querySelectorAll('.cg-card-cover>img,.cg-hero-cover').forEach(img=>{const fallback=()=>{img.hidden=true;};img.addEventListener('error',fallback);if(img.complete&&!img.naturalWidth)fallback();});
   document.querySelectorAll('.cg-title-line>img,.cg-hero-spec img,.cg-cover-spec img,.guide-ref img,.cg-class-symbol img').forEach(img=>{
     const recover=()=>{
-      if(!img.dataset.cgFallback){
-        img.dataset.cgFallback='1';
-        const filename=new URL(img.src,location.href).pathname.split('/').pop();
-        if(/^[a-z0-9_]+\.(jpg|png)$/i.test(filename)){img.src='https://render.worldofwarcraft.com/us/icons/56/'+filename;return;}
-      }
       img.hidden=true;
     };
     img.addEventListener('error',recover);if(img.complete&&!img.naturalWidth)recover();

@@ -1,4 +1,5 @@
 (function () {
+    const publishedImageUrl = window.publishedImageUrl || (() => '');
     const page = document.querySelector('.talent-sim-page');
     if (!page) return;
 
@@ -241,7 +242,7 @@
     function renderHeader() {
         const spec = currentSpecPayload();
         renderSimulatorTitle();
-        els.specIcon.src = spec?.icon || '';
+        els.specIcon.src = publishedImageUrl(spec?.icon) || '';
         const versionLabel = state.payload.talent_version?.label || state.versionKey || '';
         els.specTitle.textContent = `${state.payload.class_cn} · ${state.payload.spec_cn}${versionLabel ? ' · ' + versionLabel : ''}`;
         const statusMap = {success: '已导入 build code', empty: '空白模拟器', missing: '暂无天赋元数据'};
@@ -684,7 +685,7 @@
         if (option.is_unresolved) {
             return '<span class="talent-choice-unresolved-mark" aria-hidden="true">—</span>';
         }
-        return `<img src="${escapeHtml(option.icon_url || fallbackUrl)}" alt="">`;
+        return `<img src="${escapeHtml(publishedImageUrl(option.icon_url || fallbackUrl))}" alt="">`;
     }
 
     function choiceOptionsTooltipHtml(node) {
@@ -694,7 +695,7 @@
             return `<div class="talent-floating-tooltip-options talent-floating-tooltip-options--apex" role="list" aria-label="顶峰天赋阶段">
                 ${options.map(option => `
                     <div class="talent-floating-tooltip-option is-apex-entry" role="listitem">
-                        <img src="${escapeHtml(option.icon_url || node.icon_url)}" alt="">
+                        <img src="${escapeHtml(publishedImageUrl(option.icon_url || node.icon_url))}" alt="">
                         <span><strong>${escapeHtml(option.display_name || '未命名阶段')} · ${Number(option.max_points || 1)}点</strong><small>${escapeHtml(option.display_desc || '暂无描述')}</small></span>
                     </div>
                 `).join('')}
@@ -771,9 +772,9 @@
         if (node.is_choice_node && points <= 0 && (node.choice_options || []).length >= 2
             && node.choice_options.every(option => !option.is_unresolved)) {
             const [left, right] = node.choice_options;
-            return `<span class="talent-node-icon"><span class="talent-icon-split"><span class="talent-icon-split-half"><img src="${escapeHtml(left.icon_url || node.icon_url)}" alt=""></span><span class="talent-icon-split-half is-right"><img src="${escapeHtml(right.icon_url || node.icon_url)}" alt=""></span></span>${pointsMarkup}</span>`;
+            return `<span class="talent-node-icon"><span class="talent-icon-split"><span class="talent-icon-split-half"><img src="${escapeHtml(publishedImageUrl(left.icon_url || node.icon_url))}" alt=""></span><span class="talent-icon-split-half is-right"><img src="${escapeHtml(publishedImageUrl(right.icon_url || node.icon_url))}" alt=""></span></span>${pointsMarkup}</span>`;
         }
-        return `<span class="talent-node-icon"><img src="${escapeHtml(node.icon_url)}" alt="">${pointsMarkup}</span>`;
+        return `<span class="talent-node-icon"><img src="${escapeHtml(publishedImageUrl(node.icon_url))}" alt="">${pointsMarkup}</span>`;
     }
 
     function resetNodeSelection(node) {
@@ -868,7 +869,7 @@
         }
         els.inspectorEmpty.hidden = true;
         els.inspectorContent.hidden = false;
-        els.inspectorIcon.src = node.icon_url || '';
+        els.inspectorIcon.src = publishedImageUrl(node.icon_url) || '';
         els.inspectorName.textContent = node.display_name || '未命名天赋';
         const selectable = canSelect(node);
         const parents = parentNamesFor(node);
@@ -897,7 +898,7 @@
             els.inspectorOptions.innerHTML = `<div class="talent-inspector-apex-entries">
                 ${options.map(option => `
                     <div class="talent-inspector-option is-apex-entry">
-                        <img src="${escapeHtml(option.icon_url || node.icon_url)}" alt="">
+                        <img src="${escapeHtml(publishedImageUrl(option.icon_url || node.icon_url))}" alt="">
                         <span><strong>${escapeHtml(option.display_name || '未命名阶段')} · ${Number(option.max_points || 1)}点</strong><span>${escapeHtml(option.display_desc || '').slice(0, 90)}</span></span>
                     </div>
                 `).join('')}

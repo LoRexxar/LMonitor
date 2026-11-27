@@ -152,7 +152,7 @@
                 return;
             }
             const html = await response.text();
-            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const doc = window.publishedImageFragment(html);
             const next = doc.querySelector('#explorer');
             if (request.signal.aborted) return;
             if (!response.ok || !next || response.redirected) {

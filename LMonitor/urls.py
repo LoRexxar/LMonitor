@@ -24,7 +24,7 @@ from botend.portal.adventure_journal import (
     PortalAdventureJournalView, PortalAdventureJournalDetailView, PortalAdventureJournalAPIView, PortalAdventureJournalArtView,
     PortalAdventureJournalTooltipView,
 )
-from django.urls import include, path
+from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
 from django.views.generic.base import RedirectView
@@ -163,7 +163,10 @@ from django.http import HttpResponse, JsonResponse
 from botend.portal.updates import PortalSiteUpdatesAPIView
 from botend.portal.rio_statistics import RioStatisticsView, RioStatisticsAPIView, RioStatisticsMapView, RioStatisticsPrepareView
 
+from botend.site_image_map import image_map_script
+
 urlpatterns = [
+    re_path(r'^assets/site-image-maps/(?P<version>[0-9a-f]{64})\.js$', image_map_script, name='site_image_map_script'),
     path('portal/rio-statistics/', RioStatisticsView.as_view(), name='portal_rio_statistics'),
     path('portal/api/rio-statistics/', RioStatisticsAPIView.as_view(), name='portal_rio_statistics_catalog'),
     path('portal/api/rio-statistics/prepare/', RioStatisticsPrepareView.as_view(), name='portal_rio_statistics_prepare'),
@@ -201,7 +204,7 @@ urlpatterns = [
     path('api/dashboard/central-data/', CentralDataAPI.as_view(), name='dashboard_central_data_api'),
     path('api/dashboard/class-guides/<int:guide_id>/', GuideDetailAPI.as_view(), name='dashboard_class_guide_detail_api'),
     # path('admin/', admin.site.urls),
-    path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
+    path('favicon.ico', RedirectView.as_view(url='https://oss.wowdaily.cn/site-images/v1/b8b37f951b22f3271d34ead5d2f802b8d6332748dfcb8216f85e57c306bd9208.svg', permanent=False)),
     path('', PortalHomeView.as_view(), name='portal_home'),
     path('portal/simc-benchmarks/', PortalSimcBenchmarkResultsView.as_view(), name='portal_simc_benchmark_results'),
     path('portal/simc-reference/', PortalSimcReferenceView.as_view(), name='portal_simc_reference'),

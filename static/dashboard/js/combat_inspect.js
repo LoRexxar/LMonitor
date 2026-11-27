@@ -1,4 +1,5 @@
 (() => {
+    const setIcon = window.setPublishedWowImage || ((img, src) => { const url = window.publishedImageUrl?.(src); if (url) img.src = url; });
     const filter = document.getElementById('filter-inspect');
     const evidence = document.getElementById('event-inspect');
     if (!filter || typeof filter.showModal !== 'function') return;
@@ -74,7 +75,7 @@
                 if (row.icon) {
                     const image = document.createElement('img');
                     image.className = 'combat-entity-icon';
-                    image.src = row.icon;
+                    setIcon(image, row.icon);
                     image.alt = row.icon_label || '';
                     image.title = image.alt;
                     image.loading = 'lazy';

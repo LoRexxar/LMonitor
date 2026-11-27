@@ -85,7 +85,7 @@ def inspect(report, fight_id, guid, after):
             scale = min(360 / max(1, x1 - x0), 144 / max(1, y1 - y0))
             for p in points:
                 p.update(cx=round(10 + (p["x"] - x0) * scale, 2), cy=round(154 - (p["y"] - y0) * scale, 2))
-    icons = source_icons | visuals.spell_icons([c["spell_id"] for c in casts] + [a["spell"] for a in auras.values()])
+    icons = visuals.spell_icons([c["spell_id"] for c in casts] + [a["spell"] for a in auras.values()], source_icons)
     for c in casts:
         c["icon"] = icons.get(visuals.localization.number(c["spell_id"]))
     for a in auras.values():

@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 from io import BytesIO
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -71,6 +72,11 @@ class ItemIconProjectionTests(TestCase):
                 item, icon=icon, image_bytes=image_bytes, provenance={**provenance,
                     'tooltip_response': {**provenance['tooltip_response'], 'name': 'Refreshed'}}))
         self.assertEqual(WowItemSnapshot.objects.values().get(pk=item.pk), after)
+        # Verified source bytes alone are not an upload receipt.
+        self.assertEqual(item_display_metadata(item.item_id, item)['icon_url'], '')
+        receipts = patch('botend.services.published_wow_icons._index', return_value={icon: 6})
+        receipts.start()
+        self.addCleanup(receipts.stop)
         for source in ('wago-ptr-db2', 'unrelated', ''):
             for branch in ('retail', 'ptr', 'beta'):
                 with self.subTest(source=source, branch=branch):
@@ -166,6 +172,13 @@ class ItemIconProjectionTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.metadata, original)
         self.assertEqual(item.metadata['journal_item']['icon'], 8268560)
+
+    def test_unknown_image_host_cannot_borrow_a_published_basename(self):
+        url = 'https://not-the-icon-source.invalid/spell_fire_flamebolt.jpg'
+        item = WowItemSnapshot(item_id=281029, icon=url)
+        result = item_display_metadata(item.item_id, item)
+        self.assertEqual(result['icon_url'], '')
+        self.assertEqual(item.icon, url)
 
     def test_unmapped_fdid_remains_available_without_fabricating_cdn_name(self):
         for raw in ('8268560', 8268560):

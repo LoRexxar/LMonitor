@@ -15,6 +15,7 @@ from datetime import date, timedelta
 
 from botend.models import PortalEvent, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
+from botend.services.content_image_display import display_article_blocks, display_image_html, display_image_url
 from botend.services.news_snapshot import news_response
 from botend.services.wow_hotfix_entries import continuous_entries, public_hotfix_entry
 from botend.services.wow_today_service import (
@@ -159,7 +160,7 @@ def _event_to_dict(e):
         'start_at': _fmt_dt(e.start_at),
         'end_at': _fmt_dt(e.end_at),
         'summary': getattr(e, 'summary', '') or '',
-        'image_url': _normalize_url(getattr(e, 'image_url', '') or ''),
+        'image_url': display_image_url(_normalize_url(getattr(e, 'image_url', '') or '')),
         'external_id': getattr(e, 'external_id', '') or '',
     }
 
@@ -178,7 +179,7 @@ def _video_to_dict(v):
         'title': v.title or '',
         'url': _normalize_url(v.url),
         'bvid': v.bvid or '',
-        'cover_url': _normalize_url(v.cover_url),
+        'cover_url': display_image_url(_normalize_url(v.cover_url)),
         'published_at': _fmt_dt(v.published_at),
         'author': _normalize_display_text(v.author_name),
         'author_url': _normalize_url(v.author_url),
@@ -192,7 +193,7 @@ def _tool_to_dict(t):
         'name': t.name or '',
         'url': _normalize_url(t.url),
         'desc': t.desc or '',
-        'icon_path': _normalize_url(getattr(t, 'icon_path', '') or ''),
+        'icon_path': display_image_url(_normalize_url(getattr(t, 'icon_path', '') or '')),
         'icon_key': getattr(t, 'icon_key', '') or '',
         'category': getattr(t, 'category', '') or 'tools',
         'badge': getattr(t, 'badge', '') or '',
@@ -705,10 +706,10 @@ class PortalArticleDetailAPIView(View):
                 'source': article.source or '',
                 'category': article.category or '',
                 'publish_time': _fmt_dt(article.publish_time),
-                'content': content,
+                'content': display_image_html(content),
                 'content_cn': content_cn,
-                'content_blocks': content_blocks,
-                'content_blocks_cn': content_blocks_cn,
+                'content_blocks': display_article_blocks(content_blocks),
+                'content_blocks_cn': display_article_blocks(content_blocks_cn),
                 **_article_channel(article),
             }
         })

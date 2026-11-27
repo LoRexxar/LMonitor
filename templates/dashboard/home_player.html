@@ -1,3 +1,4 @@
+{% load site_images %}
 <header class="dh-heading">
     <div><h1 id="dh-title">{{ request.user.username }}，欢迎回来</h1><p>{% if home.season %}{{ home.season }} · {% endif %}你的角色资料与每日更新，都在这里。</p></div>
     <a class="dh-button dh-primary" href="{% url 'my_character_bindings' %}">管理与绑定角色 <i class="fas fa-arrow-right" aria-hidden="true"></i></a>
@@ -10,7 +11,7 @@
         {% for binding in home.characters %}
         <article class="dh-character">
             <div class="dh-identity">
-                <span class="dh-avatar" aria-hidden="true"><i class="fas fa-user"></i>{% if binding.icon_url %}<img src="{{ binding.icon_url }}" data-character-icon data-fallback="{{ binding.icon_fallback }}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer">{% endif %}</span>
+                <span class="dh-avatar" aria-hidden="true"><i class="fas fa-user"></i>{% if binding.icon_url %}<img src="{{ binding.icon_url|published_image_url }}" data-character-icon data-fallback="{{ binding.icon_fallback|published_image_url }}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer">{% endif %}</span>
                 <div class="dh-name"><h3>{% if binding.detail_url %}<a href="{{ binding.detail_url }}">{{ binding.character_name }}</a>{% else %}{{ binding.character_name }}{% endif %}</h3><p>{{ binding.spec_label }}</p><p>{{ binding.player.realm|default:binding.realm_slug }} · {{ binding.region|upper }}</p></div>
             </div>
             <dl class="dh-number"><dt>装等</dt><dd>{% if binding.player.item_level != None %}{{ binding.player.item_level|floatformat:1 }}{% else %}<span class="dh-muted">待更新</span>{% endif %}</dd></dl>

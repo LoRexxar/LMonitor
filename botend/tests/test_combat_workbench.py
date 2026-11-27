@@ -616,6 +616,8 @@ class CombatWorkbenchTests(TestCase):
             self.assertEqual(icon.status_code,302)
             self.assertTrue(icon.url.endswith("/small/spell_frost_frostbolt02.jpg"))
             lookup.assert_called_once_with("wow",22)
+            lookup.return_value = "not_published_fixture"
+            self.assertEqual(self.client.get(url,{"cast_icon":22}).status_code,404)
         self.assertEqual(self.client.get(boss, {"chunk":0}).json()["activity"], {"casts":[],"damage":[[3000,actor,20,0,0]]})
         self.assertEqual(self.client.get(boss).context["replay"]["pulls"],[])
         report.summary["replay_damage_revision"] = 1

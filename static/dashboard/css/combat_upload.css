@@ -2,6 +2,9 @@
 .upload-page section { margin-block: 16px; }
 .upload-page label { display: block; margin: 10px 0; }
 .upload-page h2 { margin: 0; }
+#file-drop { margin-block: 12px; padding: 16px; border: 2px dashed var(--line); border-radius: 8px; }
+#file-drop.is-dragging, #file-drop:focus-within { border-color: var(--link); background: var(--subtle); }
+#file-drop label { cursor: pointer; margin-top: 0; }
 .upload-page fieldset { margin: 20px 0 6px; border: 0; padding: 0; }
 .upload-page fieldset label { padding: 9px 12px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .upload-page fieldset label:has(:checked) { border-color: var(--link); background: var(--subtle); }

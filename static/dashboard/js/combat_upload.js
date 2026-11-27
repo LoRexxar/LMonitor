@@ -3,28 +3,32 @@
     const list = document.querySelector('#scene-list'), send = document.querySelector('#send-log');
     const status = document.querySelector('#upload-status'), bar = document.querySelector('#upload-progress');
     const stop = document.querySelector('#stop-log'), uploaded = document.querySelector('#uploaded');
-    const modes = [...root.querySelectorAll('[name=mode]')], selections = new Set(), keys = new Map();
+    const modes = [...root.querySelectorAll('[name=mode]')], selections = new Set();
     const token = root.querySelector('[name=csrfmiddlewaretoken]').value;
-    let worker, file, scenes = [], busy = false, pauseRequested = false;
-    const manual = () => modes.some(r => r.checked && r.value === 'manual');
-    const resumeSelection = JSON.parse(document.getElementById('resume-selection')?.textContent || '[]');
-    const autoKinds = new Set(['大秘境', '大秘境首领', '团本首领']);
+    let worker, file, sourceHash, unterminated, scenes = [], busy = false, pauseRequested = false;
+    const range = document.querySelector('#upload-range');
+    const legacy = root.dataset.resume && root.dataset.key[14] !== '8';
+    const manual = () => !range.hidden && modes.some(r => r.checked && r.value === 'manual');
     const size = n => n >= 2**30 ? (n/2**30).toLocaleString('zh-CN',{maximumFractionDigits:2})+' GiB' :
         n >= 1048576 ? (n/1048576).toFixed(1)+' MiB' : Math.ceil(n/1024)+' KiB';
     const maxSourceBytes = Number(root.dataset.maxSourceBytes);
     const sourceSize = document.querySelector('#source-size');
     const sourceLimit = '本地原文件上限 '+size(maxSourceBytes);
     sourceSize.textContent = sourceLimit;
-    function visible(scene) { return root.dataset.resume || manual() || autoKinds.has(scene.kind); }
-    function chosen() { return scenes.filter((s,i) => visible(s) && (!manual() || selections.has(i))); }
-    function mergeMode() { return manual() || resumeSelection.length > 0; }
+    const resumeSelection = JSON.parse(document.getElementById('resume-selection')?.textContent || '[]');
+    const autoKinds = new Set(['大秘境', '大秘境首领', '团本首领']);
+    function visible(scene) {
+        return (root.dataset.resume && range.hidden) || manual() || autoKinds.has(scene.kind);
+    }
+    function chosen() { return scenes.filter((s, i) => visible(s) && (!manual() || selections.has(i))); }
     function refresh() {
         const items = chosen();
-        const reports = mergeMode() && items.length ? 1 : items.length;
-        document.querySelector('#selection-total').textContent = '选中 '+items.length+' 场 · '+reports+' 份日志 · '+size(items.reduce((a,s)=>a+s.size,0));
-        send.disabled = busy || !items.length || reports > Number(root.dataset.limit);
-        send.textContent = root.dataset.resume ? '继续上传' : mergeMode() ? '上传为一份日志' : '上传 '+reports+' 份日志';
-        if (reports > Number(root.dataset.limit)) status.textContent = '按场归档会超过账号份数上限，可使用手动选择合并上传。';
+        const bytes = items.reduce((n, s) => n + s.size + joinBytes(s), 0);
+        const tooLarge = bytes > Number(root.dataset.maxReportBytes);
+        document.querySelector('#selection-total').textContent = '选中 '+items.length+' 场 · '+(items.length ? 1 : 0)+' 份日志 · '+size(bytes)
+            +(tooLarge ? ' · 超过单份报告上限 '+size(Number(root.dataset.maxReportBytes)) : '');
+        send.disabled = busy || !items.length || tooLarge;
+        send.textContent = root.dataset.resume ? '继续上传' : '上传为一份报告';
     }
     function render() {
         list.replaceChildren();
@@ -52,49 +56,85 @@
     function filename(s) {
         return [s.stamp,s.name,s.kind,s.difficulty].filter(Boolean).join(' ').replace(/[\\/:*?"<>|\x00-\x1f]/g,'-').slice(0,230)+'.txt';
     }
-    function identify(scene) {
-        if(root.dataset.resume) return root.dataset.key;
-        const identity = scene.selection ? ['selection',scene.selection] : [scene.start,scene.end,scene.size];
-        const id = JSON.stringify(['combat-import',root.dataset.user,file.name,file.size,file.lastModified,...identity]);
-        let key = keys.get(id);
-        try { key ||= localStorage.getItem(id); } catch {}
-        if (!key) {
-            const bytes=crypto.getRandomValues(new Uint8Array(16));
-            bytes[6]=(bytes[6]&15)|64; bytes[8]=(bytes[8]&63)|128;
-            const hex=Array.from(bytes,n=>n.toString(16).padStart(2,'0')).join('');
-            key=[hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
-            try { localStorage.setItem(id,key); } catch {}
-        }
-        keys.set(id,key); return key;
+    // Moving an unterminated EOF version header before the opening needs a line break.
+    function joinBytes(scene) {
+        return Number(!legacy && unterminated && scene.ranges.some((r,i) => r[1] === file.size && i+1 < scene.ranges.length) || false);
     }
-    function reportsFor(items) {
-        if (!mergeMode() || items.length < 2) return items.map(s=>({...s, filename:filename(s)}));
-        const suffix = '（已选 '+items.length+' 场）.txt';
-        const stem = file.name.replace(/\.txt$/i,'').replace(/[\\/:*?"<>|\x00-\x1f]/g,'-');
-        const name = stem.slice(0,240-suffix.length)+suffix;
-        return [{name, filename:name, size:items.reduce((n,s)=>n+s.size,0), ranges:items.flatMap(s=>s.ranges),
-            selection:items.map(s=>[s.start,s.end,s.size])}];
+    function groupName(items) {
+        return items.length === 1 ? filename(items[0]) : (items.length+' 场 · '+filename(items[0]).slice(0,-4)).slice(0,236)+'.txt';
     }
-    function resumeScenes(found) {
-        if (!resumeSelection.length) {
-            const matches=found.filter(s=>filename(s)===root.dataset.name && s.size===Number(root.dataset.size));
-            return matches.length === 1 ? matches : [];
+    async function groupKey(items) {
+        if (!sourceHash) throw Error('请使用支持安全连接（HTTPS）的浏览器上传。');
+        const identity = JSON.stringify([...(!root.dataset.resume || root.dataset.source ? ['combat-group-v2',file.name] : ['combat-group-v1']), root.dataset.user, sourceHash, items.map(s => s.ranges)]);
+        const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity)));
+        hash[6] = (hash[6] & 15) | 128; // UUIDv8: distinguishes grouped uploads from legacy random UUIDv4.
+        hash[8] = (hash[8] & 63) | 128;
+        const hex = Array.from(hash.subarray(0,16), b=>b.toString(16).padStart(2,'0')).join('');
+        return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+    }
+    const receipt = key => 'combat-group:'+root.dataset.user+':'+key;
+    function restore() {
+        if (resumeSelection.length) {
+            const byStart = new Map(scenes.map(scene => [scene.start, scene]));
+            const selected = resumeSelection.map(([start, end, bytes]) => {
+                const scene = byStart.get(start);
+                return scene && scene.end === end && scene.size + joinBytes(scene) === bytes ? scene : null;
+            });
+            scenes = file.name === root.dataset.source && selected.every(Boolean) ? selected : [];
+            return scenes.length ? '已找到待续传场次，尚未发送文件。' : '这份文件与原先选择的片段不匹配，请重新选择原日志。';
         }
-        if (file.name !== root.dataset.source) return [];
-        const byStart = new Map(found.map(s=>[s.start,s]));
-        const matched = [];
-        for (const [start,end,bytes] of resumeSelection) {
-            const scene = byStart.get(start);
-            if (!scene || scene.end !== end || scene.size !== bytes) return [];
-            matched.push(scene);
+        if (legacy || root.dataset.source) {
+            scenes = scenes.filter(s => (!root.dataset.source || file.name === root.dataset.source) &&
+                filename(s) === root.dataset.name && s.size + joinBytes(s) === Number(root.dataset.size));
+            if (scenes.length !== 1) scenes = [];
+        } else {
+            let saved;
+            try { saved = JSON.parse(localStorage.getItem(receipt(root.dataset.key))); } catch {}
+            if (!saved || !Array.isArray(saved.starts)) {
+                range.hidden = false;
+                return '请重新选择原上传范围，核对一致后才会续传。';
+            }
+            const starts = new Set(saved.starts);
+            scenes = sourceHash === saved.sourceHash ? scenes.filter(s => starts.has(s.start)) : [];
+            if (scenes.length !== starts.size) scenes = [];
         }
-        return matched;
+        return scenes.length ? '已找到待续传场次，尚未发送文件。' : '请选择原上传使用的日志文件。';
     }
     modes.forEach(r=>r.onchange=()=>{status.textContent='';render();});
-    fileInput.onchange = () => {
+    const dropZone = document.querySelector('#file-drop');
+    const isFileDrag = event => Array.from(event.dataTransfer?.types || []).includes('Files');
+    document.addEventListener('dragover', event => {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = busy ? 'none' : 'copy';
+        dropZone.classList.toggle('is-dragging', !busy);
+    });
+    document.addEventListener('dragleave', event => {
+        if (!event.relatedTarget) dropZone.classList.remove('is-dragging');
+    });
+    document.addEventListener('drop', event => {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        dropZone.classList.remove('is-dragging');
+        if (busy) return;
+        const files = event.dataTransfer.files;
+        if (files.length !== 1) {
+            fileInput.value = ''; scan();
+            status.textContent = '请一次拖入一个 .txt 日志文件。';
+            return;
+        }
+        fileInput.files = files;
+        scan();
+    });
+    fileInput.onchange = scan;
+    function scan() {
         worker?.terminate(); worker=null; file=fileInput.files[0]; scenes=[]; selections.clear(); uploaded.replaceChildren();
         bar.hidden=true;stop.hidden=true;sourceSize.textContent=sourceLimit;
+        range.hidden = !!root.dataset.resume;
         status.textContent='';list.replaceChildren();refresh(); if (!file) return;
+        if (!/\.txt$/i.test(file.name)) {
+            fileInput.value=''; status.textContent='请选择 .txt 格式的日志文件。'; return;
+        }
         sourceSize.textContent='当前原文件 '+size(file.size)+' · '+sourceLimit;
         if (file.size > maxSourceBytes) {
             status.textContent='原文件超过本地扫描上限，请选择 '+size(maxSourceBytes)+' 以内的日志。';
@@ -107,13 +147,13 @@
             if(data.progress !== undefined) {bar.value=100*data.progress/file.size;return;}
             scanning.terminate();worker=null;stop.hidden=true;bar.hidden=true;
             scenes=data.scenes||[];
-            if(root.dataset.resume) scenes=resumeScenes(scenes);
-            status.textContent=data.error || (root.dataset.resume && !scenes.length ? '这份文件与原先选择的片段不匹配，请重新选择原日志。' : '扫描完成，尚未发送文件。');
+            sourceHash=data.sourceHash; unterminated=data.unterminated;
+            status.textContent=data.error || (root.dataset.resume ? restore() : '扫描完成，尚未发送文件。');
             render();
         };
-        scanning.onerror=()=>{scanning.terminate();worker=null;bar.hidden=true;stop.hidden=true;status.textContent='扫描失败，请重新选择文件。';render();};
-        scanning.postMessage(file);
-    };
+        scanning.onerror=()=>{if(worker!==scanning) return; scanning.terminate();worker=null;bar.hidden=true;stop.hidden=true;status.textContent='扫描失败，请重新选择文件。';render();};
+        scanning.postMessage({file, legacy:!!legacy});
+    }
     stop.onclick=()=>{
         if(worker){worker.terminate();worker=null;bar.hidden=true;stop.hidden=true;list.textContent='扫描已取消。';fileInput.value='';}
         if (busy) {
@@ -131,45 +171,57 @@
     }
     send.onclick=async()=>{
         if(busy) return;
-        const items=reportsFor(chosen()); pauseRequested=false;stop.disabled=false;setBusy(true);uploaded.replaceChildren();
+        const items=chosen(); pauseRequested=false;stop.disabled=false;setBusy(true);uploaded.replaceChildren();
         bar.hidden=false;bar.value=0;stop.textContent='暂停上传';
-        let urls = [], finished = 0;
+        let url, finished = false;
         try {
-            const batch=items.map(s=>({key:identify(s),name:s.filename,size:s.size}));
-            urls=root.dataset.resume ? [root.dataset.resume] : (await api(root.dataset.create,'POST',JSON.stringify({source_filename:file.name,scenes:batch,selection:items[0].selection}),{'Content-Type':'application/json'})).reports;
-            const bytesTotal=items.reduce((n,s)=>n+s.size,0); let done=0;
-            for(const [i,s] of items.entries()){
-                if (pauseRequested) break;
-                const url=urls[i], info=await api(url+'parts/');
-                const payload=new Blob(s.ranges.flatMap(([a,b,newline])=>newline ? [file.slice(a,b),'\n'] : [file.slice(a,b)]));
-                if(payload.size!==info.size) throw Error('场次大小与服务端记录不一致。');
-                status.textContent='上传 '+(i+1)+' / '+items.length+' · '+s.name;
-                for(let offset=0,n=0;offset<payload.size;offset+=info.part_size,n++){
-                    if (pauseRequested) break;
-                    const part=payload.slice(offset,offset+info.part_size), expected=info.parts[n];
-                    if(expected && crypto.subtle){
-                        const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',await part.arrayBuffer()));
-                        if(Array.from(bytes,v=>v.toString(16).padStart(2,'0')).join('')!==expected) throw Error('已接收的分片与此文件不符。');
-                    } else await api(url+'parts/'+n+'/','PUT',part);
-                    done+=part.size;bar.value=100*done/bytesTotal;
-                }
-                if (pauseRequested) break;
-                await api(url+'finish/','POST');
-                finished++;
-                const a=document.createElement('a');a.href=url;a.textContent='查看解析进度 · '+s.name;uploaded.append(a);
-                document.getElementById('choose-uploads').hidden=false;
+            if (!items.length) return;
+            const key = legacy ? root.dataset.key : await groupKey(items);
+            if (root.dataset.resume && key !== root.dataset.key) throw Error('文件或所选场次与待续传报告不一致。');
+            const pieces = [];
+            for (const scene of items) {
+                const addBreak = joinBytes(scene);
+                scene.ranges.forEach(([a,b], i) => {
+                    pieces.push(file.slice(a,b));
+                    if (addBreak && b === file.size && i+1 < scene.ranges.length) pieces.push('\n');
+                });
             }
-            if (finished === urls.length) status.textContent='上传完成，已提交解析。';
+            const payload = new Blob(pieces), name = groupName(items);
+            if (payload.size > Number(root.dataset.maxReportBytes)) throw Error('所选场次超过单份报告大小上限。');
+            if (!legacy) {
+                // Only offsets and a fingerprint, never log lines or player names.
+                try { localStorage.setItem(receipt(key), JSON.stringify({sourceHash, starts:items.map(s=>s.start)})); } catch {}
+            }
+            url = root.dataset.resume || (await api(root.dataset.create,'POST',
+                JSON.stringify({source_filename:file.name, scenes:[{key,name,size:payload.size}],
+                    selection:items.length > 1 ? items.map(s=>[s.start,s.end,s.size + joinBytes(s)]) : []}), {'Content-Type':'application/json'})).reports[0];
+            const info = await api(url+'parts/');
+            if (payload.size !== info.size) throw Error('报告大小与服务端记录不一致。');
+            status.textContent='正在上传 '+items.length+' 场 · 一份报告';
+            for (let offset=0,n=0; offset<payload.size; offset+=info.part_size,n++) {
+                if (pauseRequested) return;
+                const part=payload.slice(offset,offset+info.part_size), expected=info.parts[n];
+                if (expected && crypto.subtle) {
+                    const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',await part.arrayBuffer()));
+                    if (Array.from(bytes,v=>v.toString(16).padStart(2,'0')).join('')!==expected) throw Error('已接收的分片与此文件不符。');
+                } else await api(url+'parts/'+n+'/','PUT',part);
+                bar.value=100*(offset+part.size)/payload.size;
+            }
+            if (pauseRequested) return;
+            await api(url+'finish/','POST');
+            finished=true;
+            if (!legacy) { try { localStorage.removeItem(receipt(key)); } catch {} }
+            const a=document.createElement('a');a.href=url;a.textContent='查看解析进度 · '+name;uploaded.append(a);
+            document.getElementById('choose-uploads').hidden=false;
+            status.textContent='上传完成，正在打开日志详情…';
+            window.location.assign(url);
         } catch(e){status.textContent=e.message;}
         finally {
-            if (pauseRequested && finished < urls.length) {
-                let failures = 0;
-                for (const url of urls.slice(finished)) {
-                    try { await api(url+'pause/', 'POST', undefined, {Accept:'application/json'}); }
-                    catch { failures++; }
-                }
-                status.textContent = failures ? '已停止发送。部分场次的暂停状态尚未确认，请在日志库核对。'
-                    : '上传已暂停，重新提交将核对并续传。';
+            if (pauseRequested && url && !finished) {
+                try {
+                    await api(url+'pause/', 'POST', undefined, {Accept:'application/json'});
+                    status.textContent='上传已暂停，重新提交将核对并续传。';
+                } catch { status.textContent='已停止发送。暂停状态尚未确认，请在日志库核对。'; }
             }
             stop.disabled=false;setBusy(false);
         }

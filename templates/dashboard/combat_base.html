@@ -2,8 +2,9 @@
 <html lang="zh-CN" data-system-theme>
 <head>
     <meta charset="utf-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>{% block title %}日志分析{% endblock %} · WowDaily</title>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=shared-header2"></script>
     <script>
@@ -16,10 +17,11 @@
         }
         })();
     </script>
-    <script defer src="{% static 'dashboard/js/combat_loading.js' %}?v=20261126b"></script>
+    <script defer src="{% static 'dashboard/js/combat_loading.js' %}?v=oss-images2"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20261124_log_navigation2">
     <link rel="stylesheet" href="{% static 'dashboard/css/combat_entities.css' %}?v=icons2">
-    <script defer src="{% static 'dashboard/js/combat_spell_icon.js' %}"></script>
+    <script defer src="{% static 'shared/js/published-wow-icons.js' %}?v=oss-images2" data-inventory="{% static 'shared/data/published-wow-icons.json' %}?v=60709808711d"></script>
+    <script defer src="{% static 'dashboard/js/combat_spell_icon.js' %}?v=oss-images2"></script>
     {% block assets %}{% endblock %}
 </head>
 <body class="portal-bg combat-page">

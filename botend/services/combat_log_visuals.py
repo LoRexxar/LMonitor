@@ -1,12 +1,14 @@
 """战斗分析共用的参战身份、技能图标与天赋快照读视图。"""
 
 import json
+import re
 
 from django.db.models import Case, IntegerField, Value, When
 
 from botend.constants.wow import CLASS_CN, specialization_catalog
 from botend.models import WowTalentNodeMetadata
 from botend.services import combat_log_localization as localization
+from botend.services.content_image_display import display_image_url
 from botend.services.combat_replay_activity import spell_icons
 from botend.templatetags.wow_tags import wow_icon_oss_url
 
@@ -16,7 +18,7 @@ SPECS = {s["spec_id"]: s for s in specialization_catalog()}
 def identity(spec_ids, class_name=""):
     specs = [SPECS[i] for i in sorted(spec_ids) if i in SPECS]
     if len(specs) == 1:
-        return dict(icon=specs[0]["icon"], icon_label=specs[0]["label"])
+        return dict(icon=display_image_url(specs[0]["icon"]), icon_label=specs[0]["label"])
     if specs and len({s["class_name"] for s in specs}) == 1:
         return dict(icon=wow_icon_oss_url("classicon_" + specs[0]["class_name"].lower()),
                     icon_label=specs[0]["class_label"] + " · " + " / ".join(s["spec_label"] for s in specs))
@@ -25,10 +27,22 @@ def identity(spec_ids, class_name=""):
     return {}
 
 
+def _report_icon(icon):
+    if not isinstance(icon, str):
+        return ''
+    if icon.startswith(('https://', '/static/')):
+        mapped = display_image_url(icon)
+        return mapped if mapped.startswith(('https://oss.wowdaily.cn/', '/static/')) else ''
+    match = re.fullmatch(r'([A-Za-z0-9_-]{1,160})(?:\.jpg)?', icon, re.I)
+    if match and not match[1].isdecimal() and match[1].lower() != 'inv_misc_questionmark':
+        return wow_icon_oss_url(match[1])
+    return ''
+
+
 def report_icons(db, report):
     if hasattr(report, "wcl_source") and report.summary.get("talent_revision"):
-        return localization.cached(report, "wcl-icons", lambda: {
-            sid: wow_icon_oss_url(icon) for sid, icon in db.execute("SELECT spell,icon FROM wcl_icon")
+        return localization.cached(report, "wcl-icon-slugs", lambda: {
+            sid: url for sid, icon in db.execute("SELECT spell,icon FROM wcl_icon") if (url := _report_icon(icon))
         })
     return {}
 
@@ -56,7 +70,7 @@ def participants(db, report, sample):
 
 
 def decorate_spells(rows, field, source_icons=None):
-    icons = (source_icons or {}) | spell_icons([r[field] for r in rows])
+    icons = spell_icons([r[field] for r in rows], source_icons)
     for row in rows:
         row["icon_id"] = localization.number(row[field])
         row["icon"] = icons.get(row["icon_id"])
@@ -67,7 +81,7 @@ def decorate(ctx):
               (ctx["group"], ctx.get("curves", []))]
     ids = [r["ident"] for axis, rows in groups if axis == "ability" for r in rows]
     events = ctx["events"]
-    icons = ctx["report_icons"] | spell_icons(ids + [e["spell_id"] for e in events])
+    icons = spell_icons(ids + [e["spell_id"] for e in events], ctx["report_icons"])
     for axis, rows in groups:
         for r in rows:
             key = r["ident"]
@@ -119,7 +133,7 @@ def talents(db, report, fight, actor):
         metadata.setdefault((row["node_id"], row["class_name"], row["spec_name"]), row)
     fallback_ids = [row["display_spell_id"] or row["spell_id"] for row in metadata.values() if not row["icon"]]
     source_spells = {item[3] for b in builds for item in b["entries"] if item[3]}
-    missing = report_icons(db, report) | spell_icons(fallback_ids + list(source_spells))
+    missing = spell_icons(fallback_ids + list(source_spells), report_icons(db, report))
     names = localization.spell_names({sid: "" for sid in source_spells})
     for build in builds:
         spec = SPECS.get(build["spec"], {})
@@ -133,6 +147,6 @@ def talents(db, report, fight, actor):
                 icon = wow_icon_oss_url(icon)
             items.append(dict(entry=entry, rank=rank, icon_id=spell or row.get("display_spell_id") or row.get("spell_id"),
                               name=row.get("name_zh") or names.get(spell) or row.get("name") or f"天赋 #{entry}",
-                              icon=icon or missing.get(spell or row.get("display_spell_id") or row.get("spell_id"))))
+                              icon=display_image_url(icon) or missing.get(spell or row.get("display_spell_id") or row.get("spell_id"))))
         build["items"] = items
     return builds

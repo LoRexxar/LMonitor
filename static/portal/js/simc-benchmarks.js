@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
   const LIST_URL = "/portal/api/simc-benchmarks/panels/";
   const coordinateDetailCache = new Map();
@@ -321,7 +322,7 @@
         placeholder.hidden = !!iconUrl;
         if (iconUrl) {
           const icon = node("img", "simc-benchmark-tier-icon");
-          icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+          icon.src = publishedImageUrl(iconUrl); icon.alt = ""; icon.loading = "lazy";
           bindTooltip(icon);
           icon.addEventListener("error", () => { icon.hidden = true; placeholder.hidden = false; }, { once: true });
           card.appendChild(icon);
@@ -569,7 +570,7 @@
       const iconUrl = safeIconUrl(group.icon_url);
       if (iconUrl) {
         const icon = node("img", "simc-benchmark-candidate-icon");
-        icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy"; icon.addEventListener("error", () => icon.remove(), { once: true });
+        icon.src = publishedImageUrl(iconUrl); icon.alt = ""; icon.loading = "lazy"; icon.addEventListener("error", () => icon.remove(), { once: true });
         identity.appendChild(icon);
       }
       identity.appendChild(node("strong", "simc-benchmark-gear-name", group.label));
@@ -836,7 +837,7 @@
         const iconUrl = safeIconUrl(item?.icon_url);
         if (iconUrl) {
           const icon = node("img", "wow-item-icon");
-          icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+          icon.src = publishedImageUrl(iconUrl); icon.alt = ""; icon.loading = "lazy";
           icon.addEventListener("error", () => icon.remove(), { once: true });
           copy.appendChild(icon);
         }
@@ -1021,7 +1022,7 @@
         const iconUrl = safeIconUrl(coordinate?.spec_icon_url);
         if (iconUrl) {
           const icon = node("img", "simc-benchmark-spec-icon");
-          icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+          icon.src = publishedImageUrl(iconUrl); icon.alt = ""; icon.loading = "lazy";
           icon.addEventListener("error", () => icon.remove(), { once: true });
           identity.appendChild(icon);
         }
@@ -1157,7 +1158,7 @@
       const iconUrl = safeIconUrl(entry?.spec_icon_url);
       if (iconUrl) {
         const icon = node("img", "simc-benchmark-spec-icon");
-        icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+        icon.src = publishedImageUrl(iconUrl); icon.alt = ""; icon.loading = "lazy";
         icon.addEventListener("error", () => icon.remove(), { once: true });
         identity.appendChild(icon);
       }

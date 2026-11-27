@@ -69,6 +69,7 @@ echo "=== 2. Migrate and reconcile central item catalog ==="
 "$PYTHON_BIN" manage.py backfill_journal_item_catalog
 
 echo "=== 3. Collectstatic ==="
+"$PYTHON_BIN" manage.py clear_collected_report_copies
 "$PYTHON_BIN" manage.py collectstatic --no-input --ignore='simc_results/*'
 
 echo "=== 4. 重启 lmweb ==="

@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from botend.models import CombatLogReport, WclUserBinding
+from botend.models import CombatLogReport, WclUserBinding, WowSpellSnapshot
 from botend.services import combat_wcl_index as index
 from botend.services import combat_log_analysis as analysis, combat_replay_activity as activity
 
@@ -48,13 +48,17 @@ class WclSingleTests(TestCase):
 
     def test_wcl_combatant_build_and_source_icons(self):
         upstream = self.upstream
+        WowSpellSnapshot.objects.create(spell_id=10060, icon='https://assets-ng.maxroll.gg/wow/icons/135939.webp')
 
         def with_metadata(binding, query, variables):
             payload = upstream(binding, query, variables)
             if query == index.META:
-                payload["masterData"]["abilities"][0]["icon"] = "spell_arcane_blast.jpg"
+                payload["masterData"]["abilities"][0]["icon"] = "https://wow.zamimg.com/images/wow/icons/small/spell_arcane_blast.jpg"
                 payload["masterData"]["actors"][0]["subType"] = "Mage"
+                payload["masterData"]["abilities"].append(dict(gameID=10060, name="能量灌注", icon="spell_holy_powerinfusion.jpg"))
             if query == index.EVENTS and variables["start"] == 1000:
+                payload["events"]["data"].append(dict(type="applybuff", timestamp=2600, fight=12,
+                    sourceID=1, targetID=1, abilityGameID=10060))
                 payload["events"]["data"].insert(0, dict(type="combatantinfo", timestamp=1000,
                     fight=12, sourceID=1, specID=63, talentTree=[dict(id=801, rank=2, nodeID=701, spellID=5)]))
             return payload
@@ -65,6 +69,9 @@ class WclSingleTests(TestCase):
             self.assertEqual(player["icon_label"], "法师 · 火焰")
             actor = self.client.get(player["actor_url"])
             self.assertContains(actor, "spell_arcane_blast.jpg")
+            aura = next(a for a in actor.context['auras'] if a['spell'] == '10060')
+            self.assertTrue(aura['icon'].endswith('/small/spell_holy_powerinfusion.jpg'))
+            self.assertContains(actor, aura['icon'])
             self.assertEqual(actor.context["builds"][0]["items"][0]["rank"], 2)
             skill = self.client.get(page.request["PATH_INFO"], dict(fight=12, group="ability"))
             self.assertContains(skill, "spell_arcane_blast.jpg")

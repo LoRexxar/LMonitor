@@ -1,7 +1,7 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{% firstof actor.name book.title selected.name report.filename "多日志分析" %} · 战斗分析{% endblock %}
 {% block assets %}
-<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav">
+<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=workspace1"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2">
 {% endblock %}
 {% block trail %}{% if book %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% url 'combat_collections' %}">团队分析册</a>{% endif %}{% if report %}{% url 'combat_report' report.pk as report_directory %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ directory_url|default:report_directory }}">{{ report.filename }}</a>{% endif %}{% if analysis_url %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ analysis_url }}">单场分析</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if view == 'books' %}团队分析册{% elif view == 'actor' %}角色复盘{% elif view == 'event' %}原始事件{% elif view == 'review' %}事件复盘{% elif book %}{{ book.title }}{% else %}战斗数据{% endif %}</span>{% endblock %}
 {% block content %}

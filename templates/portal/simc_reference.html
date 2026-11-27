@@ -2,10 +2,11 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    {% include 'shared/_site_images.html' %}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>专精模拟资料 · WowDaily</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20261123_shared_navigation"></script>
@@ -37,6 +38,6 @@
     <footer class="reference-footer">当前共享模拟资料 · 历史模拟请以该任务保存的输入为准。</footer>
 </main>
 <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261117_preview_hover"></script>
-<script src="{% static 'portal/js/simc-reference.js' %}?v=20261116_partial_loading"></script>
+<script src="{% static 'portal/js/simc-reference.js' %}?v=oss-images2"></script>
 </body>
 </html>

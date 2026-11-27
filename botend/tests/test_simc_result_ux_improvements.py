@@ -81,7 +81,8 @@ class SimcResultUXTests(SimpleTestCase):
         self.assertIn('原始 SimC 完整报告', result)
         self.assertIn('id="native-report-frame"', result)
         self.assertIn('sandbox="allow-same-origin"', result)
-        self.assertIn('nativeReportFrame.srcdoc = html', result)
+        self.assertIn("nativeReportFrame.srcdoc = '<!doctype html>' + policy + report.innerHTML", result)
+        self.assertIn("img-src data:; form-action 'none'", result)
         self.assertIn('buildNativeReportOutline', result)
 
     def test_task_result_opens_owned_artifact_as_standalone_report(self):

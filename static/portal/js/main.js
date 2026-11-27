@@ -1,3 +1,4 @@
+const portalImageUrl = window.publishedImageUrl || (() => '');
 async function fetchJson(url, controller = new AbortController()) {
   let timer = setTimeout(() => controller.abort(), 10000);
   const clearTimer = () => {
@@ -65,18 +66,7 @@ function sanitizeHref(raw) {
 }
 
 function getBilibiliThumbnailUrl(raw) {
-  const s = sanitizeHref(raw);
-  if (!s) return "";
-  try {
-    const u = new URL(s);
-    if (!u.hostname.endsWith("hdslb.com")) return s;
-    if (!u.pathname.includes("/bfs/archive/")) return s;
-    if (u.pathname.includes("@")) return s;
-    u.pathname = `${u.pathname}@384w_216h_1c_!web-search-common-cover.avif`;
-    return u.toString();
-  } catch (e) {
-    return s;
-  }
+  return portalImageUrl(sanitizeHref(raw));
 }
 
 // --- Homepage NGA preview: one invalidatable, non-modal session ---
@@ -566,10 +556,10 @@ async function loadTools() {
             const { href, attrs } = linkAttrs(item);
             const name = escapeHtml(item.name || "未命名入口");
             const desc = escapeHtml(item.desc || "");
-            const iconPath = escapeHtml(getFaviconSrc(item));
+            const iconPath = escapeHtml(portalImageUrl(getFaviconSrc(item)));
             const visual = item.icon_key
               ? iconHtml(item.icon_key, "portal-tool-row-svg")
-              : `<img src="${iconPath}" alt="" loading="lazy" onerror="this.src='/static/portal/favicons/default.svg'">`;
+              : `<img src="${iconPath}" alt="" loading="lazy" onerror="this.hidden=true">`;
             const badgeTone = item?.badge_tone === "new" ? " is-new" : "";
             const badge = item.badge ? `<span class="portal-tool-row-badge${badgeTone}">${escapeHtml(item.badge)}</span>` : "";
             const content = `<span class="portal-tool-row-icon">${visual}</span><span class="portal-tool-row-copy"><strong>${name}</strong>${desc ? `<small>${desc}</small>` : ""}</span>${badge}<span class="portal-tool-row-arrow" aria-hidden="true">→</span>`;
@@ -691,7 +681,7 @@ function renderWowTodayItem(item, moduleKind, showIcon = true) {
   const value = escapeHtml(item?.value || "");
   const title = `<span class="portal-tiw-item-name">${name}</span>`;
   const iconHtml = icon
-    ? `<img class="portal-tiw-item-icon" src="${escapeHtml(icon)}" alt="" loading="lazy">`
+    ? `<img class="portal-tiw-item-icon" src="${escapeHtml(portalImageUrl(icon))}" alt="" loading="lazy">`
     : "";
   const tokenValue = moduleKind === "token" && value
     ? `<span class="portal-tiw-item-value">${value} 金币</span>`
@@ -1648,7 +1638,7 @@ function renderMplusRuns(containerId, items) {
     const iconUrl = sanitizeHref(m?.spec_icon_url);
     const specLabel = escapeHtml([m?.class_name_cn || m?.class, m?.spec_name_cn || m?.spec].filter(Boolean).join(" · ") || "专精未知");
     const icon = iconUrl
-      ? `<img class="portal-mplus-spec-icon h-5 w-5 shrink-0 rounded border object-cover" src="${escapeHtml(iconUrl)}" width="20" height="20" alt="${specLabel}" title="${specLabel}" style="border-color:${color}" loading="lazy" decoding="async">`
+      ? `<img class="portal-mplus-spec-icon h-5 w-5 shrink-0 rounded border object-cover" src="${escapeHtml(portalImageUrl(iconUrl))}" width="20" height="20" alt="${specLabel}" title="${specLabel}" style="border-color:${color}" loading="lazy" decoding="async">`
       : `<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-xs text-slate-500" title="专精未知" aria-label="专精未知">?</span>`;
     const characterHref = sanitizeHref(m?.character_url || "");
     const tag = characterHref ? "a" : "span";
@@ -1717,11 +1707,7 @@ function renderMplusRuns(containerId, items) {
   `;
   el.querySelectorAll('.portal-mplus-spec-icon').forEach((image) => {
     image.addEventListener('error', () => {
-      // OSS 加载失败时使用同名高清图标的备用源，仅切换一次。
-      const original = new URL(image.src);
-      if (original.hostname !== 'oss.wowdaily.cn') return;
-      const filename = original.pathname.split('/').pop();
-      image.src = `https://wow.zamimg.com/images/wow/icons/large/${filename}`;
+      image.hidden = true;
     }, {once: true});
   });
 }

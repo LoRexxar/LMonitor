@@ -2,22 +2,25 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>大秘境路线规划器（开发预览）</title>
-    {% load static %}
+    {% load static site_images %}
     <link rel="stylesheet" href="{% static 'portal/css/mythic_planner.css' %}?v=20261119_route_source">
 </head>
 <body class="mdt-page" data-share-token="{{ planner_share_token|escape }}">
     <div id="planner-app" class="mdt-app" aria-busy="true">
         <header class="mdt-topbar">
             <div class="mdt-brand">
-                <img
+                {% with logo_url='/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png'|published_image_url %}
+                {% if logo_url %}<img
                     class="mdt-brand-logo"
-                    src="{% static 'portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png' %}"
+                    src="{{ logo_url }}"
                     alt=""
                     aria-hidden="true"
-                >
+                >{% endif %}
+                {% endwith %}
                 <div>
                     <strong>大秘境路线规划器</strong>
                     <span id="dataset-label">正在读取数据版本…</span>
@@ -166,7 +169,9 @@
                     href="https://github.com/Nnoggie/MythicDungeonTools"
                     target="_blank"
                     rel="noopener noreferrer"
-                >MythicDungeonTools（GPLv2）</a>
+                >MythicDungeonTools（GPLv2）</a> ·
+                <a href="https://github.com/Nnoggie/MythicDungeonTools/tree/7fd7672d41b3aff933cbfd5b0f508fc4f62e33ae/Textures" target="_blank" rel="noopener noreferrer">界面贴图原件（本站转换为 PNG）</a> ·
+                <a href="https://github.com/Nnoggie/MythicDungeonTools/blob/7fd7672d41b3aff933cbfd5b0f508fc4f62e33ae/LICENSE" target="_blank" rel="noopener noreferrer">许可全文</a>
             </span>
         </footer>
     </div>
@@ -202,6 +207,6 @@
 
     <div id="planner-toast" class="mdt-toast" role="status" hidden></div>
 
-    <script src="{% static 'portal/js/mythic_planner.js' %}?v=20261119_route_source" defer></script>
+    <script src="{% static 'portal/js/mythic_planner.js' %}?v=oss-images2" defer></script>
 </body>
 </html>

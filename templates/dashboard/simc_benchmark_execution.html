@@ -5,6 +5,7 @@
 {% include 'dashboard/_navigation_assets.html' %}
 
   <meta charset="utf-8">
+    {% include 'shared/_site_images.html' %}
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ panel_name }} · 私有执行结果</title>
@@ -29,6 +30,6 @@
 </main>
 <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
 <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261117_preview_hover"></script>
-<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20261114_talent_titles"></script>
+<script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=oss-images2"></script>
 </body>
 </html>

@@ -33,3 +33,11 @@ class BotendConfig(AppConfig):
         middleware = 'botend.analytics.middleware.SiteAnalyticsMiddleware'
         if middleware not in settings.MIDDLEWARE:
             settings.MIDDLEWARE = [*settings.MIDDLEWARE, middleware]
+        # Host-specific settings are not tracked. Apply the same finder to runserver and collectstatic.
+        settings.STATICFILES_FINDERS = [
+            'botend.report_static.ReportSafeFinder' if f == 'django.contrib.staticfiles.finders.FileSystemFinder' else f
+            for f in settings.STATICFILES_FINDERS
+        ]
+        image_policy = 'botend.image_policy.public_image_policy'
+        if image_policy not in settings.MIDDLEWARE:
+            settings.MIDDLEWARE = [image_policy, *settings.MIDDLEWARE]

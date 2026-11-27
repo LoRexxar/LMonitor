@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>历史报告</title></head>
+<body><a id="report" href="/portal/">查看报告</a><script>
+const prefix = '/static/portal/reports/';
+if (location.pathname.startsWith(prefix)) {
+    const url = '/portal/reports/' + location.pathname.slice(prefix.length) + location.search + location.hash;
+    document.getElementById('report').href = url;
+    location.replace(url);
+}
+</script></body></html>

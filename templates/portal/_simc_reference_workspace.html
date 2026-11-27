@@ -1,7 +1,8 @@
+{% load site_images %}
 {% load simc_display %}
     <div class="reference-workspace-heading">
     <div class="reference-spec-heading">
-        {% if selected_spec.icon %}<img src="{{ selected_spec.icon }}" alt="" width="48" height="48">{% endif %}
+        {% if selected_spec.icon %}<img src="{{ selected_spec.icon|published_image_url }}" alt="" width="48" height="48">{% endif %}
         <div><h2>{{ selected_spec.label }}</h2><p>{% if profile %}{{ profile.version }} · {% if profile.use_ptr %}PTR{% else %}正式服{% endif %} · {{ profile.profile_set }}{% else %}当前模拟资料{% endif %}</p></div>
     </div>
     <form method="get" class="reference-spec-picker">

@@ -431,7 +431,10 @@ def collect(pk, attempt):
         for _, _, length in selection:
             starts.add(offset)
             offset += length
-        result = build_index(directory(report) / f"{attempt}.sqlite3", verified_chunks(), segment_starts=starts)
+        if report.source_filename and report.upload_key and report.upload_key.version == 8:
+            starts.add(0)
+        result = build_index(directory(report) / f"{attempt}.sqlite3", verified_chunks(), segment_starts=starts,
+                             headers_first=bool(report.upload_key and report.upload_key.version == 8))
         if selection:
             result["upload_selection"] = selection
         with transaction.atomic():

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from botend.services.content_image_display import display_icon_fields
 from botend.wow.talents.render import build_talent_render_model
 
 
@@ -13,6 +14,7 @@ def build_talent_view_model(talents, class_name='', spec_name='', metadata_provi
         spec_name=spec_name,
         metadata_provider=metadata_provider,
     ).to_dict()
+    render_model_dict = display_icon_fields(render_model_dict, icon_field='icon')
     return {
         'build_code': render_model_dict['build_code'],
         'nodes': render_model_dict['nodes'],

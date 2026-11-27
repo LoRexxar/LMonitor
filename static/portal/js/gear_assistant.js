@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
   const page = document.querySelector(".gear-assistant-page");
   if (!page) return;
@@ -129,7 +130,7 @@
   }
   function equipmentIcon(entry) {
     return entry?.item?.icon_url
-      ? `<img class="assistant-equipment-icon" src="${escapeHtml(entry.item.icon_url)}" alt="" loading="lazy">`
+      ? `<img class="assistant-equipment-icon" src="${escapeHtml(publishedImageUrl(entry.item.icon_url))}" alt="" loading="lazy">`
       : '<span class="assistant-equipment-icon assistant-equipment-icon--empty"></span>';
   }
   function renderEquipment() {
@@ -177,7 +178,7 @@
       return;
     }
     els.ownedList.innerHTML = rows.map((row) => {
-      const icon = row.item?.icon_url ? `<img class="assistant-owned-icon" src="${escapeHtml(row.item.icon_url)}" alt="" loading="lazy">` : '<span class="assistant-owned-icon"></span>';
+      const icon = row.item?.icon_url ? `<img class="assistant-owned-icon" src="${escapeHtml(publishedImageUrl(row.item.icon_url))}" alt="" loading="lazy">` : '<span class="assistant-owned-icon"></span>';
       return `<div class="assistant-owned-row" data-owned-id="${row.id}">${icon}<span class="assistant-owned-copy"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.slot_label)} · ${row.item_level || "未知装等"}${row.quantity > 1 ? ` · ×${row.quantity}` : ""}</small></span><button type="button" class="assistant-owned-delete" data-delete-owned="${row.id}" aria-label="移除备选装备">×</button></div>`;
     }).join("");
   }

@@ -1,5 +1,6 @@
 (() => {
     'use strict';
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
     const $ = (selector, root = document) => root.querySelector(selector);
     const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -325,7 +326,7 @@
         els.canvas.style.aspectRatio = `${Math.max(1, Number(floor.map_width || 1))} / ${Math.max(1, Number(floor.map_height || 1))}`;
         els.canvas.style.backgroundColor = floor.background_color || '#302d2a';
         els.canvas.style.backgroundImage = floor.background_url
-            ? `url(${JSON.stringify(String(floor.background_url))})`
+            ? `url(${JSON.stringify(String(publishedImageUrl(floor.background_url)))})`
             : 'none';
         const rows = visibleSpawns();
         const selectedStillVisible = rows.some(

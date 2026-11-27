@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title id="talent-page-title">天赋模拟器 - WowDaily.cn</title>
     {% load static %}
     {% if mini_mode %}
@@ -113,7 +114,7 @@
     {% endif %}
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
     {% if not mini_mode %}
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20261029_server_slots"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=oss-images2"></script>
     {% endif %}
 </body>
 </html>

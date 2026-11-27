@@ -134,12 +134,17 @@ def iter_lines(chunks):
         yield offset, length, bytes(pending) if length <= MAX_LINE else b""
 
 
-def session_order(chunks, segment_starts=()):
+def session_order(chunks, segment_starts=(), headers_first=False):
     """正式服有时先写开战和队伍信息，再写本段版本头。原文行号和偏移始终不变。"""
     opening = []
     size = 0
     for line, (offset, length, raw) in enumerate(iter_lines(chunks), 1):
         record = (line, offset, length, raw, line)
+        if headers_first:
+            # Grouped uploads already place each scene's header first. Never move
+            # the next scene's header across a preceding unfinished key.
+            yield record
+            continue
         # 常规战斗事件不复制整行来检查类型。
         prefix = raw[:96].removeprefix(b"\xef\xbb\xbf")
         stamp, _, event = prefix.partition(b"  ")
@@ -176,9 +181,9 @@ def session_order(chunks, segment_starts=()):
     yield from opening
 
 
-def header_evidence(chunks, segment_starts=()):
+def header_evidence(chunks, segment_starts=(), *, headers_first=False):
     """楼层和队伍快照不能证明换本，预读有限的上下文并保留原事件顺序。"""
-    records = iter(session_order(chunks, segment_starts))
+    records = iter(session_order(chunks, segment_starts, headers_first=headers_first))
     record = next(records, None)
     while record is not None:
         if b"  COMBAT_LOG_VERSION," in record[3][:96]:
@@ -353,7 +358,7 @@ class ActivityIndex:
                 self.close("钥匙", line - 1, None, "未结算")
 
 
-def build_index(path, chunks, *, segment_starts=()):
+def build_index(path, chunks, *, segment_starts=(), headers_first=False):
     db = sqlite3.connect(path)
     try:
         db.executescript(SCHEMA)
@@ -364,9 +369,12 @@ def build_index(path, chunks, *, segment_starts=()):
         unreadable_header_time = False
         bad = events = last_line = 0
         year, last_month = 2000, 0
+        previous_header_stamp = None
+        roster_calendar = {}
+        in_group_prefix = False
         header = previous_ms = None
         remaining = set(segment_starts)
-        for (line, offset, length, raw, session_start), following in header_evidence(chunks, segment_starts):
+        for (line, offset, length, raw, session_start), following in header_evidence(chunks, segment_starts, headers_first=headers_first):
             last_line = max(last_line, line)
             stamp, separator, payload = raw.removeprefix(b"\xef\xbb\xbf").partition(
                 b"  "
@@ -390,15 +398,34 @@ def build_index(path, chunks, *, segment_starts=()):
                         unreadable_header_time = True
                     raise ValueError
                 month = int(match[1])
-                if last_month == 12 and month == 1:
-                    year += 1
-                last_month = month
+                # Each grouped scene replays its version header and roster before the pull.
+                # Copied context must not rewind the calendar used by yearless combat lines.
+                replayed = False
+                if headers_first:
+                    if event_type == "COMBAT_LOG_VERSION":
+                        replayed = stamp == previous_header_stamp
+                        if not replayed:
+                            roster_calendar.clear()
+                        previous_header_stamp = stamp
+                        in_group_prefix = True
+                    elif event_type == "COMBATANT_INFO":
+                        # One latest roster stamp per player in this source session, like the scanner.
+                        guid = payload.split(b",", 2)[1]
+                        replayed = in_group_prefix and roster_calendar.get(guid) == stamp
+                        roster_calendar[guid] = stamp
+                    else:
+                        in_group_prefix = False
+                if not replayed:
+                    if last_month == 12 and month == 1:
+                        year += 1
+                    last_month = month
                 ms = timestamp(match, year)
                 row = next(csv.reader([payload.decode("utf-8").rstrip("\r\n")]))
                 last_ms, previous_ms = previous_ms, ms
                 if event_type == "COMBAT_LOG_VERSION":
                     key = fights.active.get("钥匙")
-                    if (offset not in segment_starts and supported and key and row == header and last_ms is not None
+                    if (offset not in segment_starts and (not headers_first or segment_starts)
+                            and supported and key and row == header and last_ms is not None
                             and 0 <= ms - last_ms <= HEADER_GAP_MS
                             and continues_key(following, key[1], ms, year)):
                         continue

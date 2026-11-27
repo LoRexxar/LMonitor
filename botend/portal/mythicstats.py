@@ -5,6 +5,7 @@ import requests
 from django.core.cache import cache
 from django.utils import timezone
 
+from botend.services.content_image_display import display_image_url
 from botend.models import PortalMythicstatsDpsRow
 from botend.constants.wow import CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON
 from utils.log import logger
@@ -24,7 +25,7 @@ def mythicstats_spec_identity(spec_slug):
                 'class_name_cn': CLASS_CN.get(class_name, class_name),
                 'spec_name_cn': SPEC_CN.get(spec_name, spec_name),
                 'class_color': CLASS_COLOR.get(class_name, '#64748b'),
-                'icon_url': icon_url.replace('/small/', '/large/'),
+                'icon_url': display_image_url(icon_url.replace('/small/', '/large/')) or display_image_url(icon_url),
             }
     return {}
 

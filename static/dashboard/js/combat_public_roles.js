@@ -1,4 +1,11 @@
 (async () => {
+    const setIcon = window.setPublishedWowImage || ((image, source) => {
+        // Older shells may lack both helpers. An explicitly managed image is
+        // still usable; never pass a relative path or an upstream URL through.
+        const url = window.publishedImageUrl ? window.publishedImageUrl(source)
+            : typeof source === 'string' && /^https:\/\/oss\.wowdaily\.cn\/[^?#\\\s]+$/.test(source) ? source : '';
+        if (url) image.src = url;
+    });
     for (const button of document.querySelectorAll('.public-role button[name=refresh_spec]')) {
         const row = button.closest('.public-role');
         try {
@@ -12,7 +19,8 @@
             row.querySelector('[data-spec-label]').textContent = spec.label;
             if (spec.icon) {
                 const icon = new Image(36, 36);
-                icon.src = spec.icon;
+                await setIcon(icon, spec.icon);
+                if (!icon.src) continue;
                 icon.alt = '';
                 row.prepend(icon);
                 button.hidden = true;

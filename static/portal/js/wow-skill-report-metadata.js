@@ -1,5 +1,6 @@
 (function () {
   'use strict';
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const host = document.querySelector('[data-skill-report-metadata]');
   if (!host) return;
   const articles = [...document.querySelectorAll('.spell[id^="spell-"]')];
@@ -37,11 +38,11 @@
     image.alt = '';
     image.loading = 'lazy';
     image.addEventListener('error', () => {
-      if (item.icon_fallback_url && image.src !== item.icon_fallback_url) {
-        image.src = item.icon_fallback_url;
+      if (item.icon_fallback_url && image.getAttribute('src') !== publishedImageUrl(item.icon_fallback_url)) {
+        image.src = publishedImageUrl(item.icon_fallback_url);
       } else image.remove();
     });
-    image.src = item.icon_url;
+    image.src = publishedImageUrl(item.icon_url);
     return image;
   }
 

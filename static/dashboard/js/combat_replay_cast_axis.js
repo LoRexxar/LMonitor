@@ -1,4 +1,5 @@
 window.createReplayCastAxis = function ({data, players, selected, badge, precise, jump, query, redraw}) {
+    const setIcon = window.setPublishedWowImage || ((img, src) => { const url = window.publishedImageUrl?.(src); if (url) img.src = url; });
     const $ = id => document.getElementById(id);
     const scroll = $('cast-scroll'), sheet = $('cast-sheet'), head = $('cast-head');
     const body = $('cast-body'), ruler = $('cast-ruler'), tracks = $('activity-casts');
@@ -122,14 +123,19 @@ window.createReplayCastAxis = function ({data, players, selected, badge, precise
         img.alt = '';
         img.loading = 'lazy';
         img.referrerPolicy = 'no-referrer';
+        // This report-scoped endpoint checks membership and redirects only to a
+        // published icon. Its path is constructed here, never taken from data.
         const lookup = '?' + new URLSearchParams({cast_icon:cast.spell_id, revision:data.revision});
-        img.onload = () => button.classList.add('has-cast-icon');
-        img.onerror = () => {
+        const fallback = () => {
             if (img.getAttribute('src') !== lookup) { img.src = lookup; return; }
             missingIcons.add(cast.spell_id);
             img.remove();
         };
-        img.src = data.cast_icons[cast.spell_id] || lookup;
+        img.onload = () => button.classList.add('has-cast-icon');
+        img.onerror = fallback;
+        Promise.resolve(setIcon(img, data.cast_icons[cast.spell_id])).then(() => {
+            if (!img.hasAttribute('src')) fallback();
+        });
         button.prepend(img);
     }
     function marker(cast) {

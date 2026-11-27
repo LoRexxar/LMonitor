@@ -123,6 +123,7 @@ def uploader(request):
         "resume": resume if resume and resume.upload_key else None,
         "resume_selection": resume.summary.get("upload_selection", []) if resume else [],
         "legacy_resume": resume if resume and not resume.upload_key else None,
+        "max_report_bytes": getattr(settings, "COMBAT_LOG_MAX_BYTES", 2 * 1024**3),
         "max_source_bytes": getattr(settings, "COMBAT_LOG_MAX_SOURCE_BYTES", 2 * 1024**3),
         "count": CombatLogReport.objects.filter(owner=request.user, retire_after__isnull=True, expires_at__gt=timezone.now()).count(),
     })

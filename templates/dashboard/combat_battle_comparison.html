@@ -1,6 +1,6 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}角色对照 · 日志分析{% endblock %}
-{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=targets2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav"><link rel="stylesheet" href="{% static 'dashboard/css/combat_comparison.css' %}?v=delta1">{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}?v=targets2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_comparison.css' %}?v=delta1">{% endblock %}
 {% block trail %}{% if target_group %}<i class="crumb-separator" aria-hidden="true"></i><a href="{{ change_target }}">选择副本或首领</a>{% endif %}<i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">角色对照</span>{% endblock %}
 {% block content %}
 <header class="page-head"><div class="wrap">

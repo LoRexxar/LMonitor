@@ -1,6 +1,6 @@
 {% extends 'dashboard/combat_base.html' %}{% load static %}
 {% block title %}{% if dungeon_compare %}大秘境首领横向对比{% else %}首领对比复盘{% endif %} · {{ cohort_label }}{% endblock %}
-{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=outer-nav"><link rel="stylesheet" href="{% static 'dashboard/css/combat_boss.css' %}"><script defer src="{% static 'dashboard/js/combat_boss.js' %}"></script>{% endblock %}
+{% block assets %}<link rel="stylesheet" href="{% static 'dashboard/css/combat_logs.css' %}"><link rel="stylesheet" href="{% static 'dashboard/css/combat_theme.css' %}?v=oss-images2"><link rel="stylesheet" href="{% static 'dashboard/css/combat_boss.css' %}"><script defer src="{% static 'dashboard/js/combat_boss.js' %}"></script>{% endblock %}
 {% block trail %}<i class="crumb-separator" aria-hidden="true"></i><a href="{% firstof directory_url battle_url data_url %}">战斗目录</a><i class="crumb-separator" aria-hidden="true"></i><span aria-current="page">{% if dungeon_compare %}大秘境首领横向对比{% else %}首领对比复盘{% endif %}</span>{% endblock %}
 {% block content %}<main class="wrap boss-review">
 

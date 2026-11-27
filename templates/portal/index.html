@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>魔兽世界每日节奏 WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
@@ -23,7 +24,7 @@
                         <div class="portal-hero-brand">
                             <div class="portal-hero-logo">
                                 <svg class="portal-logo-fallback-icon" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-globe"></use></svg>
-                                <img class="portal-hero-logo-img" src="{% static 'portal/images/portal-logo.webp' %}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
+                                <img class="portal-hero-logo-img" src="{% load site_images %}{{ '/static/portal/images/portal-logo.webp'|published_image_url }}" alt="魔兽世界每日节奏徽章" loading="lazy" onload="this.previousElementSibling.style.display='none'" onerror="this.style.display='none'">
                             </div>
                             <div>
                                 <h1 class="portal-hero-title">今天的艾泽拉斯，从这里开始</h1>
@@ -186,7 +187,7 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20261123_shared_navigation"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=oss-images2"></script>
     <script src="{% static 'portal/js/home-news-layout.js' %}?v=20261106_home_masonry_1"></script>
     <script src="{% static 'portal/js/site-updates.js' %}?v=20260911_focus_digest"></script>
 </body>

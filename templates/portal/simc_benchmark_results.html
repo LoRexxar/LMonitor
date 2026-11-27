@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>SimC 基准结果 · WowDaily.cn</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
@@ -32,6 +33,6 @@
     </main>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261117_preview_hover"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=20261114_talent_titles"></script>
+    <script src="{% static 'portal/js/simc-benchmarks.js' %}?v=oss-images2"></script>
 </body>
 </html>

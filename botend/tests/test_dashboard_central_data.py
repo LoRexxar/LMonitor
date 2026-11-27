@@ -107,7 +107,8 @@ class CentralDataTests(TestCase):
         self.assertNotIn('EXISTS', count_sql)
         self.assertNotIn('JOIN', count_sql)
 
-    def test_item_detail_and_missing_identity(self):
+    @patch('botend.services.published_wow_icons._index', return_value={'inv_sword_01': 8})
+    def test_item_detail_and_missing_identity(self, _):
         result = self.query(id=990001, branch='ptr')
         self.assertEqual(result['record']['name'], '测试长剑')
         self.assertEqual(result['entries'][0]['stats'], {'strength': 130})
@@ -130,7 +131,8 @@ class CentralDataTests(TestCase):
             result = self.query(id=990001)
         self.assertTrue(all(entry['effects_status'] == 'none' for entry in result['entries']))
 
-    def test_online_icon_provenance_fixes_reach_aggregated_page(self):
+    @patch('botend.services.published_wow_icons._index', return_value={'inv_sword_01': 8, '8268560': 8})
+    def test_online_icon_provenance_fixes_reach_aggregated_page(self, _):
         self.item.metadata['branch_display']['ptr']['icon'] = '8268560'
         self.item.save()
         row = self.query(branch='ptr')['records'][0]

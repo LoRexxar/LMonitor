@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const publishedImageUrl = window.publishedImageUrl || (() => '');
   const $ = (id) => document.getElementById(`rio-${id}`);
   const host = $('statistics');
   if (!host) return;
@@ -448,7 +449,7 @@
       $('map-stats').replaceChildren(); return;
     }
     state.mapImages ||= new Map();
-    const mapUrl = floor.map.image_url;
+    const mapUrl = publishedImageUrl(floor.map.image_url);
     let bitmap = state.mapImages.get(mapUrl);
     if (!bitmap) {
       bitmap = new Image(); state.mapImages.set(mapUrl, bitmap);

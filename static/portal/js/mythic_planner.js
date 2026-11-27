@@ -1,5 +1,6 @@
 (() => {
     'use strict';
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
     const $ = (selector, root = document) => root.querySelector(selector);
     const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -682,7 +683,7 @@
         els.mapContent.style.backgroundColor = floor.background_color || '#66533f';
         const texture = $('.mdt-map-texture', els.mapContent);
         if (floor.background_url) {
-            texture.style.backgroundImage = `linear-gradient(#080b0f2e, #080b0f2e), url("${String(floor.background_url).replaceAll('"', '%22')}")`;
+            texture.style.backgroundImage = `linear-gradient(#080b0f2e, #080b0f2e), url("${String(publishedImageUrl(floor.background_url)).replaceAll('"', '%22')}")`;
             texture.style.backgroundSize = 'cover';
             texture.style.backgroundPosition = 'center';
         } else {
@@ -934,7 +935,7 @@
             const showLabel = Boolean(poi.label)
                 && !['genericItem', 'genericAssignablePOI'].includes(poiType);
             const image = poi.icon_url
-                ? `<img class="mdt-poi-image" src="${escapeHtml(poi.icon_url)}" alt="" loading="lazy" onerror="this.hidden=true">`
+                ? `<img class="mdt-poi-image" src="${escapeHtml(publishedImageUrl(poi.icon_url))}" alt="" loading="lazy" onerror="this.hidden=true">`
                 : '';
             const description = String(poi.description || '').trim();
             return `
@@ -1007,7 +1008,7 @@
                         ${markerPortraitUrl ? `
                             <img
                                 class="mdt-spawn-avatar-image"
-                                src="${escapeHtml(markerPortraitUrl)}"
+                                src="${escapeHtml(publishedImageUrl(markerPortraitUrl))}"
                                 alt=""
                                 loading="lazy"
                                 decoding="async"
@@ -1088,7 +1089,7 @@
                             <span class="mdt-pull-mini-fallback">${escapeHtml(initials(enemy.display_name))}</span>
                             ${portraitUrl ? `
                                 <img
-                                    src="${escapeHtml(portraitUrl)}"
+                                    src="${escapeHtml(publishedImageUrl(portraitUrl))}"
                                     alt=""
                                     loading="lazy"
                                     decoding="async"
@@ -1170,7 +1171,7 @@
                         <span class="mdt-ability-icon-fallback" aria-hidden="true">?</span>
                         <img
                             class="mdt-ability-icon"
-                            src="${escapeHtml(ability.icon_url)}"
+                            src="${escapeHtml(publishedImageUrl(ability.icon_url))}"
                             alt=""
                             loading="lazy"
                             onerror="this.parentElement.classList.add('is-error');this.remove()"
@@ -1207,7 +1208,7 @@
                     <div class="mdt-enemy-model">
                         <span class="mdt-enemy-model-fallback" aria-hidden="true">${portraitInitial}</span>
                         <img
-                            src="${escapeHtml(modelPreviewUrl)}"
+                            src="${escapeHtml(publishedImageUrl(modelPreviewUrl))}"
                             alt="${escapeHtml(enemy.display_name)}的模型预览"
                             decoding="async"
                             referrerpolicy="no-referrer"
@@ -1225,7 +1226,7 @@
                 <div class="mdt-enemy-portrait">
                     <span class="mdt-enemy-portrait-fallback" aria-hidden="true">${portraitInitial}</span>
                     <img
-                        src="${escapeHtml(enemy.icon_url)}"
+                        src="${escapeHtml(publishedImageUrl(enemy.icon_url))}"
                         alt="${escapeHtml(enemy.display_name)}头像"
                         loading="lazy"
                         onerror="this.parentElement.classList.add('is-error');this.remove()"

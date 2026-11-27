@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
   const sectionMeta = {
     results: {
@@ -331,7 +332,7 @@
     const itemName = String(cell?.item?.display_name || text || '装备');
     const iconUrl = String(cell?.item?.icon_url || '').trim();
     const itemIcon = iconUrl
-      ? `<img class="wow-item-icon" src="${esc(iconUrl)}" alt="" loading="lazy">`
+      ? `<img class="wow-item-icon" src="${esc(publishedImageUrl(iconUrl))}" alt="" loading="lazy">`
       : '';
     const itemContent = itemIcon ? `${itemIcon}${baseContent}` : baseContent;
     const content = description

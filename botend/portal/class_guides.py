@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from django.views import View
 
 from botend.dashboard.permissions import has_dashboard_permission
+from botend.services.content_image_display import display_image_html
 from botend.services.class_guide_snapshot import read_guide_page
 
 
@@ -28,14 +29,21 @@ class PortalGuidePageMixin:
         if page is None:
             raise Http404
         body, (start, end, offset) = page
+        # Stored offsets refer to source bytes. Split before any mapped URL
+        # changes their length. Never cache a user's private header.
+        header = body[start:end]
+        management = b''
         if request.user.is_authenticated:
             header = render_to_string('portal/_header.html', request=request).encode('utf-8')
-            management = b''
             if has_dashboard_permission(request.user, 'content.class-guides'):
                 url = '/dashboard/?section=class-guides' + (f'&guide={guide_id}' if guide_id is not None else '')
                 management = format_html('<a href="{}">{}</a>', url,
                                          '编辑攻略' if guide_id is not None else '管理攻略').encode('utf-8')
-            body = body[:start] + header + body[end:offset] + management + body[offset:]
+        def public_fragment(fragment):
+            return display_image_html(fragment.decode('utf-8'), public_guide=True).encode('utf-8')
+
+        body = b''.join((public_fragment(body[:start]), display_image_html(header.decode()).encode(), public_fragment(body[end:offset]),
+                         management, public_fragment(body[offset:])))
         return HttpResponse(body, content_type='text/html; charset=utf-8')
 
 

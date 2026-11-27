@@ -1,1 +1,2 @@
-{% if icon %}<img class="combat-entity-icon" src="{{ icon }}" width="22" height="22" loading="lazy" decoding="async" alt="{{ label|default:'' }}"{% if label %} title="{{ label }}"{% endif %}>{% elif spell %}<combat-spell-icon data-spell="{{ spell }}" aria-hidden="true"></combat-spell-icon>{% endif %}
+{% load site_images %}
+{% if icon|published_image_url %}<img class="combat-entity-icon" src="{{ icon|published_image_url }}" width="22" height="22" loading="lazy" decoding="async" alt="{{ label|default:'' }}"{% if label %} title="{{ label }}"{% endif %}>{% elif spell %}<combat-spell-icon data-spell="{{ spell }}" aria-hidden="true"></combat-spell-icon>{% endif %}

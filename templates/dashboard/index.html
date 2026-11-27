@@ -1,9 +1,11 @@
+{% load site_images %}
 <!DOCTYPE html>
 <html lang="zh-CN" data-dashboard-shell data-system-theme>
 <head>
     <meta charset="UTF-8">
+    {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="https://wow.lorexxar.cn/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>{{ title }}</title>
     {% load static character_binding_tags %}
     <meta name="csrf-token" content="{{ csrf_token }}">
@@ -556,7 +558,7 @@
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20261117_preview_hover" defer></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact" defer></script>
 <script src="{% static 'dashboard/js/simc_skill_query.js' %}?v=20261031_actor_page" defer></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261126_shared_header" defer></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=oss-images2" defer></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -565,13 +567,13 @@
     <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
     <link rel="stylesheet" href="{% static 'shared/css/class-guide-tooltip.css' %}?v=20260910_local">
     <script src="{% static 'shared/js/class-guide-tooltip.js' %}?v=20260910_local" defer></script>
-    <script src="{% static 'dashboard/js/class_guides.js' %}?v=20260910_local_tooltips" defer></script>
+    <script src="{% static 'dashboard/js/class_guides.js' %}?v=oss-images2" defer></script>
     {% endif %}
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20261125_access" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
     {% if 'database.central-data' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/central-data.css' %}?v=20261016">
-    <script src="{% static 'dashboard/js/central-data.js' %}?v=20261022-hero-label" defer></script>
+    <script src="{% static 'dashboard/js/central-data.js' %}?v=oss-images2" defer></script>
     {% endif %}
     <script src="{% static 'dashboard/js/wow_today_management.js' %}?v=20260903a" defer></script>
     <script src="{% static 'dashboard/js/portal_navigation_management.js' %}?v=20261123_navigation_subheadings" defer></script>
@@ -587,27 +589,27 @@
     <link rel="stylesheet" href="{% static 'dashboard/css/combat_upload_policy.css' %}?v=20261125_alignment">
     {% endif %}
     {% if dashboard_default_section == 'combat-upload-policy' %}
-    <script src="{% static 'dashboard/js/combat_upload_policy.js' %}?v=20261125_usage" defer></script>
+    <script src="{% static 'dashboard/js/combat_upload_policy.js' %}?v=oss-images2" defer></script>
     {% endif %}
     <link rel="stylesheet" href="{% static 'dashboard/css/home.css' %}?v=20261022_traffic_home">
-    <script src="{% static 'dashboard/js/character_bindings.js' %}" defer></script>
+    <script src="{% static 'dashboard/js/character_bindings.js' %}?v=oss-images2" defer></script>
     {% if user.is_superuser %}
     <script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}?v=20260929_workspace" defer></script>
     <link rel="stylesheet" href="{% static 'dashboard/css/player-analysis-management.css' %}?v=20261018_triggered_investigation">
     <script src="{% static 'dashboard/js/player-analysis-management.js' %}?v=20261117_tags_after_list" defer></script>
     {% endif %}
-    <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20261112_result_labels" defer></script>
+    <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=oss-images2" defer></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20261117_apl_summary" defer></script>
     <script src="{% static 'dashboard/js/simc-reference-editor.js' %}?v=20261111_connected" defer></script>
     <link rel="stylesheet" href="{% static 'dashboard/css/simc-reference-workflow.css' %}?v=20261111_connected">
-    <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=20261114_talent_titles" defer></script>
+    <script src="{% static 'dashboard/js/simc-benchmark-dashboard.js' %}?v=oss-images2" defer></script>
     {% if 'mythic.config' in dashboard_permissions or 'mythic.positions' in dashboard_permissions or 'mythic.routes' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/mythic_planner.css' %}?v=20260903_route_preflight">
     {% if 'mythic.config' in dashboard_permissions %}
     <script src="{% static 'dashboard/js/mythic_planner.js' %}?v=20261118_mdt_navigation" defer></script>
     {% endif %}
     {% if 'mythic.positions' in dashboard_permissions %}
-    <script src="{% static 'dashboard/js/mythic_planner_positions.js' %}?v=20260806a" defer></script>
+    <script src="{% static 'dashboard/js/mythic_planner_positions.js' %}?v=oss-images2" defer></script>
     {% endif %}
     {% if 'mythic.routes' in dashboard_permissions %}
     <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260806a" defer></script>

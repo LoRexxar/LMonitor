@@ -1,4 +1,6 @@
 (() => {
+    const publishedImageUrl = window.publishedImageUrl || (() => '');
+    const setIcon = window.setPublishedWowImage || ((img, src) => { const url = window.publishedImageUrl?.(src); if (url) img.src = url; });
     const $ = id => document.getElementById(id);
     if (!$('replay-data')) return;
     const data = JSON.parse($('replay-data').textContent);
@@ -66,7 +68,7 @@
             const image = new Image();
             specImages.set(actor.spec_icon,image);
             image.onload = () => draw();
-            image.src = actor.spec_icon;
+            setIcon(image, actor.spec_icon);
         }
         const image = specImages.get(actor.spec_icon);
         return image.complete && image.naturalWidth ? image : null;
@@ -80,7 +82,7 @@
             const img = document.createElement('img');
             img.alt = '';
             img.onerror = () => img.remove();
-            img.src = actor.spec_icon;
+            setIcon(img, actor.spec_icon);
             icon.append(img);
         }
         return icon;
@@ -417,7 +419,13 @@
         artCache.set(terrain.url, entry);
         image.onload = () => { entry.status = 'ready'; draw(); };
         image.onerror = () => { entry.status = 'error'; draw(); };
-        image.src = terrain.url;
+        // Native client artwork stays on its existing static or build/art view.
+        // Never fall back to a supplied host, report media, or an arbitrary path.
+        const native = typeof terrain.url === 'string' && !/\s/.test(terrain.url) &&
+            /^(?:\/static\/dashboard\/maps\/\d+(?:\.\d+){3}\/\d+\.webp|\/portal\/combat-logs\/maps\/\d+(?:\.\d+){3}\/\d+\/)$/.test(terrain.url);
+        const display = publishedImageUrl(terrain.url) || (native ? terrain.url : '');
+        if (display) image.src = display;
+        else entry.status = 'error';
         return entry;
     }
     function onAtlas(point, terrain) {

@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
   const page = document.querySelector(".gear-builder-page");
   if (!page) return;
@@ -127,7 +128,7 @@
 
   function iconMarkup(item, className = "gear-item-icon") {
     return item?.icon_url
-      ? `<img class="${className}" src="${escapeHtml(item.icon_url)}" alt="" loading="lazy">`
+      ? `<img class="${className}" src="${escapeHtml(publishedImageUrl(item.icon_url))}" alt="" loading="lazy">`
       : `<span class="${className} gear-slot-placeholder" aria-hidden="true">◇</span>`;
   }
 
@@ -1443,7 +1444,7 @@
     els.preview_class.textContent = currentClass.name || state.className;
     els.preview_spec.textContent = currentSpec.name || state.specName;
     els.preview_spec_fallback.textContent = String(currentSpec.name || state.specName || "专").slice(0, 1);
-    const specIconUrl = currentSpec.icon || "";
+    const specIconUrl = publishedImageUrl(currentSpec.icon);
     if (!specIconUrl) els.preview_spec_icon.removeAttribute("src");
     else if (els.preview_spec_icon.getAttribute("src") !== specIconUrl) els.preview_spec_icon.src = specIconUrl;
     const specIconLoaded = Boolean(specIconUrl && els.preview_spec_icon.complete && els.preview_spec_icon.naturalWidth);

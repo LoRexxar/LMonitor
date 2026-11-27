@@ -1,5 +1,6 @@
 (() => {
 'use strict';
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 const API = '/api/simc-benchmarks/';
 const STRUCTURED_PARAMS = ['iterations','target_error','fight_style','max_time','vary_combat_length','enemy_type','desired_targets','enemy_initial_health_percentage'];
 const SCENARIO_PRIMARY_PARAMS = ['desired_targets','enemy_initial_health_percentage','max_time','iterations','fight_style'];
@@ -175,7 +176,7 @@ function renderGearResultChart(rows){
   guide.hidden=true;tooltip.hidden=true;body.append(guide,tooltip);
   groups.forEach(group=>{
     const row=el('div',{class:'benchmark-gear-row'}),identity=el('div',{class:'benchmark-gear-identity'});
-    identity.append(group.icon_url?el('img',{class:'benchmark-gear-icon',src:group.icon_url,alt:'',loading:'lazy'}):el('span',{class:'benchmark-gear-icon placeholder','aria-hidden':'true'},'◈'));
+    identity.append(group.icon_url?el('img',{class:'benchmark-gear-icon',src:publishedImageUrl(group.icon_url),alt:'',loading:'lazy'}):el('span',{class:'benchmark-gear-icon placeholder','aria-hidden':'true'},'◈'));
     const identityText=el('span',{class:'benchmark-gear-identity-text'}),heroTalent=group.coordinate?.labels?.hero_talent||'无法获取';identityText.append(el('strong',{},group.label),el('small',{},`英雄天赋：${heroTalent}`));identity.append(identityText);
     const plot=el('div',{class:'benchmark-gear-plot'}),zero=el('i',{class:'benchmark-gear-zero','aria-hidden':'true'});zero.style.left=`${position(0)}%`;plot.append(zero);
 
@@ -791,7 +792,7 @@ function renderOptionGainRows(data){
     const gain=Number(row.gain_dps),percent=Number(row.gain_percent),baseline=Number(row.baseline_dps)||0,comparison=Number(row.comparison_dps??row.enabled_dps)||0,hasGain=Number.isFinite(percent),isNegative=hasGain&&percent<0,coordinate=coordinateFor(row)||{};
     const detailId=`benchmark-option-gain-detail-${index}`,item=el('div',{class:'simc-benchmark-spec-row simc-benchmark-gain-row'}),content=el('button',{type:'button',class:'simc-benchmark-spec-row-toggle simc-benchmark-gain-row-content','aria-expanded':'false','aria-controls':detailId}),identity=el('div',{class:'simc-benchmark-spec-identity'});
     identity.append(el('span',{class:'simc-benchmark-spec-rank'},hasGain?String(index+1):'—'));
-    if(row.spec_icon_url){const icon=el('img',{class:'simc-benchmark-spec-icon',src:row.spec_icon_url,alt:'',loading:'lazy'});icon.addEventListener('error',()=>icon.remove(),{once:true});identity.append(icon);}
+    if(row.spec_icon_url){const icon=el('img',{class:'simc-benchmark-spec-icon',src:publishedImageUrl(row.spec_icon_url),alt:'',loading:'lazy'});icon.addEventListener('error',()=>icon.remove(),{once:true});identity.append(icon);}
     const copy=el('div',{class:'simc-benchmark-spec-copy'});copy.append(el('strong',{class:'simc-benchmark-spec-name'},row.spec_label||row.spec_key||'未知专精'));
     const heroTalent=coordinate?.labels?.hero_talent||'无法获取';copy.append(el('small',{class:'simc-benchmark-spec-profile'},`英雄天赋：${heroTalent}`));identity.append(copy);
     const track=el('div',{class:'simc-benchmark-spec-track'}),bar=el('div',{class:`simc-benchmark-spec-bar simc-benchmark-gain-bar${isNegative?' simc-benchmark-gain-bar--negative':''}`});bar.style.width=`${hasGain&&maximumMagnitude>0?Math.max(.8,Math.abs(percent)*100/maximumMagnitude):0}%`;track.append(bar);

@@ -1,9 +1,10 @@
+{% load site_images %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="/favicon.ico">
+    {% include 'shared/_site_favicon.html' %}
     <title>全职业数据 - 魔兽世界每日节奏</title>
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
@@ -25,13 +26,13 @@
             {% for cls in classes %}
             <div class="portal-card" style="padding:12px;border-radius:10px;background:#fff;border:1px solid #e2e8f0;transition:box-shadow 0.15s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'" onmouseout="this.style.boxShadow=''">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #f1f5f9">
-                    <img src="{{ cls.icon }}" alt="{{ cls.name }}" width="24" height="24" style="border-radius:6px" loading="lazy">
+                    <img src="{{ cls.icon|published_image_url }}" alt="{{ cls.name }}" width="24" height="24" style="border-radius:6px" loading="lazy">
                     <span style="font-size:14px;font-weight:600;color:{{ cls.color }}">{{ cls.name }}</span>
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:4px">
                     {% for spec in cls.specs %}
                     <a href="{% url 'spec_detail_player' class_name=cls.key spec_name=spec.key %}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border-radius:6px;text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='rgba(241,245,249,0.8)'" onmouseout="this.style.background=''" title="{{ cls.name }} · {{ spec.name }}">
-                        <img src="{{ spec.icon }}" alt="{{ spec.name }}" width="36" height="36" style="border-radius:6px;border:1px solid transparent;transition:border-color 0.15s" onmouseover="this.style.borderColor='#818cf8'" onmouseout="this.style.borderColor='transparent'" loading="lazy">
+                        <img src="{{ spec.icon|published_image_url }}" alt="{{ spec.name }}" width="36" height="36" style="border-radius:6px;border:1px solid transparent;transition:border-color 0.15s" onmouseover="this.style.borderColor='#818cf8'" onmouseout="this.style.borderColor='transparent'" loading="lazy">
                         <span style="font-size:11px;color:#475569;text-align:center;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">{{ spec.name }}</span>
                     </a>
                     {% endfor %}

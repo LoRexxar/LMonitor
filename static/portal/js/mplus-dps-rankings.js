@@ -1,5 +1,6 @@
 (function () {
     'use strict';
+const publishedImageUrl = window.publishedImageUrl || (() => '');
 
     const state = {
         payload: null, activeScope: 'overall', source: 'local', localScope: 'overall',
@@ -169,8 +170,8 @@
     }
 
     function specIconUrl(row) {
-        // 兼容尚未重新生成的榜单快照，避免继续放大 18px 缩略图。
-        return String(row.icon_url || '').replace('/wow_icons_oss/small/', '/wow_icons_oss/large/');
+        // Preserve the supplied size unless the exact source has a published replacement.
+        return publishedImageUrl(row.icon_url || '');
     }
 
     function metric(label, value, primary) {
