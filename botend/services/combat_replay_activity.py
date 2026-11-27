@@ -150,6 +150,27 @@ def published_spell_icon(value):
     return ""
 
 
+# 12.1.5.70961: observed spells absent from the packaged 12.1.0 index.
+# Exact SpellMisc FileDataID and released OSS key; no runtime source fallback.
+_COMBAT_ICON_SUPPLEMENT = {
+    1235110: (7548904, "wow_icons_oss/small/inv_12_profession_alchemy_flask_sindoreipotion_white-.jpg"),
+    1235111: (7548903, "wow_icons_oss/small/inv_12_profession_alchemy_flask_sindoreipotion_red--.jpg"),
+    1295939: (8026694, "site-images/v1/28b9460fa1667107b9155c336b4e6f4cb1e322b0b6ca3aa4e8cbac87b5b66075.jpg"),
+    1309766: (135891, "wow_icons_oss/small/spell_holy_crusaderstrike.jpg"),
+    1309782: (135891, "wow_icons_oss/small/spell_holy_crusaderstrike.jpg"),
+    1309909: (8268562, "wow_icons_oss/small/8268562.jpg"),
+    1310088: (8268560, "wow_icons_oss/small/8268560.jpg"),
+    1310414: (8268563, "wow_icons_oss/small/8268563.jpg"),
+    1315094: (4549175, "wow_icons_oss/small/inv_10_inscription2_repcontracts_trade_archaeology_apexisscroll_uprez_color1.jpg"),
+    1315099: (4549177, "wow_icons_oss/small/inv_10_inscription2_repcontracts_trade_archaeology_apexisscroll_uprez_color3.jpg"),
+    1315100: (4549174, "wow_icons_oss/small/inv_10_inscription2_repcontracts_trade_archaeology_apexisscroll_uprez.jpg"),
+    1315101: (4549176, "wow_icons_oss/small/inv_10_inscription2_repcontracts_trade_archaeology_apexisscroll_uprez_color2.jpg"),
+    1319011: (3565719, "wow_icons_oss/small/ability_revendreth_hunter.jpg"),
+    1319015: (3565719, "wow_icons_oss/small/ability_revendreth_hunter.jpg"),
+    1319016: (3565719, "wow_icons_oss/small/ability_revendreth_hunter.jpg"),
+}
+
+
 def spell_icons(spell_ids, source_icons=None):
     """批量查找当前页实际出现的技能，沿用回放的图标资源。"""
     ids = {localization.number(s) for s in spell_ids} - {0}
@@ -228,6 +249,10 @@ def spell_icons(spell_ids, source_icons=None):
                     if url := published_image_url(source):
                         result[sid] = url
                         break
+    for sid in ids - result.keys() - mirrored_files.keys():
+        supplement = _COMBAT_ICON_SUPPLEMENT.get(sid)
+        if supplement and (sid not in files or str(supplement[0]) == str(files[sid])):
+            add(sid, "https://oss.wowdaily.cn/" + supplement[1])
     keys = {f"combat-spell-image:v1:{sid}": sid for sid in ids - result.keys() - mirrored_files.keys()}
     if keys:
         for key, url in cache.get_many(keys).items():
