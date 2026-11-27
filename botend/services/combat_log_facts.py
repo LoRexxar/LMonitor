@@ -32,10 +32,10 @@ def pull_catalog(db, fight, *, include_enemies=False):
             AND a.family IN ('Creature','Vehicle') GROUP BY a.name ORDER BY MIN(f.line) LIMIT 3
         ))"""
     rows = db.execute(f"""
-        SELECT id,first_line,last_line,start_ms,end_ms,NULL name,1 known,{enemies} enemies FROM wave w WHERE keystone=?
+        SELECT id,first_line,last_line,start_ms,end_ms,NULL name,1 known,{enemies} enemies,NULL result FROM wave w WHERE keystone=?
         UNION ALL SELECT -b.id,b.start_line,b.end_line,b.start_ms,
             COALESCE(b.end_ms,(SELECT MAX(ms) FROM fact WHERE boss=b.id),b.start_ms),
-            b.name,b.end_ms IS NOT NULL,NULL
+            b.name,b.end_ms IS NOT NULL,NULL,b.result
         FROM fight b WHERE b.parent=? AND b.start_ms IS NOT NULL ORDER BY first_line
     """, (*args, fight["id"], fight["id"]))
     result = []
@@ -55,7 +55,8 @@ def pull_catalog(db, fight, *, include_enemies=False):
             label = pull["name"]
         t, end = start-fight["start_ms"],stop-fight["start_ms"]
         pull.update(start_ms=start,end_ms=stop,t=t,end=end,label=label,
-                    caption=f"{'大秘境首领 · ' if pull['id'] < 0 else ''}{label}　{_clock_label(t)}–{_clock_label(end)}")
+                    caption=(f"大秘境首领 · {label} · {pull['result']}" if pull["id"] < 0 else label)
+                            + f"　{_clock_label(t)}–{_clock_label(end)}")
         result.append(pull)
     return result
 

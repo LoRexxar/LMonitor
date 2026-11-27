@@ -189,10 +189,12 @@ def library_page(request, lookup=None, *, private_binding=None):
 
 def local_groups(reports):
     samples, _, skipped = analysis.catalog(reports)
-    groups, children, fragments = {}, {}, []
+    groups, children, fragments, failed_bosses = {}, {}, [], []
     boss_counts = Counter(s["cohort"] for s in samples if s["comparable_key_boss"])
     selection = [("log", str(report.pk)) for report in reports]
     for s in samples:
+        if s["kind"] == "首领" and s["result"] in analysis.FAILED_RESULTS:
+            failed_bosses.append(s)
         if s["parent"]:
             if s["comparable_key_boss"] and boss_counts[s["cohort"]] > 1:
                 s["compare_url"] = reverse("combat_workspace") + "?" + urlencode(
@@ -219,6 +221,7 @@ def local_groups(reports):
             url = reverse("combat_workspace")+"?"+urlencode([*(("log",str(r.pk)) for r in reports),
                                                              ("sample",str(s["report"].pk)),("fight",s["id"])])
         group["pulls"].append(dict(number=0,date=date,result=s["result"],file=s["source_log"],
+                                   end_only=start is None and s["end_ms"] is not None,
                                    level_markers=s.get("level_markers"),
                                    opening_only=s["kind"] == "钥匙" and start is not None and end is None,
                                    elapsed=f"{seconds//60}:{seconds%60:02d}" if seconds is not None else "—",
@@ -226,7 +229,7 @@ def local_groups(reports):
                                    url=url,kill=kill,local=True,
                                    bosses=children.get((s["report"].pk, s["id"]), ())))
         group["kills"] += int(kill)
-        group["wipes"] += int(s["result"] in ("未完成","未击杀","灭团","失败"))
+        group["wipes"] += int(s["result"] in analysis.FAILED_RESULTS)
     for cohort,g in groups.items():
         items = [("log",str(r.pk)) for r in reports]+[("cohort",cohort)]
         base = reverse("combat_workspace")+"?"
@@ -238,7 +241,7 @@ def local_groups(reports):
         g["unsettled"] = sum(p["result"] == "未结算" for p in g["pulls"])
         for n,p in enumerate(g["pulls"],1):
             p["number"]=n
-    return list(groups.values()), skipped, fragments
+    return list(groups.values()), skipped, fragments, failed_bosses
 
 
 @endpoint("GET")
@@ -248,7 +251,7 @@ def battles(request):
     if not items:
         return redirect(reverse("combat_logs")+"?analyze=battle")
     local = combat_workbench.selected_reports(request.user,q)
-    groups, skipped, fragments = local_groups(local)
+    groups, skipped, fragments, failed_bosses = local_groups(local)
     report_count = len(local)
     picked_ref = ""
     picked_group = ""
@@ -308,11 +311,20 @@ def battles(request):
                 view["single_url"] += ("&" if "?" in view["single_url"] else "?")+back
         g["sidebar_comparisons"] = list(comparisons.values())
     active = next((g for g in groups if g["key"]==(q.get("focus") or picked_group)),groups[0] if groups else None)
+    back = urlencode({"back_catalog": urlencode(state + items)})
     for boss in fragments:
-        boss["url"] += "&" + urlencode({"back_catalog": urlencode(state + items)})
+        boss["url"] += "&" + back
+    for boss in failed_bosses:
+        if boss["start_ms"] is not None:
+            url = boss.get("wave_url") or (analysis.work_url(boss["report"], boss["id"]) + "&" + back)
+            boss["attempt_url"] = url
+            boss["deaths_url"] = url + "&metric=deaths&panel=events&group=target"
+            if boss.get("first_death") is not None:
+                boss["first_death_seconds"] = (boss["first_death"] - boss["start_ms"]) / 1000
+    failed_bosses.sort(key=lambda s: s["start_ms"] if s["start_ms"] is not None else s["end_ms"])
     normal_runs = [s for s in fragments if s["kind"] == "地下城交战"]
     fragments = [s for s in fragments if s["kind"] != "地下城交战"]
     rebuild_reports = [r for r in local if r.owner_id == request.user.pk and needs_boundary_rebuild(r.summary)]
     return render(request,"dashboard/combat_battles.html",dict(groups=groups,active=active,report_count=report_count,
-                  fragments=fragments,normal_runs=normal_runs,rebuild_reports=rebuild_reports,
+                  fragments=fragments,normal_runs=normal_runs,rebuild_reports=rebuild_reports,failed_bosses=failed_bosses,
                   shared_directory=True,listing_url=library_url,picked=picked_ref,skipped=skipped,pull_count=sum(len(g["pulls"]) for g in groups)))

@@ -1217,6 +1217,7 @@ def event(request, pk, line):
             "raw": raw.decode("utf-8", "replace"),
             "clipped": len(raw) < row["length"],
             "fight_id": row["boss"] or row["keystone"],
+            "analysis_url": analysis.work_url(report, row["boss"] or row["keystone"]) if row["boss"] or row["keystone"] else reverse("combat_report", args=[report.pk]),
         },
     )
 
@@ -1259,6 +1260,7 @@ def review(request, pk, fight, topic, anchor):
             "view": "review",
             "report": report,
             "packet": packet,
+            "analysis_url": analysis.work_url(report, fight) + ("&metric=deaths&panel=events" if topic == "death" else ""),
             "findings": findings,
             "error": error,
             "fight_id": fight,

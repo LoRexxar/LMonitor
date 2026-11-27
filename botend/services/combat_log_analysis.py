@@ -11,6 +11,7 @@ from botend.services import combat_log_localization as localization
 from botend.services.combat_log_index import RAID_DIFFICULTIES, dungeon_detail, event_label, key_level, level_label
 from botend.services import combat_log_visuals as visuals
 
+FAILED_RESULTS = {"失败", "未击杀", "灭团", "未完成"}
 
 def database(report):
     return localization.database(report,index_path(report))
@@ -90,12 +91,15 @@ def catalog(reports):
     return samples, groups, skipped
 
 
-def unique_attempts(samples):
+def unique_attempts(samples, *, include_end_only=False):
     ranges = defaultdict(list)
     kept, excluded = [], []
     for sample in samples:
         begin, end = sample["start_ms"], sample["end_ms"]
         if begin is None:
+            if include_end_only and end is not None:
+                kept.append(sample)
+                continue
             reason = "起点缺失"
         elif end is not None and any(
             pk != sample["report"].pk
@@ -118,7 +122,7 @@ def unique_attempts(samples):
 
 def overview(samples):
     rows = {}
-    kept, excluded = unique_attempts(samples)
+    kept, excluded = unique_attempts(samples, include_end_only=True)
     for s in kept:
         item = rows.setdefault(
             s["cohort"],
@@ -131,6 +135,7 @@ def overview(samples):
                 files=set(),
                 cohort=s["cohort"],
                 success=0,
+                failed=0,
                 deaths=0,
                 kicks=0,
                 partial=0,
@@ -143,6 +148,10 @@ def overview(samples):
         item["files"].add(s["report"].pk)
         item["partial"] += int(s["end_ms"] is None)
         item["success"] += int(s["result"] in ("击杀", "已完成"))
+        item["failed"] += int(s["result"] in FAILED_RESULTS)
+        if s["start_ms"] is None:
+            item["ending_records"] = item.get("ending_records", 0) + 1
+            continue
         item["deaths"] += s.get("deaths", 0)
         item["kicks"] += s.get("kicks", 0)
         if s["kind"] == "钥匙":
@@ -471,7 +480,7 @@ def run(samples, params, *, single=False, first_wave=False):
                             filename=report.filename,
                             review_url=reverse(
                                 "combat_review",
-                                args=[report.pk, sample["id"], "death", r["line"]],
+                                args=[report.pk, -wave["id"] if wave and wave["id"] < 0 else sample["id"], "death", r["line"]],
                             )
                             if r["kind"] == "UNIT_DIED"
                             and metric == "deaths"

@@ -466,6 +466,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
             'SPELL_CAST_SUCCESS,OUTSIDE',
             'ZONE_CHANGE,2660,"排除普通地下城",23',
             'SPELL_DAMAGE,Player-1,"队员",0,0,Creature-1,"排除小怪",0,0,20,"平砍",1,100',
+            'ENCOUNTER_END,402,"缺少开场的首领",16,20,0',
         ]
         rows = [f"10/26/2026 00:15:{i:02}.0008  {event}\n".encode() for i,event in enumerate(events)]
         data = b"".join(rows)
@@ -480,14 +481,15 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 page.goto(url)
                 page.locator("#source-file").set_input_files(payload)
                 listing = page.locator("#scene-list label")
-                expect(listing).to_have_count(3)
+                expect(listing).to_have_count(4)
                 expect(page.locator("#send-log")).to_be_enabled()
                 page.get_by_label("手动选择", exact=False).check()
-                expect(listing).to_have_count(4)
-                for label in ("未结算的团本首领", "未结算的钥匙"):
+                expect(listing).to_have_count(5)
+                expect(listing.filter(has_text="缺少开场的首领")).to_contain_text("未击杀（仅记录结尾）")
+                for label in ("未结算的团本首领", "未结算的钥匙", "缺少开场的首领"):
                     listing.filter(has_text=label).locator("input").check()
                 expect(listing.filter(has_text="未结算的团本首领")).to_contain_text("部分记录（下一场开始")
-                expect(page.locator("#selection-total")).to_contain_text("2 场 · 1 份日志")
+                expect(page.locator("#selection-total")).to_contain_text("3 场 · 1 份日志")
                 page.route("**/parts/1/", lambda route: route.abort())
                 page.locator("#send-log").click()
                 expect(page.locator("#send-log")).to_be_enabled()
@@ -501,7 +503,7 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 expect(resume.locator("#upload-status")).to_contain_text("不匹配")
                 expect(resume.locator("#send-log")).to_be_disabled()
                 resume.locator("#source-file").set_input_files(payload)
-                expect(resume.locator("#scene-list label")).to_have_count(2)
+                expect(resume.locator("#scene-list label")).to_have_count(3)
                 parts = []
                 resume.on("request", lambda r: parts.append(urlsplit(r.url).path) if r.method == "PUT" else None)
                 resume.locator("#send-log").click()
@@ -513,20 +515,20 @@ class UploadBrowserTests(StaticLiveServerTestCase):
                 browser.close()
         report = CombatLogReport.objects.get()
         self.assertEqual((report.state, report.source_filename), ("ready", payload["name"]), report.message)
-        expected = b"".join([rows[0], *rows[1:3], rows[0], *rows[6:8]])
+        expected = b"".join([rows[0], *rows[1:3], rows[0], *rows[6:8], rows[0], rows[-1]])
         self.assertEqual(report.size, len(expected))
         self.assertEqual(b"".join(archive.archived_chunks(report)), expected)
         selection = report.summary["upload_selection"]
-        self.assertEqual([f["result"] for f in report.summary["activity_index"]], ["未结算", "终点缺失"])
+        self.assertEqual([f["result"] for f in report.summary["activity_index"]], ["未结算", "终点缺失", "失败"])
         library = self.client.get(reverse("combat_logs"), {"source": "uploads"})
         self.assertContains(library, report.filename)
         directory = self.client.get(reverse("combat_battles"), {"log": str(report.pk)})
-        self.assertEqual((directory.context["report_count"], directory.context["pull_count"]), (1, 2))
+        self.assertEqual((directory.context["report_count"], directory.context["pull_count"]), (1, 3))
         with patch.object(archive, "launch", side_effect=archive.collect):
             archive.enqueue(owner, report.pk, rebuild=True)
         report.refresh_from_db()
         self.assertEqual((report.state, report.summary["upload_selection"]), ("ready", selection))
-        self.assertEqual(len(report.summary["activity_index"]), 2)
+        self.assertEqual(len(report.summary["activity_index"]), 3)
 
     def test_public_role_admin_control_alignment(self):
         from playwright.sync_api import expect, sync_playwright

@@ -300,6 +300,28 @@ class CombatWorkbenchTests(TestCase):
         self.assertEqual(self.client.get(url, {"log": logs, "panel": "boss", "cohort": cohort}).status_code, 400)
         self.assertEqual(self.client.get(url, {"log": private.pk, "mode": "boss"}).status_code, 404)
 
+    def test_failed_bosses_count_results_and_link_attributed_deaths(self):
+        rows = raid_fixture(2).splitlines(keepends=True)
+        end_only = next(row for row in rows if b"ENCOUNTER_END" in row).replace(b":15.", b":45.")
+        raid = self.ingest(self.owner, 2, b"".join(rows) + end_only)
+        directory = self.client.get(reverse("combat_battles"), {"log": [self.report.pk, raid.pk]})
+        attempts = directory.context["failed_bosses"]
+        self.assertEqual(len(attempts), 3)
+        self.assertContains(directory, "首领失败记录 · 3 次")
+        self.assertContains(directory, "减员与时长未知")
+        nested, complete, marker = attempts
+        self.assertIn("wave=", nested["deaths_url"])
+        self.assertNotIn("deaths_url", marker)
+        for fight in (nested, complete):
+            review = self.client.get(fight["deaths_url"])
+            self.assertEqual(review.context["total"], 1)
+            event, = review.context["events"]
+            self.assertEqual(event["kind"], "UNIT_DIED")
+            self.assertEqual(self.client.get(event["review_url"]).status_code, 200)
+        summary, excluded = analysis.overview(analysis.catalog([raid])[0])
+        self.assertFalse(excluded)
+        self.assertEqual((summary[0]["count"], summary[0]["failed"], summary[0]["deaths"]), (2, 2, 1))
+
     def test_unassigned_keystone_boss_and_rebuild_of_old_directory(self):
         raw = fixture(2).splitlines(keepends=True)
         # 模拟只有钥匙开场、重复版本头、同地图首领的历史归档。

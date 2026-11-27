@@ -5,6 +5,10 @@ const csv = line => Array.from(line.matchAll(/(?:^|,)("(?:[^"]|"")*"|[^,]*)/g),
 const raids = new Set(['3','4','5','6','7','9','14','15','16','17','33','151','220']);
 const dungeons = new Set(['1','2','8','23','24','150']);
 const keyLevel = value => /^[1-9][0-9]*$/.test(value) ? value : '';
+function bossKind(difficulty) {
+    if (raids.has(difficulty)) return '团本首领';
+    if (dungeons.has(difficulty)) return difficulty === '8' ? '大秘境首领' : '地下城首领';
+}
 const damage = new Set(['SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','RANGE_DAMAGE','SWING_DAMAGE','ENVIRONMENTAL_DAMAGE','DAMAGE_SHIELD','DAMAGE_SPLIT']);
 function millis(stamp) {
     // 三位毫秒后可直接接正时区，如 .2308 等同于 .230+8。
@@ -155,17 +159,24 @@ async function scan(file, legacy) {
                 finishPartial(start, '下一场开始');
             }
             if (current?.kind.endsWith('首领')) finishPartial(start, '下一场开始');
-            if (raids.has(fields[3]) || dungeons.has(fields[3]))
-                begin(raids.has(fields[3]) ? '团本首领' : fields[3] === '8' ? '大秘境首领' : '地下城首领',
-                    fields[2], fields[1], fields[3], stamp, fields[5] || zone?.id);
-        } else if (kind === 'ENCOUNTER_END' && current?.kind === '大秘境' && fields[3] !== '8') {
-            finishPartial(start, '离开副本');
-        } else if (kind === 'ENCOUNTER_END' && current?.kind.endsWith('首领')) {
-            if (current.id !== fields[1] || current.difficulty !== fields[3]) {
+            const encounter = bossKind(fields[3]);
+            if (encounter) begin(encounter, fields[2], fields[1], fields[3], stamp, fields[5] || zone?.id);
+        } else if (kind === 'ENCOUNTER_END' && ['0','1'].includes(fields[5])) {
+            if (current?.kind === '大秘境' || current?.kind === '地下城') {
+                if (fields[3] === (current.kind === '大秘境' ? '8' : current.difficulty)) {
+                    current.hasCombat = true;
+                    return;
+                }
+                finishPartial(start, '离开副本');
+            } else if (current && (current.id !== fields[1] || current.difficulty !== fields[3])) {
                 finishPartial(start, '其他首领的结束标记');
-            } else if (['0','1'].includes(fields[5])) {
-                finish(end, fields[5] === '1' ? '击杀' : '未击杀');
             }
+            const encounter = bossKind(fields[3]);
+            if (!encounter || !header) return;
+            const outcome = fields[5] === '1' ? '击杀' : '未击杀';
+            const endOnly = !current;
+            if (endOnly) begin(encounter, fields[2], fields[1], fields[3], stamp, zone?.id);
+            finish(end, endOnly ? outcome + '（仅记录结尾）' : outcome);
         }
     }
     for (let offset = 0; offset < file.size; offset += blockSize) {
