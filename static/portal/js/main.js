@@ -1,4 +1,5 @@
 const portalImageUrl = window.publishedImageUrl || (() => '');
+const homeFetchCache = new URLSearchParams(location.search).has('home_retry') ? 'reload' : 'default';
 async function fetchJson(url, controller = new AbortController()) {
   let timer = setTimeout(() => controller.abort(), 10000);
   const clearTimer = () => {
@@ -8,7 +9,7 @@ async function fetchJson(url, controller = new AbortController()) {
   };
   controller.signal.addEventListener("abort", clearTimer, { once: true });
   try {
-    const resp = await fetch(url, { credentials: "same-origin", signal: controller.signal });
+    const resp = await fetch(url, { credentials: "same-origin", signal: controller.signal, cache: homeFetchCache });
     if (!resp.ok) throw new Error("数据读取未成功");
     return await resp.json();
   } finally {
@@ -2437,7 +2438,11 @@ function bindLogoBackgroundRemoval() {
   const imgs = document.querySelectorAll(".portal-logo-img, .portal-hero-logo-img");
   imgs.forEach((img) => {
     if (!(img instanceof HTMLImageElement)) return;
-    const doIt = () => removeLogoWhiteBg(img);
+    // OSS logos can display normally but canvas cannot read their cross-origin pixels.
+    const doIt = () => {
+      try { removeLogoWhiteBg(img); }
+      catch (error) { if (error.name !== 'SecurityError') throw error; }
+    };
     if (img.complete) doIt();
     else img.addEventListener("load", doIt, { once: true });
   });

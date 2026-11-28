@@ -2,11 +2,12 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    {% load static %}
+    <script async src="{% static 'portal/js/home-recovery.js' %}?v=1"></script>
     {% include 'shared/_site_images.html' %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {% include 'shared/_site_favicon.html' %}
     <title>魔兽世界每日节奏 WowDaily.cn</title>
-    {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="{% static 'shared/css/bluepost-channel.css' %}?v=20261108_channel_colors_1">
     <script src="{% static 'portal/js/portal-theme.js' %}?v=shared-header2"></script>
@@ -187,7 +188,7 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=oss-images2"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=home-recovery1{% if request.GET.home_retry %}&amp;r={% now 'U' %}{% endif %}"></script>
     <script src="{% static 'portal/js/home-news-layout.js' %}?v=20261106_home_masonry_1"></script>
     <script src="{% static 'portal/js/site-updates.js' %}?v=20260911_focus_digest"></script>
 </body>
